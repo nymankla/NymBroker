@@ -1,0 +1,39 @@
+{
+  "MessageBroker": {
+    "Endpoints": [
+      {
+        "Name": "FileIn",
+        "Type": "File",
+        "Config": {
+          "readPath": "sample-in",
+          "postPath": "sample-out",
+          "searchPattern": "*.json"
+        }
+      },
+      {
+        "Name": "FileOut",
+        "Type": "File",
+        "Config": {
+          "readPath": "sample-processed",
+          "postPath": "sample-out"
+        }
+      },
+      {
+        "Name": "RabbitIn",
+        "Type": "RabbitMq",
+        "Config": {
+          "hostName": "localhost",
+          "port": 5672,
+          "user": "guest",
+          "password": "guest",
+          "readQueueName": "orders.in",
+          "writeQueueName": "orders.out"
+        }
+      },
+      {
+        "Name": "MemQueue",
+        "Type": "Memory"
+      }
+    ]
+  }
+}

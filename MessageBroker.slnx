@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="MessageBroker.Core/MessageBroker.Core.csproj" />
+  <Project Path="MessageBroker.RabbitMq/MessageBroker.RabbitMq.csproj" />
+  <Project Path="MessageBroker.Tests/MessageBroker.Tests.csproj" />
+  <Project Path="samples/MessageBroker.Sample/MessageBroker.Sample.csproj" />
+  <Project Path="samples/MessageBroker.ConfigSample/MessageBroker.ConfigSample.csproj" />
+</Solution>
