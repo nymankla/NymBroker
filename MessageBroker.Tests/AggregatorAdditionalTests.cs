@@ -1,5 +1,6 @@
 using MessageBroker.Core.Aggregator;
 using MessageBroker.Core.Message;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MessageBroker.Tests;
 
@@ -17,7 +18,7 @@ public sealed class AggregatorAdditionalTests
     [Fact]
     public async Task AddAsync_CompletesImmediately_WhenGroupSizeIsOne()
     {
-        var agg = new AggregatorImpl();
+        var agg = new AggregatorImpl(NullLogger<AggregatorImpl>.Instance);
         var ctx = new MessageContext<SplitMessage>();
         var payload = "single"u8.ToArray();
         var part = MakePart(Guid.NewGuid(), 0, 1, payload);
@@ -31,7 +32,7 @@ public sealed class AggregatorAdditionalTests
     [Fact]
     public async Task AddAsync_TwoIndependentAggregates_DoNotInterfere()
     {
-        var agg = new AggregatorImpl();
+        var agg = new AggregatorImpl(NullLogger<AggregatorImpl>.Instance);
         var ctx = new MessageContext<SplitMessage>();
         var corrId1 = Guid.NewGuid();
         var corrId2 = Guid.NewGuid();
@@ -60,7 +61,7 @@ public sealed class AggregatorAdditionalTests
     [Fact]
     public async Task AddAsync_ReassemblesPartsInOrder_WhenReceivedOutOfOrder()
     {
-        var agg = new AggregatorImpl();
+        var agg = new AggregatorImpl(NullLogger<AggregatorImpl>.Instance);
         var ctx = new MessageContext<SplitMessage>();
         var corrId = Guid.NewGuid();
         var chunk0 = "AAA"u8.ToArray();
@@ -81,7 +82,7 @@ public sealed class AggregatorAdditionalTests
     {
         // Use a condition that requires exactly 3 parts regardless of GroupSize.
         var condition = new RequireThreePartsCondition();
-        var agg = new AggregatorImpl(condition);
+        var agg = new AggregatorImpl(NullLogger<AggregatorImpl>.Instance, condition);
         var ctx = new MessageContext<SplitMessage>();
         var corrId = Guid.NewGuid();
 

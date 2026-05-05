@@ -4,4 +4,5 @@
   <Project Path="MessageBroker.Tests/MessageBroker.Tests.csproj" />
   <Project Path="samples/MessageBroker.Sample/MessageBroker.Sample.csproj" />
   <Project Path="samples/MessageBroker.ConfigSample/MessageBroker.ConfigSample.csproj" />
+  <Project Path="samples/MessageBroker.Benchmarks/MessageBroker.Benchmarks.csproj" />
 </Solution>

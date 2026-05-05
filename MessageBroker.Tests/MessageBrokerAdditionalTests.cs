@@ -39,7 +39,7 @@ public sealed class MessageBrokerAdditionalTests
             sp.GetRequiredService<MessageSerializerJson>(),
             sp.GetRequiredService<IAggregator>(),
             new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>()),
+            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
             NullLogger<MessageBrokerImpl>.Instance);
 
         broker.AddEndpoint(dest);
@@ -263,7 +263,7 @@ public sealed class MessageBrokerAdditionalTests
             sp.GetRequiredService<MessageSerializerJson>(),
             sp.GetRequiredService<IAggregator>(),
             new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>()),
+            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
             NullLogger<MessageBrokerImpl>.Instance);
 
         broker.RegisterConsumer(typeof(StockMessage), nameof(StockConsumer));

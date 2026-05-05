@@ -71,10 +71,12 @@ public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
 
         _watcher = new FileSystemWatcher(_readDir.FullName, _settings.SearchPattern)
         {
-            NotifyFilter = NotifyFilters.FileName,
+            NotifyFilter        = NotifyFilters.FileName,
+            InternalBufferSize  = 65536,   // 64 KB — default 8 KB overflows under burst writes
             EnableRaisingEvents = true
         };
         _watcher.Created += OnFileCreated;
+        _watcher.Error   += OnWatcherError;
 
         // Also process any files already present.
         _ = Task.Run(async () =>
@@ -123,6 +125,18 @@ public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
         }
     }
 
+    private void OnWatcherError(object sender, ErrorEventArgs e)
+    {
+        _logger.LogError(e.GetException(), "FileSystemWatcher error on '{Dir}' — some file events may have been lost", _readDir.FullName);
+        // Re-scan the directory so any files whose events were dropped are still processed.
+        _ = Task.Run(async () =>
+        {
+            try { await ProcessExistingFilesAsync(_listenerCt); }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { _logger.LogError(ex, "Error re-scanning '{Dir}' after watcher overflow", _readDir.FullName); }
+        }, _listenerCt);
+    }
+
     private void OnFileCreated(object sender, FileSystemEventArgs e)
     {
         if (_handler == null) return;
@@ -163,15 +177,13 @@ public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
         {
             return await _fileReadyPolicy.ExecuteAsync(async token =>
             {
-                await using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read,
-                    FileShare.None, bufferSize: 65536, useAsync: true);
+                using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete, bufferSize: 65536, useAsync: false);
                 using var reader = new StreamReader(fs);
                 var content = await reader.ReadToEndAsync(token);
-
                 // Rename to .processed so it is not picked up again.
                 var processed = Path.ChangeExtension(file.FullName, ".processed");
                 System.IO.File.Move(file.FullName, processed, overwrite: true);
-
                 return content;
             }, ct);
         }
