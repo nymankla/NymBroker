@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Threading;
 using MessageBroker.Core.Aggregator;
 using MessageBroker.Core.Message;
 
@@ -15,13 +16,15 @@ public sealed class MessageTypeRegistry
 
     public void Register(Type messageType)
     {
-        _messageTypes = _messageTypes.SetItem(MessageTypeName.Get(messageType), messageType);
-
-        if (!string.IsNullOrWhiteSpace(messageType.FullName))
-            _messageTypes = _messageTypes.SetItem(messageType.FullName, messageType);
-
-        if (!string.IsNullOrWhiteSpace(messageType.AssemblyQualifiedName))
-            _messageTypes = _messageTypes.SetItem(messageType.AssemblyQualifiedName, messageType);
+        ImmutableInterlocked.Update(ref _messageTypes, dict =>
+        {
+            dict = dict.SetItem(MessageTypeName.Get(messageType), messageType);
+            if (!string.IsNullOrWhiteSpace(messageType.FullName))
+                dict = dict.SetItem(messageType.FullName, messageType);
+            if (!string.IsNullOrWhiteSpace(messageType.AssemblyQualifiedName))
+                dict = dict.SetItem(messageType.AssemblyQualifiedName, messageType);
+            return dict;
+        });
     }
 
     public Type? Resolve(string? messageType)

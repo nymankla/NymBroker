@@ -4,10 +4,11 @@ using System.Linq.Expressions;
 using MessageBroker.Core.Consume;
 using MessageBroker.Core.Message;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace MessageBroker.Core.Impl;
 
-public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory)
+public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogger<ConsumerDispatcher> logger)
 {
     private ImmutableDictionary<MessageKey, string> _consumerKeys = ImmutableDictionary<MessageKey, string>.Empty;
 
@@ -23,12 +24,13 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory)
     {
         var key = new MessageKey(messageType);
         if (!_consumerKeys.TryGetValue(key, out var serviceKey))
+        {
+            logger.LogWarning("No consumer registered for message type '{MessageType}'", messageType.Name);
             return;
+        }
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var consumer = scope.ServiceProvider.GetRequiredKeyedService<IMessageConsumer>(serviceKey);
-        // Cached per message type. Under concurrency, GetOrAdd may invoke BuildDispatcher more than once,
-        // but only one compiled delegate is stored and reused for subsequent dispatches.
         var dispatcher = DispatchCache.GetOrAdd(messageType, BuildDispatcher);
         await dispatcher(consumer, message, context, ct);
     }

@@ -16,6 +16,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 - **Scheduled actions** — interval-based or Cron expression (via [Cronos](https://github.com/HangfireIO/Cronos))
 - **JSON config file** — declare endpoint topology in `queuesettings.json`; consumers and routes stay in code
 - **High performance** — compiled Expression dispatch, RecyclableMemoryStream, lock-free ImmutableCollections
+- **Reliable delivery** — RabbitMQ uses manual ack/nack; no message is silently dropped on processing failure
 - **Scoped consumers** — each message dispatch gets its own DI scope
 
 ## Solution layout
@@ -140,6 +141,8 @@ services.AddMessageBroker()
     .Build();
 ```
 
+Messages are consumed with `autoAck: false`. A message is acked after successful processing or nacked with `requeue: true` on failure, so no message is lost if the handler throws. The endpoint reconnects automatically on connection loss using Polly.
+
 Start RabbitMQ with the provided Docker Compose file:
 
 ```bash
@@ -227,8 +230,6 @@ broker.AddScheduledAction<IMessageBroker>(
 ```
 
 > **Note:** `AddScheduledAction` takes a synchronous `Action<T>`. Async broker calls inside must use `.GetAwaiter().GetResult()`.
-
-Each action starts with a random jitter (100–2000 ms) to stagger multiple scheduled tasks.
 
 ## JSON configuration file
 
@@ -336,7 +337,7 @@ foreach (var part in parts)
 |---|---|
 | Compiled dispatch | `Expression.Lambda<>.Compile()` cached per message type — ~10× faster than `MethodInfo.Invoke` |
 | RecyclableMemoryStream | All serialization uses a shared `RecyclableMemoryStreamManager` to reduce GC pressure |
-| Lock-free collections | `ImmutableList`/`ImmutableDictionary` for routes and consumers — lock-free reads, atomic writes at config time |
+| Lock-free collections | `ImmutableList`/`ImmutableDictionary` for routes and consumers — lock-free reads, `ImmutableInterlocked.Update` CAS-loop for atomic multi-key writes at config time |
 | DI scope per message | `IServiceScopeFactory` creates a fresh scope for each consumer dispatch — supports `Scoped` lifetimes |
 
 ## Running the samples

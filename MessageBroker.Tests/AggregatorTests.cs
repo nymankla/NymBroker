@@ -1,5 +1,6 @@
 using MessageBroker.Core.Aggregator;
 using MessageBroker.Core.Message;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MessageBroker.Tests;
 
@@ -8,7 +9,7 @@ public sealed class AggregatorTests
     [Fact]
     public async Task AddAsync_ReturnsNull_UntilAllPartsReceived()
     {
-        var agg = new AggregatorImpl();
+        var agg = new AggregatorImpl(NullLogger<AggregatorImpl>.Instance);
         var ctx = new MessageContext<SplitMessage>();
         var corrId = Guid.NewGuid();
         var payload = "Hello, aggregated world!"u8.ToArray();

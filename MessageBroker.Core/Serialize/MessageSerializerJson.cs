@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using Microsoft.IO;
 using MessageBroker.Core.Message;
@@ -66,18 +65,28 @@ public sealed class MessageSerializerJson : IMessageSerializer
 
     public IMessageContext Deserialize(Stream stream)
     {
-        // Rent a buffer instead of reading the whole stream to a string.
-        using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
-        var json = reader.ReadToEnd();
-        return Deserialize(json);
+        var dto = JsonSerializer.Deserialize<MessageContextDto>(stream, JsonOptions)
+            ?? throw new InvalidOperationException("Failed to deserialize message context.");
+
+        return new RawMessageContext
+        {
+            Id = dto.Id,
+            CorrelationId = dto.CorrelationId,
+            Address = dto.Address,
+            MessageType = dto.MessageType,
+            Created = dto.Created,
+            TraceParent = dto.TraceParent,
+            TraceState = dto.TraceState,
+            RawMessage = dto.Message
+        };
     }
 
     /// <summary>Typed deserialization of the message payload from an already-deserialized context.</summary>
     public static T? DeserializeMessage<T>(RawMessageContext ctx) where T : class
-        => JsonSerializer.Deserialize<T>(ctx.RawMessage.GetRawText(), JsonOptions);
+        => ctx.RawMessage.Deserialize<T>(JsonOptions);
 
     public static object? DeserializeMessageObject(RawMessageContext ctx, Type messageType)
-        => JsonSerializer.Deserialize(ctx.RawMessage.GetRawText(), messageType, JsonOptions);
+        => ctx.RawMessage.Deserialize(messageType, JsonOptions);
 
     // --- helpers ---
 

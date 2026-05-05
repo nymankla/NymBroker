@@ -64,21 +64,21 @@ public sealed class MessageBrokerImpl : IMessageBroker
     public IMessageBroker AddScheduledAction(TimeSpan timeSpan, Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        _scheduledActions = _scheduledActions.Add(ct => StartIntervalScheduledActionAsync(TimeSpan.FromMilliseconds(Random.Shared.Next(100, 2000)), timeSpan, action, ct));
+        _scheduledActions = _scheduledActions.Add(ct => StartIntervalScheduledActionAsync(timeSpan, timeSpan, action, ct));
         return this;
     }
 
     public IMessageBroker AddScheduledAction<T1>(TimeSpan timeSpan, Action<T1> action, T1 param1)
     {
         ArgumentNullException.ThrowIfNull(action);
-        _scheduledActions = _scheduledActions.Add(ct => StartIntervalScheduledActionAsync(TimeSpan.FromMilliseconds(Random.Shared.Next(100, 2000)), timeSpan, () => action(param1), ct));
+        _scheduledActions = _scheduledActions.Add(ct => StartIntervalScheduledActionAsync(timeSpan, timeSpan, () => action(param1), ct));
         return this;
     }
 
     public IMessageBroker AddScheduledAction<T1, T2>(TimeSpan timeSpan, Action<T1, T2> action, T1 param1, T2 param2)
     {
         ArgumentNullException.ThrowIfNull(action);
-        _scheduledActions = _scheduledActions.Add(ct => StartIntervalScheduledActionAsync(TimeSpan.FromMilliseconds(Random.Shared.Next(100, 2000)), timeSpan, () => action(param1, param2), ct));
+        _scheduledActions = _scheduledActions.Add(ct => StartIntervalScheduledActionAsync(timeSpan, timeSpan, () => action(param1, param2), ct));
         return this;
     }
 
@@ -210,15 +210,15 @@ public sealed class MessageBrokerImpl : IMessageBroker
         if (wasRouted)
             return;
 
-        // Dispatch to consumer.
-        if (messageType != null)
+        if (messageType == null)
         {
-            var message = MessageSerializerJson.DeserializeMessageObject(raw2, messageType);
-            if (message != null)
-            {
-                await _consumerDispatcher.DispatchAsync(messageType, message, context, ct);
-            }
+            _logger.LogWarning("No consumer or route for unresolved message type '{MessageType}' from {Source}", raw2.MessageType, sourceEndpoint);
+            return;
         }
+
+        var message = MessageSerializerJson.DeserializeMessageObject(raw2, messageType);
+        if (message != null)
+            await _consumerDispatcher.DispatchAsync(messageType, message, context, ct);
     }
 
     public async Task StartAsync(CancellationToken ct = default)
@@ -249,9 +249,11 @@ public sealed class MessageBrokerImpl : IMessageBroker
 
                 _activeScheduledActions = startedScheduledActions;
                 _started = true;
+                _logger.LogInformation("Broker started");
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Broker failed to start — rolling back scheduled actions");
                 foreach (var scheduledAction in startedScheduledActions)
                     await scheduledAction.DisposeAsync();
 
@@ -281,6 +283,7 @@ public sealed class MessageBrokerImpl : IMessageBroker
                 await endpoint.StopListeningAsync();
 
             _started = false;
+            _logger.LogInformation("Broker stopped");
         }
         finally
         {
