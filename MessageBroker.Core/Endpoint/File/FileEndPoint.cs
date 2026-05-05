@@ -1,5 +1,7 @@
 using MessageBroker.Core.Endpoint.HealthCheck;
 using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Retry;
 
 namespace MessageBroker.Core.Endpoint.File;
 
@@ -9,6 +11,7 @@ public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
     private readonly ILogger<FileEndPoint> _logger;
     private readonly DirectoryInfo _readDir;
     private readonly DirectoryInfo _postDir;
+    private readonly ResiliencePipeline<string?> _fileReadyPolicy;
     private FileSystemWatcher? _watcher;
     private Func<string, CancellationToken, Task>? _handler;
     private CancellationToken _listenerCt;
@@ -30,6 +33,25 @@ public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
 
         _readDir.Create();
         _postDir.Create();
+
+        _fileReadyPolicy = new ResiliencePipelineBuilder<string?>()
+            .AddRetry(new RetryStrategyOptions<string?>
+            {
+                MaxRetryAttempts = 4,
+                Delay = TimeSpan.FromMilliseconds(25),
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                ShouldHandle = static args => ValueTask.FromResult(args.Outcome.Exception is IOException),
+                OnRetry = args =>
+                {
+                    _logger.LogDebug(
+                        "Retrying file read after transient file access failure on attempt {Attempt}: {Error}",
+                        args.AttemptNumber + 1,
+                        args.Outcome.Exception?.Message);
+                    return ValueTask.CompletedTask;
+                }
+            })
+            .Build();
     }
 
     public async Task PostAsync(Stream message, CancellationToken ct = default)
@@ -55,7 +77,12 @@ public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
         _watcher.Created += OnFileCreated;
 
         // Also process any files already present.
-        _ = Task.Run(() => ProcessExistingFilesAsync(ct), ct);
+        _ = Task.Run(async () =>
+        {
+            try { await ProcessExistingFilesAsync(ct); }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { _logger.LogError(ex, "Error scanning existing files in '{Dir}'", _readDir.FullName); }
+        }, ct);
 
         ct.Register(() => _watcher.EnableRaisingEvents = false);
         return Task.CompletedTask;
@@ -101,12 +128,17 @@ public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
         if (_handler == null) return;
         _ = Task.Run(async () =>
         {
-            // Brief delay so the writer can finish flushing.
-            await Task.Delay(50, _listenerCt);
-            var file = new FileInfo(e.FullPath);
-            var content = await ReadAndArchiveAsync(file, _listenerCt);
-            if (content != null)
-                await _handler(content, _listenerCt);
+            try
+            {
+                var file = new FileInfo(e.FullPath);
+                var content = await ReadAndArchiveAsync(file, _listenerCt);
+                if (content != null)
+                    await _handler(content, _listenerCt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled error processing file '{File}'", e.Name);
+            }
         }, _listenerCt);
     }
 
@@ -117,7 +149,11 @@ public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
             if (ct.IsCancellationRequested) return;
             var content = await ReadAndArchiveAsync(file, ct);
             if (content != null && _handler != null)
-                await _handler(content, ct);
+            {
+                try { await _handler(content, ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                { _logger.LogError(ex, "Unhandled error processing existing file '{File}'", file.Name); }
+            }
         }
     }
 
@@ -125,21 +161,23 @@ public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
     {
         try
         {
-            await using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read,
-                FileShare.None, bufferSize: 65536, useAsync: true);
-            using var reader = new StreamReader(fs);
-            var content = await reader.ReadToEndAsync(ct);
+            return await _fileReadyPolicy.ExecuteAsync(async token =>
+            {
+                await using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read,
+                    FileShare.None, bufferSize: 65536, useAsync: true);
+                using var reader = new StreamReader(fs);
+                var content = await reader.ReadToEndAsync(token);
 
-            // Rename to .processed so it is not picked up again.
-            var processed = Path.ChangeExtension(file.FullName, ".processed");
-            System.IO.File.Move(file.FullName, processed, overwrite: true);
+                // Rename to .processed so it is not picked up again.
+                var processed = Path.ChangeExtension(file.FullName, ".processed");
+                System.IO.File.Move(file.FullName, processed, overwrite: true);
 
-            return content;
+                return content;
+            }, ct);
         }
         catch (IOException ex)
         {
-            // File may still be locked by the writer — will be retried on next poll.
-            _logger.LogDebug("Could not read {File}: {Error}", file.Name, ex.Message);
+            _logger.LogWarning("Could not read '{File}' after retries: {Error}", file.Name, ex.Message);
             return null;
         }
     }

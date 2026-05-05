@@ -22,7 +22,8 @@ Run from the solution root (`e:\utv\POC\MessageBroker`):
 dotnet build
 dotnet test
 dotnet test --filter "FullyQualifiedName~SerializerTests"   # single test class
-dotnet run --project MessageBroker.Sample                    # run the sample
+dotnet run --project samples/MessageBroker.Sample            # fluent API demo
+dotnet run --project samples/MessageBroker.ConfigSample      # JSON config demo
 
 # RabbitMQ (Docker Desktop required)
 ./setup-rabbitmq.ps1          # start + wait for healthy
@@ -39,7 +40,8 @@ dotnet run --project MessageBroker.Sample                    # run the sample
 | `MessageBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No RabbitMQ dependency. |
 | `MessageBroker.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, and `AddRabbitMqEndPoint`/`WithRabbitMq` extension methods. Reference only when using RabbitMQ. |
 | `MessageBroker.Tests` | xUnit tests (use Memory endpoint — no RabbitMQ/file I/O) |
-| `MessageBroker.Sample` | Runnable demo with file + memory endpoints |
+| `samples/MessageBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
+| `samples/MessageBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
 
 ### Key Abstractions
 
@@ -137,11 +139,13 @@ broker.Route<Order>()
 
 ### Scheduled Actions
 
-Interval-based actions fire on a timer. Cron-based actions use **Cronos** (`CronExpression.Parse`) with local timezone. Each action runs in a background `Task` managed by `ScheduledActionHandle` (implements `IAsyncDisposable`). A random startup jitter (100–2000 ms) staggers multiple scheduled actions.
+Interval-based actions fire on a timer. Cron-based actions use **Cronos** (`CronExpression.Parse`) with local timezone. Each action runs in a background `Task` managed by `ScheduledActionHandle` (implements `IAsyncDisposable`).
 
 ### Aggregator / Splitter
 
 `SplitterImpl.Split(byte[], ISplitCondition)` partitions large payloads into `SplitMessage` parts (Base64 chunks, shared `CorrelationId`). `AggregatorImpl` collects parts by correlation ID and returns reassembled bytes when `GroupSize` is met. Incomplete aggregates expire after 2 hours.
+
+Thread-safety: each `Aggregate` instance is lock-guarded and carries an `IsCompleted` flag. The flag prevents a second concurrent caller that obtained the same `ConcurrentDictionary` slot from reassembling or re-removing an already-completed aggregate (TOCTOU guard).
 
 ### Factory / DI
 
@@ -181,9 +185,36 @@ Config section key is `MessageBroker` → `Endpoints[]` with `Name`, `Type` (`Fi
 
 - **RecyclableMemoryStream** (`Microsoft.IO.RecyclableMemoryStream`) for all serialization streams.
 - **Compiled dispatch lambdas** in `ConsumerDispatcher` — `~10×` faster than `MethodInfo.Invoke`.
-- **ImmutableList / ImmutableDictionary** for routes, filters, consumer keys — lock-free reads; writes (config-time only) use atomic replacement.
+- **ImmutableList / ImmutableDictionary** for routes, filters, consumer keys — lock-free reads; writes (config-time only) use `ImmutableInterlocked.Update` for atomic CAS-loop replacement (correct for multi-key updates).
 - **PropertyInfo cache** in `MessageSerializerJson.PropCache` — one reflection lookup per concrete `MessageContext<T>` type.
 - **Bounded `Channel<string>`** in `MemoryQueueEndPoint` for backpressure.
+
+### Error Handling / Logging Guarantees
+
+No exception is silently swallowed. The policy per layer:
+
+| Layer | Behaviour |
+|---|---|
+| `MessageBrokerImpl.ProcessAsync` | Deserialization failure → `LogError`, message dropped. Unresolved type with no route → `LogWarning`. |
+| `ConsumerDispatcher` | No registered consumer → `LogWarning`. |
+| `AggregatorImpl.PurgeExpired` | Purge count logged at `Debug`. |
+| `MessageBrokerImpl.StartAsync` | Any startup exception → `LogError`, scheduled actions rolled back, exception re-thrown. |
+| `FileEndPoint.OnFileCreated` | Fire-and-forget handler failure → `LogError` (loop continues). |
+| `FileEndPoint.ProcessExistingFilesAsync` | Per-file handler failure → `LogError` (remaining files still processed). Structural failure (e.g. directory gone) → `LogError` on outer Task.Run. |
+| `FileEndPoint.ReadAndArchiveAsync` | IOException after retries → `LogWarning`, file skipped. |
+| `MemoryQueueEndPoint.StartListeningAsync` | Per-message handler failure → `LogError` (loop continues). Unexpected loop termination → `LogCritical`. |
+| `RabbitMqEndPoint` (message handler) | Handler failure → `LogError`, message nacked with `requeue: true`. |
+| `RabbitMqEndPoint` (listener loop) | Unexpected loop termination → `LogCritical`. `OperationCanceledException` swallowed. |
+
+`OperationCanceledException` is always swallowed at fire-and-forget boundaries — it represents clean shutdown, not an error.
+
+### RabbitMQ Reliability
+
+`RabbitMqEndPoint` uses `autoAck: false`. Every message is manually acked on success or nacked with `requeue: true` on failure. Connection and publish-channel setup use `SemaphoreSlim(1,1)` with a double-check pattern to prevent concurrent initialisation races.
+
+### MemoryQueueEndPoint Logger
+
+`MemoryQueueEndPoint` accepts an optional `ILogger<MemoryQueueEndPoint>? logger = null` parameter (defaults to `NullLogger`). The builder passes a proper logger via DI; tests that construct the endpoint directly with `new MemoryQueueEndPoint("name")` continue to compile without changes.
 
 ## Key Design Rules
 
@@ -194,3 +225,4 @@ Config section key is `MessageBroker` → `Endpoints[]` with `Name`, `Type` (`Fi
 - Serialization: `System.Text.Json` only (no Newtonsoft).
 - Consumers are keyed services: key = `typeof(TConsumer).Name`.
 - `RouteContext` is non-sealed and `Evaluate()` is virtual — subclass for custom route logic.
+- Never swallow exceptions silently — every fire-and-forget boundary and catch block must log.

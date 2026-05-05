@@ -2,6 +2,8 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Channels;
 using MessageBroker.Core.Endpoint.HealthCheck;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MessageBroker.Core.Endpoint.Memory;
 
@@ -9,12 +11,14 @@ namespace MessageBroker.Core.Endpoint.Memory;
 public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IEndPointPoll
 {
     private readonly Channel<string> _channel;
+    private readonly ILogger<MemoryQueueEndPoint> _logger;
 
     public string Name { get; }
 
-    public MemoryQueueEndPoint(string name, int capacity = 1000)
+    public MemoryQueueEndPoint(string name, int capacity = 1000, ILogger<MemoryQueueEndPoint>? logger = null)
     {
         Name = name;
+        _logger = logger ?? NullLogger<MemoryQueueEndPoint>.Instance;
         _channel = Channel.CreateBounded<string>(new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -34,8 +38,25 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IEndPointPoll
     {
         _ = Task.Run(async () =>
         {
-            await foreach (var msg in _channel.Reader.ReadAllAsync(ct))
-                await handler(msg, ct);
+            try
+            {
+                await foreach (var msg in _channel.Reader.ReadAllAsync(ct))
+                {
+                    try
+                    {
+                        await handler(msg, ct);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", Name);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", Name);
+            }
         }, ct);
         return Task.CompletedTask;
     }

@@ -162,7 +162,7 @@ public sealed class RoutingTests
             sp.GetRequiredService<MessageSerializerJson>(),
             sp.GetRequiredService<IAggregator>(),
             new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>()),
+            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
             NullLogger<MessageBrokerImpl>.Instance);
 
         broker.AddEndpoint(dest);
@@ -187,7 +187,7 @@ public sealed class RoutingTests
             sp.GetRequiredService<MessageSerializerJson>(),
             sp.GetRequiredService<IAggregator>(),
             new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>()),
+            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
             NullLogger<MessageBrokerImpl>.Instance);
 
         broker.RegisterConsumer(typeof(PriceMessage), nameof(ScopedPriceConsumer));
@@ -295,7 +295,7 @@ public sealed class RoutingTests
                 sp.GetRequiredService<MessageSerializerJson>(),
                 sp.GetRequiredService<IAggregator>(),
                 new MessageTypeRegistry(),
-                new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>()),
+                new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
                 NullLogger<MessageBrokerImpl>.Instance);
 
             broker.AddEndpoint(sp.GetRequiredKeyedService<IEndPoint>("Disposable"));

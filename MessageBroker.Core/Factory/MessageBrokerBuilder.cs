@@ -42,7 +42,7 @@ public sealed class MessageBrokerBuilder
 
     public MessageBrokerBuilder AddMemoryEndPoint(string name, int capacity = 1000)
     {
-        _services.AddKeyedSingleton<IEndPoint>(name, (_, _) => new MemoryQueueEndPoint(name, capacity));
+        _services.AddKeyedSingleton<IEndPoint>(name, (sp, _) => new MemoryQueueEndPoint(name, capacity, sp.GetRequiredService<ILogger<MemoryQueueEndPoint>>()));
         _endpoints.Add(name);
         return this;
     }

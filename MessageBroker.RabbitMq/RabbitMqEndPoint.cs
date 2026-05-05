@@ -15,6 +15,9 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     private readonly ILogger<RabbitMqEndPoint> _logger;
     private readonly ResiliencePipeline _reconnectPolicy;
 
+    private readonly SemaphoreSlim _connectionLock = new(1, 1);
+    private readonly SemaphoreSlim _publishChannelLock = new(1, 1);
+
     private IConnection? _connection;
     private IChannel? _publishChannel;
     private IChannel? _consumeChannel;
@@ -64,24 +67,39 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
 
         _ = Task.Run(async () =>
         {
-            await _reconnectPolicy.ExecuteAsync(async token =>
+            try
             {
-                var channel = await EnsureConsumeChannelAsync(token);
-                await channel.QueueDeclareAsync(_settings.ReadQueueName, durable: true,
-                    exclusive: false, autoDelete: false, cancellationToken: token);
-
-                var consumer = new AsyncEventingBasicConsumer(channel);
-                consumer.ReceivedAsync += async (_, ea) =>
+                await _reconnectPolicy.ExecuteAsync(async token =>
                 {
-                    var json = Encoding.UTF8.GetString(ea.Body.Span);
-                    try { await handler(json, token); }
-                    catch (Exception ex) { _logger.LogError(ex, "Error processing message from {Queue}", _settings.ReadQueueName); }
-                };
+                    var channel = await EnsureConsumeChannelAsync(token);
+                    await channel.QueueDeclareAsync(_settings.ReadQueueName, durable: true,
+                        exclusive: false, autoDelete: false, cancellationToken: token);
 
-                await channel.BasicConsumeAsync(_settings.ReadQueueName, autoAck: true, consumer: consumer, cancellationToken: token);
+                    var consumer = new AsyncEventingBasicConsumer(channel);
+                    consumer.ReceivedAsync += async (_, ea) =>
+                    {
+                        var json = Encoding.UTF8.GetString(ea.Body.Span);
+                        try
+                        {
+                            await handler(json, token);
+                            await channel.BasicAckAsync(ea.DeliveryTag, multiple: false, cancellationToken: token);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error processing message from {Queue}", _settings.ReadQueueName);
+                            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, cancellationToken: token);
+                        }
+                    };
 
-                await Task.Delay(Timeout.Infinite, token);
-            }, ct);
+                    await channel.BasicConsumeAsync(_settings.ReadQueueName, autoAck: false, consumer: consumer, cancellationToken: token);
+
+                    await Task.Delay(Timeout.Infinite, token);
+                }, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogCritical(ex, "RabbitMQ [{Name}] listener loop terminated unexpectedly", Name);
+            }
         }, ct);
     }
 
@@ -106,17 +124,29 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         if (_publishChannel != null) await _publishChannel.DisposeAsync();
         if (_consumeChannel != null) await _consumeChannel.DisposeAsync();
         if (_connection != null) await _connection.DisposeAsync();
+        _publishChannelLock.Dispose();
+        _connectionLock.Dispose();
     }
 
     private async Task<IChannel> EnsurePublishChannelAsync(CancellationToken ct)
     {
         if (_publishChannel?.IsOpen == true) return _publishChannel;
 
-        var conn = await EnsureConnectionAsync(ct);
-        _publishChannel = await conn.CreateChannelAsync(cancellationToken: ct);
-        await _publishChannel.QueueDeclareAsync(_settings.WriteQueueName, durable: true,
-            exclusive: false, autoDelete: false, cancellationToken: ct);
-        return _publishChannel;
+        await _publishChannelLock.WaitAsync(ct);
+        try
+        {
+            if (_publishChannel?.IsOpen == true) return _publishChannel;
+
+            var conn = await EnsureConnectionAsync(ct);
+            _publishChannel = await conn.CreateChannelAsync(cancellationToken: ct);
+            await _publishChannel.QueueDeclareAsync(_settings.WriteQueueName, durable: true,
+                exclusive: false, autoDelete: false, cancellationToken: ct);
+            return _publishChannel;
+        }
+        finally
+        {
+            _publishChannelLock.Release();
+        }
     }
 
     private async Task<IChannel> EnsureConsumeChannelAsync(CancellationToken ct)
@@ -131,17 +161,27 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     {
         if (_connection?.IsOpen == true) return _connection;
 
-        var factory = new ConnectionFactory
+        await _connectionLock.WaitAsync(ct);
+        try
         {
-            HostName = _settings.HostName,
-            Port = _settings.Port,
-            UserName = _settings.User,
-            Password = _settings.Password,
-            VirtualHost = _settings.VirtualHost
-        };
+            if (_connection?.IsOpen == true) return _connection;
 
-        _connection = await factory.CreateConnectionAsync(ct);
-        _logger.LogInformation("RabbitMQ [{Name}] connected to {Host}:{Port}", Name, _settings.HostName, _settings.Port);
-        return _connection;
+            var factory = new ConnectionFactory
+            {
+                HostName = _settings.HostName,
+                Port = _settings.Port,
+                UserName = _settings.User,
+                Password = _settings.Password,
+                VirtualHost = _settings.VirtualHost
+            };
+
+            _connection = await factory.CreateConnectionAsync(ct);
+            _logger.LogInformation("RabbitMQ [{Name}] connected to {Host}:{Port}", Name, _settings.HostName, _settings.Port);
+            return _connection;
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
     }
 }

@@ -7,6 +7,7 @@ public sealed class Aggregate
     public Guid CorrelationId { get; }
     public int ReceivedCount => _parts.Count;
     public DateTime FirstReceived { get; } = DateTime.UtcNow;
+    internal bool IsCompleted { get; set; }
 
     public Aggregate(Guid correlationId) => CorrelationId = correlationId;
 
