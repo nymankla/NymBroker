@@ -24,6 +24,7 @@ dotnet test
 dotnet test --filter "FullyQualifiedName~SerializerTests"   # single test class
 dotnet run --project samples/MessageBroker.Sample            # fluent API demo
 dotnet run --project samples/MessageBroker.ConfigSample      # JSON config demo
+dotnet run --project samples/MessageBroker.Benchmarks        # throughput benchmark
 
 # RabbitMQ (Docker Desktop required)
 ./setup-rabbitmq.ps1          # start + wait for healthy
@@ -42,6 +43,7 @@ dotnet run --project samples/MessageBroker.ConfigSample      # JSON config demo
 | `MessageBroker.Tests` | xUnit tests (use Memory endpoint — no RabbitMQ/file I/O) |
 | `samples/MessageBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
 | `samples/MessageBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
+| `samples/MessageBroker.Benchmarks` | Throughput + allocation benchmark — Memory and File endpoints, config from `benchmarksettings.json` |
 
 ### Key Abstractions
 
@@ -188,6 +190,7 @@ Config section key is `MessageBroker` → `Endpoints[]` with `Name`, `Type` (`Fi
 - **ImmutableList / ImmutableDictionary** for routes, filters, consumer keys — lock-free reads; writes (config-time only) use `ImmutableInterlocked.Update` for atomic CAS-loop replacement (correct for multi-key updates).
 - **PropertyInfo cache** in `MessageSerializerJson.PropCache` — one reflection lookup per concrete `MessageContext<T>` type.
 - **Bounded `Channel<string>`** in `MemoryQueueEndPoint` for backpressure.
+- **`FileShare.ReadWrite | FileShare.Delete`** in `FileEndPoint.ReadAndArchiveAsync` — `FileShare.Delete` is required so that `File.Move` (rename) can succeed while the read handle is still open. Without it, Windows enforces sharing semantics and the rename fails with ERROR_SHARING_VIOLATION even from the same process.
 
 ### Error Handling / Logging Guarantees
 
