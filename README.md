@@ -13,6 +13,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 - **Multiple transports** — RabbitMQ, File system, and in-process Memory endpoint
 - **Fluent routing API** — type-safe, composable route conditions
 - **Typed consumers** — implement `IConsume<T>`, optionally handle multiple message types in one class
+- **Publish-Subscribe Channel** — EIP pub/sub; declare topics with typed `ISubscribe<T>` subscribers or endpoint fan-out
 - **Scheduled actions** — interval-based or Cron expression (via [Cronos](https://github.com/HangfireIO/Cronos))
 - **JSON config file** — declare endpoint topology in `queuesettings.json`; consumers and routes stay in code
 - **High performance** — compiled Expression dispatch, RecyclableMemoryStream, lock-free ImmutableCollections
@@ -194,6 +195,86 @@ broker.Route<StockPriceMessage>()
 | `.And(lhs, rhs)` | Both conditions must be true |
 | `.Or(lhs, rhs)` | Either condition must be true |
 
+## Publish-Subscribe Channel
+
+Topics implement the [Publish-Subscribe Channel](https://www.enterpriseintegrationpatterns.com/patterns/messaging/PublishSubscribeChannel.html) EIP pattern. A single message fans out to every subscriber simultaneously; each receives its own independent copy.
+
+### Subscribers
+
+Implement `ISubscribe<T>` — the pub/sub counterpart to `IConsume<T>`:
+
+```csharp
+public sealed class AuditSubscriber : ISubscribe<OrderMessage>
+{
+    public Task ReceiveAsync(OrderMessage msg, IMessageContext ctx, CancellationToken ct = default)
+    {
+        Console.WriteLine($"[Audit] Order {msg.OrderId}");
+        return Task.CompletedTask;
+    }
+}
+
+public sealed class AnalyticsSubscriber : ISubscribe<OrderMessage>
+{
+    public Task ReceiveAsync(OrderMessage msg, IMessageContext ctx, CancellationToken ct = default)
+    {
+        // record to analytics store...
+        return Task.CompletedTask;
+    }
+}
+```
+
+### Registering topics
+
+```csharp
+services.AddMessageBroker()
+    .AddMemoryEndPoint("Orders")
+    .AddConsumer<OrderConsumer>()
+    .AddTopic<OrderMessage>("orders.events")
+        .SubscribeWith<AuditSubscriber>()
+        .SubscribeWith<AnalyticsSubscriber>()
+        .Build()
+    .Build();
+```
+
+### Publishing
+
+```csharp
+// Named publish — routes directly to the topic, bypasses the full ProcessAsync pipeline
+await broker.PublishAsync("orders.events", new OrderMessage { OrderId = "ORD-1" });
+
+// Implicit — any OrderMessage arriving at any endpoint triggers fan-out automatically
+await broker.PostAsync("Orders", new OrderMessage { OrderId = "ORD-2" });
+```
+
+### Fan-out to an endpoint
+
+Forward a copy to a destination endpoint instead of (or alongside) in-process subscribers:
+
+```csharp
+.AddTopic<OrderMessage>("orders.events")
+    .SubscribeTo("FileOut")             // post a copy to this endpoint
+    .SubscribeWith<AuditSubscriber>()   // also dispatch in-process
+    .Build()
+```
+
+When fanning out to an endpoint, prevent the copy from re-triggering the same topic by adding a source guard:
+
+```csharp
+.AddTopic<OrderMessage>("orders.events")
+    .When(new NotFromRouteCondition("FileOut"))
+    .SubscribeTo("FileOut")
+    .Build()
+```
+
+### Conditional topics
+
+```csharp
+.AddTopic<OrderMessage>("high-priority")
+    .When(msg => msg.TryGetProperty("priority", out var p) && p.GetString() == "high")
+    .SubscribeWith<PriorityHandler>()
+    .Build()
+```
+
 ## Scheduled actions
 
 ### Interval
@@ -336,10 +417,12 @@ foreach (var part in parts)
 
 | Technique | Detail |
 |---|---|
-| Compiled dispatch | `Expression.Lambda<>.Compile()` cached per message type — ~10× faster than `MethodInfo.Invoke` |
+| Compiled dispatch | `Expression.Lambda<>.Compile()` cached per message type — ~10× faster than `MethodInfo.Invoke`; used for both `IConsume<T>` and `ISubscribe<T>` dispatch |
 | RecyclableMemoryStream | All serialization uses a shared `RecyclableMemoryStreamManager` to reduce GC pressure |
-| Lock-free collections | `ImmutableList`/`ImmutableDictionary` for routes and consumers — lock-free reads, `ImmutableInterlocked.Update` CAS-loop for atomic multi-key writes at config time |
-| DI scope per message | `IServiceScopeFactory` creates a fresh scope for each consumer dispatch — supports `Scoped` lifetimes |
+| Lock-free collections | `ImmutableList`/`ImmutableDictionary` for routes, consumers, and topic registrations — lock-free reads, `ImmutableInterlocked.Update` CAS-loop for atomic multi-key writes at config time |
+| DI scope per message | `IServiceScopeFactory` creates a fresh scope for each consumer or subscriber dispatch — supports `Scoped` lifetimes |
+| Lazy deserialization in pub/sub | The message object is deserialized at most once per `ProcessAsync` call even when multiple topics match; endpoints receive the already-serialized JSON string directly |
+| Per-subscriber error isolation | A failing `ISubscribe<T>` handler logs the error and continues fan-out to remaining subscribers rather than aborting the batch |
 
 ## Running the samples
 
@@ -379,6 +462,9 @@ A warmup pass runs first to JIT the hot paths before measurements begin. GC is f
 | **Memory – direct** | `Memory` (in-process channel) | 50 000 | Message is posted, deserialized, and dispatched to `BenchmarkConsumer` with no routing. Represents the fastest possible path through the broker. |
 | **Memory – routed** | `Memory` → `MemoryRouted` | 50 000 | A route forwards every message from `Memory` to a second `MemoryRouted` endpoint, where the consumer picks it up. Exercises route evaluation, re-serialization, and a second dispatch cycle. |
 | **Memory – filtered** | `Memory` (with filter) | 50 000 | A no-op `PassthroughFilter` is inserted into the pipeline. Isolates the overhead of filter chain evaluation. |
+| **PubSub – 1 sub** | `Memory` | 50 000 | A single `ISubscribe<T>` subscriber registered on a topic. Baseline pub/sub cost: one compiled-lambda dispatch per message inside a DI scope, no endpoint fan-out. |
+| **PubSub – 3 subs** | `Memory` | 50 000 × 3 | Three subscribers on the same topic. Fan-out is sequential within the topic; each message must signal three times before it counts as complete. Measures per-subscriber overhead and shows how throughput scales with subscriber count. |
+| **PubSub – endpoint** | `Memory` → `PubSubDest` | 50 000 | Topic fans out to a second `PubSubDest` memory endpoint; the consumer on that endpoint signals. `NotFromRouteCondition` prevents the copy from re-triggering the topic. Exercises the endpoint-based fan-out path. |
 | **File – direct** | `FileLoop` | 100 | Messages are written as JSON files to `bench-in/`, picked up by `FileSystemWatcher`, deserialized, and dispatched. Exercises the full file I/O path including Polly retry and `.processed` rename. Lower count because disk I/O dominates. |
 
 ### Configuration
@@ -391,6 +477,7 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
     "Endpoints": [
       { "Name": "Memory",       "Type": "Memory" },
       { "Name": "MemoryRouted", "Type": "Memory" },
+      { "Name": "PubSubDest",   "Type": "Memory" },
       {
         "Name": "FileLoop",
         "Type": "File",
@@ -401,7 +488,7 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 }
 ```
 
-`FileLoop` uses the same directory for reading and writing (`bench-in`), so posted files are immediately visible to the `FileSystemWatcher`.
+`FileLoop` uses the same directory for reading and writing (`bench-in`), so posted files are immediately visible to the `FileSystemWatcher`. `PubSubDest` is the fan-out target used by the **PubSub – endpoint** scenario.
 
 ### Completion tracking
 
@@ -415,12 +502,20 @@ Scenario                      Msg/sec     Elapsed   Gen0   Gen1   Gen2     Alloc
 Memory – direct                56 000      889 ms     33      0      0    7.9 KB/msg
 Memory – routed                33 000    1 525 ms     66     26      0   14.9 KB/msg
 Memory – filtered             114 000      439 ms     33     12      0    7.9 KB/msg
+PubSub – 1 sub                     —          —      —      —      —           —
+PubSub – 3 subs                    —          —      —      —      —           —
+PubSub – endpoint                  —          —      —      —      —           —
 File   – direct                   300      325 ms      1      0      0  145.2 KB/msg
 ```
+
+Run `dotnet run --project samples/MessageBroker.Benchmarks` for current pub/sub numbers on your hardware.
 
 Notes on the numbers:
 - **Memory – routed** is slower than direct because each message is serialized a second time to re-post to `MemoryRouted`, doubling the Gen0 collections.
 - **Memory – filtered** can appear faster than direct because the DI scope and consumer dispatch happen on a hot path with an already-JIT-compiled filter chain; the delta is within run-to-run noise.
+- **PubSub – 1 sub** adds one compiled-lambda call and a `GetRequiredKeyedService` lookup per message on top of the direct path.
+- **PubSub – 3 subs** throughput measured as messages-posted/elapsed; since each message signals three times the total signal count is `3 × 50 000`. Expect roughly `1/(N_subs)` throughput relative to 1 sub due to sequential fan-out within a topic.
+- **PubSub – endpoint** exercises the endpoint-based fan-out path: the topic serializes the message context and posts it to `PubSubDest`, where the broker picks it up and dispatches to `BenchmarkConsumer`.
 - **File** allocation per message is high because `StreamReader.ReadToEndAsync` allocates a string for each file; this is inherent to file-based transport.
 
 ## Running tests

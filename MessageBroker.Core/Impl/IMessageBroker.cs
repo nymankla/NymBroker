@@ -34,6 +34,12 @@ public interface IMessageBroker
     Task StartAsync(CancellationToken ct = default);
     Task StopAsync(CancellationToken ct = default);
 
+    /// <summary>Publish a message to all topics matching its CLR type.</summary>
+    Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class;
+
+    /// <summary>Publish a message directly to a named topic, bypassing type-based topic matching.</summary>
+    Task PublishAsync<T>(string topicName, T message, CancellationToken ct = default) where T : class;
+
     /// <summary>Process a raw JSON string arriving from an endpoint. Called by endpoint listeners.</summary>
     Task ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default);
 }

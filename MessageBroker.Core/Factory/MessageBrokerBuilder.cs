@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using MessageBroker.Core.Aggregator;
 using MessageBroker.Core.Consume;
 using MessageBroker.Core.Endpoint;
@@ -6,6 +7,7 @@ using MessageBroker.Core.Endpoint.Memory;
 using MessageBroker.Core.Factory.Configuration;
 using MessageBroker.Core.DI;
 using MessageBroker.Core.Impl;
+using MessageBroker.Core.PubSub;
 using MessageBroker.Core.Serialize;
 using MessageBroker.Core.Splitter;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +22,8 @@ public sealed class MessageBrokerBuilder
     private readonly IServiceCollection _services;
     private readonly List<string> _endpoints = [];
     private readonly List<(Type ConsumerType, Type MessageType)> _consumers = [];
+    private readonly List<TopicContext> _topicContexts = [];
+    private readonly List<TopicConfiguration> _configTopics = [];
     private bool _built;
 
     /// <summary>Exposes the DI container for endpoint extension packages (e.g. MessageBroker.RabbitMq).</summary>
@@ -70,6 +74,19 @@ public sealed class MessageBrokerBuilder
         return this;
     }
 
+    // --- Pub/Sub topic registration ---
+
+    /// <summary>Begins a fluent topic definition for message type T.</summary>
+    public ITopicBuilder<T> AddTopic<T>(string topicName) where T : class
+        => new TopicBuilder<T>(topicName, ctx => _topicContexts.Add(ctx), this);
+
+    /// <summary>Registers an <see cref="ISubscribe{T}"/> implementation as a keyed DI service.</summary>
+    public MessageBrokerBuilder AddSubscriber<TSubscriber>() where TSubscriber : class, IMessageSubscriber
+    {
+        _services.AddKeyedTransient(typeof(IMessageSubscriber), typeof(TSubscriber).Name, typeof(TSubscriber));
+        return this;
+    }
+
     // --- Load from config file ---
 
     public MessageBrokerBuilder LoadConfiguration(string filePath)
@@ -89,6 +106,10 @@ public sealed class MessageBrokerBuilder
                 // EndPointType.RabbitMq is handled by MessageBroker.RabbitMq via WithRabbitMq()
             }
         }
+
+        foreach (var topic in config.Topics)
+            _configTopics.Add(topic);
+
         return this;
     }
 
@@ -107,10 +128,13 @@ public sealed class MessageBrokerBuilder
         _services.AddSingleton<ISplitter, SplitterImpl>();
         _services.AddSingleton<MessageTypeRegistry>();
         _services.AddSingleton<ConsumerDispatcher>();
+        _services.AddSingleton<SubscriberDispatcher>();
 
         // Capture lists for closure.
         var endpoints = _endpoints.ToList();
         var consumers = _consumers.ToList();
+        var topicContexts = _topicContexts.ToList();
+        var configTopics = _configTopics.ToList();
 
         _services.AddSingleton<MessageBrokerImpl>(sp =>
         {
@@ -119,6 +143,7 @@ public sealed class MessageBrokerBuilder
                 sp.GetRequiredService<IAggregator>(),
                 sp.GetRequiredService<MessageTypeRegistry>(),
                 sp.GetRequiredService<ConsumerDispatcher>(),
+                sp.GetRequiredService<SubscriberDispatcher>(),
                 sp.GetRequiredService<ILogger<MessageBrokerImpl>>());
 
             foreach (var endpointName in endpoints)
@@ -126,6 +151,24 @@ public sealed class MessageBrokerBuilder
 
             foreach (var (consumerType, messageType) in consumers)
                 broker.RegisterConsumer(messageType, consumerType.Name);
+
+            foreach (var topic in topicContexts)
+                broker.AddTopic(topic);
+
+            // Config-based topics: resolve message type string → CLR type via registry.
+            var registry = sp.GetRequiredService<MessageTypeRegistry>();
+            foreach (var ct in configTopics)
+            {
+                var msgType = ct.MessageType != null
+                    ? registry.Resolve(ct.MessageType) ?? typeof(Message.IAnyMessage)
+                    : typeof(Message.IAnyMessage);
+                broker.AddTopic(new TopicContext
+                {
+                    TopicName = ct.TopicName,
+                    MessageType = msgType,
+                    SubscriberEndpoints = ct.SubscriberEndpoints.ToImmutableList()
+                });
+            }
 
             return broker;
         });

@@ -1,9 +1,11 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using MessageBroker.Core.Aggregator;
 using MessageBroker.Core.Endpoint;
 using MessageBroker.Core.Filter;
 using MessageBroker.Core.Message;
+using MessageBroker.Core.PubSub;
 using MessageBroker.Core.Route;
 using MessageBroker.Core.Serialize;
 using Microsoft.Extensions.Logging;
@@ -16,6 +18,7 @@ public sealed class MessageBrokerImpl : IMessageBroker
     private readonly IAggregator _aggregator;
     private readonly MessageTypeRegistry _messageTypeRegistry;
     private readonly ConsumerDispatcher _consumerDispatcher;
+    private readonly SubscriberDispatcher _subscriberDispatcher;
     private readonly ILogger<MessageBrokerImpl> _logger;
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
     private ImmutableList<Func<CancellationToken, Task<ScheduledActionHandle>>> _scheduledActions = ImmutableList<Func<CancellationToken, Task<ScheduledActionHandle>>>.Empty;
@@ -25,6 +28,7 @@ public sealed class MessageBrokerImpl : IMessageBroker
     // Thread-safe via immutable replacement — writes are infrequent (config-time only).
     private ImmutableList<RouteContext> _routes = ImmutableList<RouteContext>.Empty;
     private ImmutableList<IMessageFilter> _filters = ImmutableList<IMessageFilter>.Empty;
+    private ImmutableList<TopicContext> _topics = ImmutableList<TopicContext>.Empty;
 
     // Endpoint registry — replaced immutably during configuration, then read-only during runtime.
     private ImmutableDictionary<string, IEndPoint> _endpoints = ImmutableDictionary.Create<string, IEndPoint>(StringComparer.OrdinalIgnoreCase);
@@ -34,12 +38,14 @@ public sealed class MessageBrokerImpl : IMessageBroker
         IAggregator aggregator,
         MessageTypeRegistry messageTypeRegistry,
         ConsumerDispatcher consumerDispatcher,
+        SubscriberDispatcher subscriberDispatcher,
         ILogger<MessageBrokerImpl> logger)
     {
         _serializer = serializer;
         _aggregator = aggregator;
         _messageTypeRegistry = messageTypeRegistry;
         _consumerDispatcher = consumerDispatcher;
+        _subscriberDispatcher = subscriberDispatcher;
         _logger = logger;
     }
 
@@ -51,6 +57,12 @@ public sealed class MessageBrokerImpl : IMessageBroker
     {
         _messageTypeRegistry.Register(messageType);
         _consumerDispatcher.RegisterConsumer(messageType, serviceKey);
+    }
+
+    public void AddTopic(TopicContext topic)
+    {
+        _messageTypeRegistry.Register(topic.MessageType);
+        _topics = _topics.Add(topic);
     }
 
     // --- IMessageBroker ---
@@ -140,6 +152,29 @@ public sealed class MessageBrokerImpl : IMessageBroker
     public async Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default)
         => await PostToEndpointAsync(endpointName, messageStream, ct);
 
+    public async Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
+    {
+        var context = new MessageContext<T> { Message = message };
+        using var stream = _serializer.Serialize(context);
+        stream.Position = 0;
+        using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+        var raw = await reader.ReadToEndAsync(ct);
+        await ProcessAsync(raw, null, ct);
+    }
+
+    public async Task PublishAsync<T>(string topicName, T message, CancellationToken ct = default) where T : class
+    {
+        var topic = _topics.FirstOrDefault(t => string.Equals(t.TopicName, topicName, StringComparison.OrdinalIgnoreCase));
+        if (topic == null)
+        {
+            _logger.LogWarning("No topic registered with name '{TopicName}'", topicName);
+            return;
+        }
+
+        var context = new MessageContext<T> { Message = message };
+        await FanOutTopicAsync(topic, message, context, ct);
+    }
+
     public async Task ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default)
     {
         IMessageContext context;
@@ -178,14 +213,14 @@ public sealed class MessageBrokerImpl : IMessageBroker
             var reassembled = await _aggregator.AddAsync(split, context, ct);
             if (reassembled == null) return;
 
-            // Re-process the reassembled payload as a new message.
-            var reassembledJson = System.Text.Encoding.UTF8.GetString(reassembled);
+            var reassembledJson = Encoding.UTF8.GetString(reassembled);
             await ProcessAsync(reassembledJson, sourceEndpoint, ct);
             return;
         }
 
-        // Route to destination endpoints.
         var msgElement = raw2.RawMessage;
+
+        // Route to destination endpoints.
         var wasRouted = false;
         foreach (var route in _routes)
         {
@@ -207,7 +242,22 @@ public sealed class MessageBrokerImpl : IMessageBroker
             wasRouted = true;
         }
 
-        if (wasRouted)
+        // Topic fan-out (pub/sub) — evaluated regardless of whether a route also matched.
+        var wasTopicFanOut = false;
+        object? deserializedMessage = null;
+        foreach (var topic in _topics)
+        {
+            if (!topic.Evaluate(messageType ?? typeof(IAnyMessage), context, msgElement)) continue;
+            wasTopicFanOut = true;
+
+            // Lazily deserialize once — reused across multiple matching topics.
+            if (topic.SubscriberDispatchers.Count > 0 && messageType != null && deserializedMessage == null)
+                deserializedMessage = MessageSerializerJson.DeserializeMessageObject(raw2, messageType);
+
+            await FanOutTopicAsync(topic, deserializedMessage, context, ct);
+        }
+
+        if (wasRouted || wasTopicFanOut)
             return;
 
         if (messageType == null)
@@ -292,6 +342,31 @@ public sealed class MessageBrokerImpl : IMessageBroker
     }
 
     // --- Helpers ---
+
+    private async Task FanOutTopicAsync(TopicContext topic, object? message, IMessageContext context, CancellationToken ct)
+    {
+        foreach (var endpointName in topic.SubscriberEndpoints)
+        {
+            if (!_endpoints.TryGetValue(endpointName, out var endpoint))
+            {
+                _logger.LogWarning("Topic '{Topic}' references unknown endpoint '{Endpoint}'", topic.TopicName, endpointName);
+                continue;
+            }
+            try
+            {
+                using var stream = _serializer.Serialize(context);
+                await endpoint.PostAsync(stream, ct);
+                _logger.LogInformation("Topic '{Topic}' delivered to endpoint '{Endpoint}'", topic.TopicName, endpointName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Topic '{Topic}' failed to deliver to endpoint '{Endpoint}'", topic.TopicName, endpointName);
+            }
+        }
+
+        if (message != null && topic.SubscriberDispatchers.Count > 0)
+            await _subscriberDispatcher.DispatchAsync(topic.SubscriberDispatchers, message, context, ct);
+    }
 
     private async Task PostToEndpointAsync(string name, Stream stream, CancellationToken ct)
     {
