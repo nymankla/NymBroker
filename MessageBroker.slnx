@@ -2,7 +2,9 @@
   <Project Path="MessageBroker.Core/MessageBroker.Core.csproj" />
   <Project Path="MessageBroker.RabbitMq/MessageBroker.RabbitMq.csproj" />
   <Project Path="MessageBroker.Tests/MessageBroker.Tests.csproj" />
-  <Project Path="samples/MessageBroker.Sample/MessageBroker.Sample.csproj" />
+  <Project Path="samples/MessageBroker.Benchmarks/MessageBroker.Benchmarks.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
   <Project Path="samples/MessageBroker.ConfigSample/MessageBroker.ConfigSample.csproj" />
-  <Project Path="samples/MessageBroker.Benchmarks/MessageBroker.Benchmarks.csproj" />
+  <Project Path="samples/MessageBroker.Sample/MessageBroker.Sample.csproj" />
 </Solution>

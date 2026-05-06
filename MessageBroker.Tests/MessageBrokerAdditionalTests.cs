@@ -3,6 +3,7 @@ using MessageBroker.Core.Consume;
 using MessageBroker.Core.Endpoint.Memory;
 using MessageBroker.Core.Filter;
 using MessageBroker.Core.Impl;
+using MessageBroker.Core.PubSub;
 using MessageBroker.Core.Message;
 using MessageBroker.Core.Serialize;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,6 +41,7 @@ public sealed class MessageBrokerAdditionalTests
             sp.GetRequiredService<IAggregator>(),
             new MessageTypeRegistry(),
             new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
+            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
             NullLogger<MessageBrokerImpl>.Instance);
 
         broker.AddEndpoint(dest);
@@ -264,6 +266,7 @@ public sealed class MessageBrokerAdditionalTests
             sp.GetRequiredService<IAggregator>(),
             new MessageTypeRegistry(),
             new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
+            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
             NullLogger<MessageBrokerImpl>.Instance);
 
         broker.RegisterConsumer(typeof(StockMessage), nameof(StockConsumer));

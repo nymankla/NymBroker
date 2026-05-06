@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using MessageBroker.Benchmarks;
 using MessageBroker.Core.DI;
+using MessageBroker.Core.Factory;
 using MessageBroker.Core.Impl;
+using MessageBroker.Core.Route;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -27,12 +29,43 @@ await WatcherSanityCheckAsync();
 Console.WriteLine("Running scenarios:");
 var results = new List<BenchmarkResult>
 {
-    await RunAsync("Memory – direct",   "Memory",   MemoryCount),
-    await RunAsync("Memory – routed",   "Memory",   MemoryCount,
+    await RunAsync("Memory – direct",      "Memory",  MemoryCount),
+    await RunAsync("Memory – routed",      "Memory",  MemoryCount,
         configure: broker => broker.Route<BenchmarkMessage>()
             .To("MemoryRouted").WhenFrom("Memory").Build()),
-    await RunAsync("Memory – filtered", "Memory",   MemoryCount, addFilter: true),
-    await RunAsync("File   – direct",   "FileLoop", FileCount,   fileDir: "bench-in"),
+    await RunAsync("Memory – filtered",    "Memory",  MemoryCount, addFilter: true),
+
+    await RunAsync("PubSub – 1 sub",      "Memory",  MemoryCount, usePubSub: true,
+        configureBuilder: b =>
+        {
+            b.AddTopic<BenchmarkMessage>("bench.pubsub.1")
+                .SubscribeWith<BenchmarkSubscriberA>()
+                .Build();
+        }),
+
+    await RunAsync("PubSub – 3 subs",     "Memory",  MemoryCount, usePubSub: true,
+        signalsPerMessage: 3,
+        configureBuilder: b =>
+        {
+            b.AddTopic<BenchmarkMessage>("bench.pubsub.3")
+                .SubscribeWith<BenchmarkSubscriberA>()
+                .SubscribeWith<BenchmarkSubscriberB>()
+                .SubscribeWith<BenchmarkSubscriberC>()
+                .Build();
+        }),
+
+    // Topic fans out to PubSubDest endpoint; consumer on that endpoint signals.
+    // WhenNotFrom prevents re-matching when the copy arrives at the destination endpoint.
+    await RunAsync("PubSub – endpoint",   "Memory",  MemoryCount, usePubSub: true,
+        configureBuilder: b =>
+        {
+            b.AddTopic<BenchmarkMessage>("bench.pubsub.ep")
+                .When(new NotFromRouteCondition("PubSubDest"))
+                .SubscribeTo("PubSubDest")
+                .Build();
+        }),
+
+    await RunAsync("File   – direct",     "FileLoop", FileCount, fileDir: "bench-in"),
 };
 
 PrintTable(results);
@@ -76,11 +109,14 @@ async Task<BenchmarkResult> RunAsync(
     string endpoint,
     int count,
     Action<IMessageBroker>? configure = null,
+    Action<MessageBrokerBuilder>? configureBuilder = null,
     bool addFilter = false,
+    bool usePubSub = false,
+    int signalsPerMessage = 1,
     string? fileDir = null)
 {
     var isWarmup = name.StartsWith('_');
-    if (!isWarmup) Console.Write($"  {name,-22} ... ");
+    if (!isWarmup) Console.Write($"  {name,-24} ... ");
 
     if (fileDir != null)
         CleanDir(fileDir);
@@ -92,6 +128,8 @@ async Task<BenchmarkResult> RunAsync(
     var builder = services.AddMessageBroker()
         .LoadConfiguration(Settings)
         .AddConsumer<BenchmarkConsumer>();
+
+    configureBuilder?.Invoke(builder);
     builder.Build();
 
     await using var provider = services.BuildServiceProvider();
@@ -114,15 +152,21 @@ async Task<BenchmarkResult> RunAsync(
     var gen2Before  = GC.CollectionCount(2);
     var allocBefore = GC.GetTotalAllocatedBytes(precise: true);
 
-    var completion = tracker.Prepare(count);
+    var completion = tracker.Prepare(count * signalsPerMessage);
     var sw         = Stopwatch.StartNew();
 
     var payload = new string('X', 32);
     for (var i = 0; i < count; i++)
-        await broker.PostAsync(endpoint, new BenchmarkMessage(i, payload));
+    {
+        var msg = new BenchmarkMessage(i, payload);
+        if (usePubSub)
+            await broker.PublishAsync(msg);
+        else
+            await broker.PostAsync(endpoint, msg);
+    }
 
     try { await completion.WaitAsync(TimeSpan.FromSeconds(30)); }
-    catch (TimeoutException) { Console.WriteLine($"\n  [TIMEOUT] processed {tracker.Processed}/{count}"); }
+    catch (TimeoutException) { Console.WriteLine($"\n  [TIMEOUT] processed {tracker.Processed}/{count * signalsPerMessage}"); }
     sw.Stop();
 
     var gen0      = GC.CollectionCount(0) - gen0Before;
@@ -144,11 +188,11 @@ async Task<BenchmarkResult> RunAsync(
 
 void PrintTable(List<BenchmarkResult> rows)
 {
-    const string fmt = "{0,-25} {1,11} {2,11} {3,6} {4,6} {5,6} {6,13}";
+    const string fmt = "{0,-27} {1,11} {2,11} {3,6} {4,6} {5,6} {6,13}";
     Console.WriteLine();
     Console.WriteLine(string.Format(fmt,
         "Scenario", "Msg/sec", "Elapsed", "Gen0", "Gen1", "Gen2", "Alloc/msg"));
-    Console.WriteLine(new string('─', 83));
+    Console.WriteLine(new string('─', 86));
     foreach (var r in rows)
     {
         var msgsPerSec  = r.ElapsedMs > 0 ? (long)(r.MessageCount * 1000.0 / r.ElapsedMs) : 0;

@@ -4,6 +4,7 @@ using MessageBroker.Core.DI;
 using MessageBroker.Core.Endpoint;
 using MessageBroker.Core.Endpoint.Memory;
 using MessageBroker.Core.Impl;
+using MessageBroker.Core.PubSub;
 using MessageBroker.Core.Message;
 using MessageBroker.Core.Route;
 using MessageBroker.Core.Serialize;
@@ -163,6 +164,7 @@ public sealed class RoutingTests
             sp.GetRequiredService<IAggregator>(),
             new MessageTypeRegistry(),
             new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
+            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
             NullLogger<MessageBrokerImpl>.Instance);
 
         broker.AddEndpoint(dest);
@@ -188,6 +190,7 @@ public sealed class RoutingTests
             sp.GetRequiredService<IAggregator>(),
             new MessageTypeRegistry(),
             new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
+            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
             NullLogger<MessageBrokerImpl>.Instance);
 
         broker.RegisterConsumer(typeof(PriceMessage), nameof(ScopedPriceConsumer));
@@ -296,6 +299,7 @@ public sealed class RoutingTests
                 sp.GetRequiredService<IAggregator>(),
                 new MessageTypeRegistry(),
                 new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
+                new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
                 NullLogger<MessageBrokerImpl>.Instance);
 
             broker.AddEndpoint(sp.GetRequiredKeyedService<IEndPoint>("Disposable"));
