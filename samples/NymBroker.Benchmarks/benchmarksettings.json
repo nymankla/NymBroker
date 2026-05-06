@@ -1,0 +1,17 @@
+{
+  "NymBroker": {
+    "Endpoints": [
+      { "Name": "Memory", "Type": "Memory" },
+      { "Name": "MemoryRouted", "Type": "Memory" },
+      { "Name": "PubSubDest", "Type": "Memory" },
+      {
+        "Name": "FileLoop",
+        "Type": "File",
+        "Config": {
+          "readPath": "bench-in",
+          "postPath": "bench-in"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
+  <Project Path="NymBroker.RabbitMq/NymBroker.RabbitMq.csproj" />
+  <Project Path="NymBroker.Tests/NymBroker.Tests.csproj" />
+  <Project Path="samples/NymBroker.Benchmarks/NymBroker.Benchmarks.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
+  <Project Path="samples/NymBroker.ConfigSample/NymBroker.ConfigSample.csproj" />
+  <Project Path="samples/NymBroker.Sample/NymBroker.Sample.csproj" />
+</Solution>

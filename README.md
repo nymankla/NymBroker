@@ -1,4 +1,4 @@
-# MessageBroker
+# NymBroker
 
 A .NET 10 enterprise message processing framework following [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). Messages flow as JSON envelopes through a configurable pipeline of endpoints, filters, routers, and consumers.
 
@@ -24,12 +24,12 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 
 | Project | Purpose |
 |---|---|
-| `MessageBroker.Core` | Framework core — no RabbitMQ dependency |
-| `MessageBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
-| `MessageBroker.Tests` | xUnit tests |
-| `samples/MessageBroker.Sample` | Fluent API demo |
-| `samples/MessageBroker.ConfigSample` | JSON config file demo |
-| `samples/MessageBroker.Benchmarks` | Throughput and allocation benchmark |
+| `NymBroker.Core` | Framework core — no RabbitMQ dependency |
+| `NymBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
+| `NymBroker.Tests` | xUnit tests |
+| `samples/NymBroker.Sample` | Fluent API demo |
+| `samples/NymBroker.ConfigSample` | JSON config file demo |
+| `samples/NymBroker.Benchmarks` | Throughput and allocation benchmark |
 
 ## Getting started
 
@@ -85,7 +85,7 @@ public sealed class TradingConsumer : IConsume<OrderMessage>, IConsume<StockPric
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((_, services) =>
     {
-        services.AddMessageBroker()
+        services.AddNymBroker()
             .AddMemoryEndPoint("MemQueue")
             .AddFileEndPoint("FileOut")
             .AddConsumer<TradingConsumer>()
@@ -93,7 +93,7 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .Build();
 
-var broker = host.Services.GetRequiredService<IMessageBroker>();
+var broker = host.Services.GetRequiredService<INymBroker>();
 
 await host.StartAsync();
 await broker.PostAsync("MemQueue", new OrderMessage { OrderId = "ORD-1", Customer = "Alice", Amount = 99m });
@@ -127,12 +127,12 @@ Watches a directory for incoming JSON files; writes outgoing messages to another
 
 ### RabbitMQ
 
-Add a reference to `MessageBroker.RabbitMq` and use the extension method:
+Add a reference to `NymBroker.RabbitMq` and use the extension method:
 
 ```csharp
-using MessageBroker.RabbitMq;
+using NymBroker.RabbitMq;
 
-services.AddMessageBroker()
+services.AddNymBroker()
     .AddRabbitMqEndPoint("RabbitIn", new RabbitMqSettings
     {
         HostName      = "localhost",
@@ -226,7 +226,7 @@ public sealed class AnalyticsSubscriber : ISubscribe<OrderMessage>
 ### Registering topics
 
 ```csharp
-services.AddMessageBroker()
+services.AddNymBroker()
     .AddMemoryEndPoint("Orders")
     .AddConsumer<OrderConsumer>()
     .AddTopic<OrderMessage>("orders.events")
@@ -281,7 +281,7 @@ When fanning out to an endpoint, prevent the copy from re-triggering the same to
 
 ```csharp
 // Fire every 10 seconds, passing the broker as a parameter
-broker.AddScheduledAction<IMessageBroker>(
+broker.AddScheduledAction<INymBroker>(
     TimeSpan.FromSeconds(10),
     b => b.PostAsync("MemQueue", new StockPriceMessage
     {
@@ -298,14 +298,14 @@ Uses [Cronos](https://github.com/HangfireIO/Cronos) syntax with local timezone:
 
 ```csharp
 // Every minute
-broker.AddScheduledAction<IMessageBroker>(
+broker.AddScheduledAction<INymBroker>(
     "* * * * *",
     b => b.PostAsync("MemQueue", new StockPriceMessage { Ticker = "CRON", Price = 42m, AsOf = DateTime.UtcNow })
            .GetAwaiter().GetResult(),
     broker);
 
 // Mon–Fri at 17:00
-broker.AddScheduledAction<IMessageBroker>(
+broker.AddScheduledAction<INymBroker>(
     "0 17 * * 1-5",
     b => b.PostAsync("MemQueue", new DailyCloseMessage()).GetAwaiter().GetResult(),
     broker);
@@ -320,7 +320,7 @@ Declare endpoint topology in a file — consumers and routes are still registere
 **`queuesettings.json`**
 ```json
 {
-  "MessageBroker": {
+  "NymBroker": {
     "Endpoints": [
       {
         "Name": "MemQueue",
@@ -351,9 +351,9 @@ Declare endpoint topology in a file — consumers and routes are still registere
 
 **`Program.cs`**
 ```csharp
-services.AddMessageBroker()
+services.AddNymBroker()
     .LoadConfiguration("queuesettings.json")   // File + Memory endpoints registered automatically
-    .WithRabbitMq()                            // from MessageBroker.RabbitMq — processes RabbitMq entries
+    .WithRabbitMq()                            // from NymBroker.RabbitMq — processes RabbitMq entries
     .AddConsumer<TradingConsumer>()
     .Build();
 ```
@@ -428,18 +428,18 @@ foreach (var part in parts)
 
 ```bash
 # Fluent API demo (file + memory endpoints, scheduled actions, routing)
-dotnet run --project samples/MessageBroker.Sample
+dotnet run --project samples/NymBroker.Sample
 
 # JSON config file demo
-dotnet run --project samples/MessageBroker.ConfigSample
+dotnet run --project samples/NymBroker.ConfigSample
 ```
 
 ## Benchmarks
 
-`samples/MessageBroker.Benchmarks` is a standalone throughput and allocation benchmark. Run it with:
+`samples/NymBroker.Benchmarks` is a standalone throughput and allocation benchmark. Run it with:
 
 ```bash
-dotnet run --project samples/MessageBroker.Benchmarks
+dotnet run --project samples/NymBroker.Benchmarks
 ```
 
 ### What it measures
@@ -473,7 +473,7 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 
 ```json
 {
-  "MessageBroker": {
+  "NymBroker": {
     "Endpoints": [
       { "Name": "Memory",       "Type": "Memory" },
       { "Name": "MemoryRouted", "Type": "Memory" },
@@ -508,7 +508,7 @@ PubSub – endpoint                  —          —      —      —      —
 File   – direct                   300      325 ms      1      0      0  145.2 KB/msg
 ```
 
-Run `dotnet run --project samples/MessageBroker.Benchmarks` for current pub/sub numbers on your hardware.
+Run `dotnet run --project samples/NymBroker.Benchmarks` for current pub/sub numbers on your hardware.
 
 Notes on the numbers:
 - **Memory – routed** is slower than direct because each message is serialized a second time to re-post to `MemoryRouted`, doubling the Gen0 collections.

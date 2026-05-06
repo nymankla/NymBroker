@@ -1,0 +1,18 @@
+{
+  "NymBroker": {
+    "Endpoints": [
+      {
+        "Name": "MemQueue",
+        "Type": "Memory"
+      },
+      {
+        "Name": "FileOut",
+        "Type": "File",
+        "Config": {
+          "readPath": "processed",
+          "postPath": "out"
+        }
+      }
+    ]
+  }
+}

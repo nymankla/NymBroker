@@ -16,15 +16,15 @@ Primary endpoints are **RabbitMQ** and **File**. Memory endpoint is used for in-
 
 ## Commands
 
-Run from the solution root (`e:\utv\POC\MessageBroker`):
+Run from the solution root (`e:\utv\POC\NymBroker`):
 
 ```bash
 dotnet build
 dotnet test
 dotnet test --filter "FullyQualifiedName~SerializerTests"   # single test class
-dotnet run --project samples/MessageBroker.Sample            # fluent API demo
-dotnet run --project samples/MessageBroker.ConfigSample      # JSON config demo
-dotnet run --project samples/MessageBroker.Benchmarks        # throughput benchmark
+dotnet run --project samples/NymBroker.Sample            # fluent API demo
+dotnet run --project samples/NymBroker.ConfigSample      # JSON config demo
+dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 
 # RabbitMQ (Docker Desktop required)
 ./setup-rabbitmq.ps1          # start + wait for healthy
@@ -38,12 +38,12 @@ dotnet run --project samples/MessageBroker.Benchmarks        # throughput benchm
 
 | Project | Role |
 |---|---|
-| `MessageBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No RabbitMQ dependency. |
-| `MessageBroker.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, and `AddRabbitMqEndPoint`/`WithRabbitMq` extension methods. Reference only when using RabbitMQ. |
-| `MessageBroker.Tests` | xUnit tests (use Memory endpoint — no RabbitMQ/file I/O) |
-| `samples/MessageBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
-| `samples/MessageBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
-| `samples/MessageBroker.Benchmarks` | Throughput + allocation benchmark — Memory and File endpoints, config from `benchmarksettings.json` |
+| `NymBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No RabbitMQ dependency. |
+| `NymBroker.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, and `AddRabbitMqEndPoint`/`WithRabbitMq` extension methods. Reference only when using RabbitMQ. |
+| `NymBroker.Tests` | xUnit tests (use Memory endpoint — no RabbitMQ/file I/O) |
+| `samples/NymBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
+| `samples/NymBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
+| `samples/NymBroker.Benchmarks` | Throughput + allocation benchmark — Memory and File endpoints, config from `benchmarksettings.json` |
 
 ### Key Abstractions
 
@@ -55,7 +55,7 @@ IEndPoint                 ← all transports
 IMessageContext<T>        ← typed envelope (Id, CorrelationId, Address, MessageType, Created, TraceParent...)
 RawMessageContext          ← internal deserialized form; holds JsonElement RawMessage for deferred typing
 
-IMessageBroker            ← engine facade (see below)
+INymBroker            ← engine facade (see below)
 IConsume<T>               ← consumer contract; implement + register via AddConsumer<T>()
 IRouteBuilder<T>          ← fluent route definition (see Routing section)
 IRouteCondition           ← composable predicate evaluated on (IMessageContext, JsonElement)
@@ -77,7 +77,7 @@ IRouteCondition           ← composable predicate evaluated on (IMessageContext
 
 `messageType` is resolved from `[MessageName("short.name")]` if present, otherwise the CLR `FullName`. `MessageTypeName.Get(type)` is the single resolver.
 
-### IMessageBroker API
+### INymBroker API
 
 ```csharp
 broker.PostAsync<T>(endpoint, message)              // serialize + send
@@ -153,35 +153,35 @@ Thread-safety: each `Aggregate` instance is lock-guarded and carries an `IsCompl
 
 ```csharp
 // Core only (no RabbitMQ dependency):
-services.AddMessageBroker()
+services.AddNymBroker()
     .AddFileEndPoint("In",  new FileSettings { ReadPath = "in",  PostPath = "in-out" })
     .AddFileEndPoint("Out", new FileSettings { ReadPath = "out", PostPath = "out-out" })
     .AddMemoryEndPoint("Mem")
     .AddConsumer<OrderConsumer>()   // implements IConsume<OrderMessage>
     .Build();
 
-// With RabbitMQ (reference MessageBroker.RabbitMq project):
-services.AddMessageBroker()
+// With RabbitMQ (reference NymBroker.RabbitMq project):
+services.AddNymBroker()
     .AddRabbitMqEndPoint("Rabbit", new RabbitMqSettings { HostName = "localhost", ReadQueueName = "q.in" })
     .AddMemoryEndPoint("Mem")
     .AddConsumer<OrderConsumer>()
     .Build();
-// IMessageBroker registered as singleton; MessageBrokerHostedService registered as IHostedService.
+// INymBroker registered as singleton; NymBrokerHostedService registered as IHostedService.
 ```
 
 Or from a config file (RabbitMq entries require calling `WithRabbitMq()`):
 
 ```csharp
-services.AddMessageBroker()
+services.AddNymBroker()
     .LoadConfiguration("queuesettings.json")
-    .WithRabbitMq()               // from MessageBroker.RabbitMq — processes RabbitMq endpoints
+    .WithRabbitMq()               // from NymBroker.RabbitMq — processes RabbitMq endpoints
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
 
-Config section key is `MessageBroker` → `Endpoints[]` with `Name`, `Type` (`File|RabbitMq|Memory`), `Config` (camelCase type-specific settings).
+Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type` (`File|RabbitMq|Memory`), `Config` (camelCase type-specific settings).
 
-`MessageBrokerBuilder` exposes `Services` (the DI container) and `LoadedConfiguration` as public properties so extension packages in other assemblies can register their endpoint types.
+`NymBrokerBuilder` exposes `Services` (the DI container) and `LoadedConfiguration` as public properties so extension packages in other assemblies can register their endpoint types.
 
 ### Performance Design
 
@@ -198,10 +198,10 @@ No exception is silently swallowed. The policy per layer:
 
 | Layer | Behaviour |
 |---|---|
-| `MessageBrokerImpl.ProcessAsync` | Deserialization failure → `LogError`, message dropped. Unresolved type with no route → `LogWarning`. |
+| `NymBrokerImpl.ProcessAsync` | Deserialization failure → `LogError`, message dropped. Unresolved type with no route → `LogWarning`. |
 | `ConsumerDispatcher` | No registered consumer → `LogWarning`. |
 | `AggregatorImpl.PurgeExpired` | Purge count logged at `Debug`. |
-| `MessageBrokerImpl.StartAsync` | Any startup exception → `LogError`, scheduled actions rolled back, exception re-thrown. |
+| `NymBrokerImpl.StartAsync` | Any startup exception → `LogError`, scheduled actions rolled back, exception re-thrown. |
 | `FileEndPoint.OnFileCreated` | Fire-and-forget handler failure → `LogError` (loop continues). |
 | `FileEndPoint.ProcessExistingFilesAsync` | Per-file handler failure → `LogError` (remaining files still processed). Structural failure (e.g. directory gone) → `LogError` on outer Task.Run. |
 | `FileEndPoint.ReadAndArchiveAsync` | IOException after retries → `LogWarning`, file skipped. |
