@@ -185,7 +185,7 @@ public sealed class BuilderConfigurationTests
     }
 
     [Fact]
-    public void AddPostgresEndPoint_RegistersEndpointInContainer()
+    public async Task AddPostgresEndPoint_RegistersEndpointInContainer()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -194,7 +194,7 @@ public sealed class BuilderConfigurationTests
             .AddPostgresEndPoint("Pg", new PostgresSettings { AutoCreateTable = false })
             .Build();
 
-        using var sp = services.BuildServiceProvider();
+        await using var sp = services.BuildServiceProvider();
         var endpoint = sp.GetRequiredKeyedService<IEndPoint>("Pg");
 
         Assert.IsType<PostgresEndPoint>(endpoint);

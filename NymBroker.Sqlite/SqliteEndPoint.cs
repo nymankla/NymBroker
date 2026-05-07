@@ -8,12 +8,12 @@ using NymBroker.Core.Endpoint.HealthCheck;
 
 namespace NymBroker.Sql;
 
-public sealed class SqlEndPoint : IEndPointPoll, IEndPointEventDriven, IAsyncDisposable
+public sealed class SqliteEndPoint : IEndPointPoll, IEndPointEventDriven, IAsyncDisposable
 {
     private const string ReadAsyncLeaseReturnedMessage = "Message lease returned by ReadAsync without acknowledgement.";
 
-    private readonly SqlSettings _settings;
-    private readonly ILogger<SqlEndPoint> _logger;
+    private readonly SqliteSettings _settings;
+    private readonly ILogger<SqliteEndPoint> _logger;
     // Serializes all DB operations — ensures single-connection SQLite is never accessed concurrently.
     private readonly SemaphoreSlim _dbLock = new(1, 1);
     private SqliteConnection? _connection;
@@ -21,7 +21,7 @@ public sealed class SqlEndPoint : IEndPointPoll, IEndPointEventDriven, IAsyncDis
 
     public string Name { get; }
 
-    public SqlEndPoint(string name, SqlSettings settings, ILogger<SqlEndPoint> logger)
+    public SqliteEndPoint(string name, SqliteSettings settings, ILogger<SqliteEndPoint> logger)
     {
         Name = name;
         _settings = settings;
@@ -151,7 +151,7 @@ public sealed class SqlEndPoint : IEndPointPoll, IEndPointEventDriven, IAsyncDis
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SQL endpoint '{Name}' health check failed", Name);
+            _logger.LogError(ex, "SQLite endpoint '{Name}' health check failed", Name);
             return HealthCheckResult.Unhealthy(ex.Message);
         }
     }

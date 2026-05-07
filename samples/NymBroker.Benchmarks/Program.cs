@@ -71,7 +71,7 @@ var results = new List<BenchmarkResult>
     await RunAsync("File   – direct",     "FileLoop", FileCount, fileDir: "bench-in"),
 
     await RunAsync("SQL    – direct",     "SqlBench", SqlCount,
-        configureBuilder: b => b.AddSqlEndPoint("SqlBench", new SqlSettings
+        configureBuilder: b => b.AddSqliteEndPoint("SqlBench", new SqliteSettings
         {
             ConnectionString = "Data Source=:memory:",
             TableName        = "BenchMessages",

@@ -136,7 +136,7 @@ Add a reference to `NymBroker.Sql` and use the extension method:
 using NymBroker.Sql;
 
 services.AddNymBroker()
-    .AddSqlEndPoint("SqlQueue", new SqlSettings
+    .AddSqliteEndPoint("SqlQueue", new SqliteSettings
     {
         ConnectionString = "Data Source=messages.db",
         TableName        = "NymBrokerMessages",
@@ -168,7 +168,7 @@ CREATE TABLE NymBrokerMessages (
 );
 ```
 
-**`SqlSettings` properties:**
+**`SqliteSettings` properties:**
 
 | Property | Default | Description |
 |---|---|---|

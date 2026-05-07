@@ -30,7 +30,7 @@
   <ItemGroup>
     <ProjectReference Include="..\NymBroker.Core\NymBroker.Core.csproj" />
     <ProjectReference Include="..\NymBroker.Postgres\NymBroker.Postgres.csproj" />
-    <ProjectReference Include="..\NymBroker.Sql\NymBroker.Sql.csproj" />
+    <ProjectReference Include="..\NymBroker.Sqlite\NymBroker.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>

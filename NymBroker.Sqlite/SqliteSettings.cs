@@ -1,6 +1,6 @@
 namespace NymBroker.Sql;
 
-public sealed class SqlSettings
+public sealed class SqliteSettings
 {
     public string ConnectionString { get; set; } = "Data Source=messages.db";
     public string TableName        { get; set; } = "NymBrokerMessages";

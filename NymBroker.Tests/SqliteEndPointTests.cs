@@ -6,11 +6,11 @@ using NymBroker.Sql;
 
 namespace NymBroker.Tests;
 
-public sealed class SqlEndPointTests : IAsyncDisposable
+public sealed class SqliteEndPointTests : IAsyncDisposable
 {
-    private readonly SqlEndPoint _ep = new("test-sql",
-        new SqlSettings { ConnectionString = "Data Source=:memory:", AutoCreateTable = true },
-        NullLogger<SqlEndPoint>.Instance);
+    private readonly SqliteEndPoint _ep = new("test-sql",
+        new SqliteSettings { ConnectionString = "Data Source=:memory:", AutoCreateTable = true },
+        NullLogger<SqliteEndPoint>.Instance);
 
     public async ValueTask DisposeAsync() => await _ep.DisposeAsync();
 
@@ -76,9 +76,9 @@ public sealed class SqlEndPointTests : IAsyncDisposable
     [Fact]
     public async Task ReadAsync_RespectsBatchSize()
     {
-        await using var ep = new SqlEndPoint("batch-test",
-            new SqlSettings { ConnectionString = "Data Source=:memory:", AutoCreateTable = true, BatchSize = 2 },
-            NullLogger<SqlEndPoint>.Instance);
+        await using var ep = new SqliteEndPoint("batch-test",
+            new SqliteSettings { ConnectionString = "Data Source=:memory:", AutoCreateTable = true, BatchSize = 2 },
+            NullLogger<SqliteEndPoint>.Instance);
 
         for (var i = 0; i < 5; i++)
             await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes($$$"""{"i":{{{i}}}}""")));
@@ -118,15 +118,15 @@ public sealed class SqlEndPointTests : IAsyncDisposable
     [Fact]
     public async Task StartListeningAsync_DeliversMessages()
     {
-        await using var ep = new SqlEndPoint("listen-test",
-            new SqlSettings
+        await using var ep = new SqliteEndPoint("listen-test",
+            new SqliteSettings
             {
                 ConnectionString = "Data Source=:memory:",
                 AutoCreateTable  = true,
                 PollInterval     = TimeSpan.Zero,
                 MaxRetryCount    = 3
             },
-            NullLogger<SqlEndPoint>.Instance);
+            NullLogger<SqliteEndPoint>.Instance);
 
         await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"e":1}""")));
         await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"e":2}""")));
@@ -151,8 +151,8 @@ public sealed class SqlEndPointTests : IAsyncDisposable
     [Fact]
     public async Task StartListeningAsync_RetriesFailedMessages_AndEventuallyCompletes()
     {
-        await using var ep = new SqlEndPoint("retry-test",
-            new SqlSettings
+        await using var ep = new SqliteEndPoint("retry-test",
+            new SqliteSettings
             {
                 ConnectionString = "Data Source=:memory:",
                 AutoCreateTable  = true,
@@ -160,7 +160,7 @@ public sealed class SqlEndPointTests : IAsyncDisposable
                 MaxRetryCount    = 3,
                 LeaseTimeout     = TimeSpan.FromSeconds(1)
             },
-            NullLogger<SqlEndPoint>.Instance);
+            NullLogger<SqliteEndPoint>.Instance);
 
         await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"retry":true}""")));
 
@@ -193,13 +193,13 @@ public sealed class SqlEndPointTests : IAsyncDisposable
     [Fact]
     public async Task StartListeningAsync_MarksMessageFailed_AfterMaxRetries()
     {
-        var dbPath = Path.Combine(Path.GetTempPath(), $"nymbroker-sql-{Guid.NewGuid():N}.db");
-        SqlEndPoint? ep = null;
+        var dbPath = Path.Combine(Path.GetTempPath(), $"nymbroker-sqlite-{Guid.NewGuid():N}.db");
+        SqliteEndPoint? ep = null;
         try
         {
             var connectionString = $"Data Source={dbPath}";
-            ep = new SqlEndPoint("failed-test",
-                new SqlSettings
+            ep = new SqliteEndPoint("failed-test",
+                new SqliteSettings
                 {
                     ConnectionString = connectionString,
                     AutoCreateTable  = true,
@@ -207,7 +207,7 @@ public sealed class SqlEndPointTests : IAsyncDisposable
                     MaxRetryCount    = 2,
                     LeaseTimeout     = TimeSpan.FromSeconds(1)
                 },
-                NullLogger<SqlEndPoint>.Instance);
+                NullLogger<SqliteEndPoint>.Instance);
 
             await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"fail":true}""")));
 

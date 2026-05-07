@@ -1,7 +1,7 @@
 <Solution>
   <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
   <Project Path="NymBroker.RabbitMq/NymBroker.RabbitMq.csproj" />
-  <Project Path="NymBroker.Sql/NymBroker.Sql.csproj">
+  <Project Path="NymBroker.Sqlite/NymBroker.Sqlite.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
   <Project Path="NymBroker.Tests/NymBroker.Tests.csproj" />

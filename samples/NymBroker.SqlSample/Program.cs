@@ -11,7 +11,7 @@ using Microsoft.Extensions.Hosting;
 const string DbPath = "sqlsample.db";
 if (File.Exists(DbPath)) File.Delete(DbPath);
 
-var sqlSettings = new SqlSettings
+var sqlSettings = new SqliteSettings
 {
     ConnectionString = $"Data Source={DbPath}",
     TableName        = "Orders",
@@ -23,7 +23,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((_, services) =>
     {
         services.AddNymBroker()
-            .AddSqlEndPoint("SqlQueue", sqlSettings)
+            .AddSqliteEndPoint("SqlQueue", sqlSettings)
             .AddConsumer<OrderConsumer>()
             .Build();
     })
