@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NymBroker.Core\NymBroker.Core.csproj" />
+    <ProjectReference Include="..\NymBroker.Sql\NymBroker.Sql.csproj" />
   </ItemGroup>
 
 </Project>
