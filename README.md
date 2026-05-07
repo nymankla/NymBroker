@@ -10,7 +10,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 
 ## Features
 
-- **Multiple transports** — RabbitMQ, File system, and in-process Memory endpoint
+- **Multiple transports** — RabbitMQ, SQLite, File system, and in-process Memory endpoint
 - **Fluent routing API** — type-safe, composable route conditions
 - **Typed consumers** — implement `IConsume<T>`, optionally handle multiple message types in one class
 - **Publish-Subscribe Channel** — EIP pub/sub; declare topics with typed `ISubscribe<T>` subscribers or endpoint fan-out
@@ -24,11 +24,13 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 
 | Project | Purpose |
 |---|---|
-| `NymBroker.Core` | Framework core — no RabbitMQ dependency |
+| `NymBroker.Core` | Framework core — no external transport dependency |
 | `NymBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
+| `NymBroker.Sql` | Optional SQLite transport via Dapper (add when needed) |
 | `NymBroker.Tests` | xUnit tests |
 | `samples/NymBroker.Sample` | Fluent API demo |
 | `samples/NymBroker.ConfigSample` | JSON config file demo |
+| `samples/NymBroker.SqlSample` | SQLite endpoint demo |
 | `samples/NymBroker.Benchmarks` | Throughput and allocation benchmark |
 
 ## Getting started
@@ -123,6 +125,77 @@ Watches a directory for incoming JSON files; writes outgoing messages to another
     PostPath    = "out",
     PollInterval = TimeSpan.FromSeconds(2)
 })
+```
+
+### SQL (SQLite)
+
+Add a reference to `NymBroker.Sql` and use the extension method:
+
+```csharp
+using NymBroker.Sql;
+
+services.AddNymBroker()
+    .AddSqlEndPoint("SqlQueue", new SqlSettings
+    {
+        ConnectionString = "Data Source=messages.db",
+        TableName        = "NymBrokerMessages",
+        BatchSize        = 10,
+        AutoCreateTable  = true   // creates table + index on first use
+    })
+    .AddConsumer<OrderConsumer>()
+    .Build();
+```
+
+Messages written via `PostAsync` are stored as `Status='Pending'` rows. The broker's poll cycle reads them in `CreatedAt` order up to `BatchSize` at a time and marks each claimed row as `Status='Processed'` before yielding it. An optimistic `UPDATE … WHERE Status='Pending'` is used as the claim, so multiple application instances can poll the same database without processing duplicates.
+
+**Schema** (auto-created when `AutoCreateTable = true`):
+
+```sql
+CREATE TABLE NymBrokerMessages (
+    Id          TEXT NOT NULL PRIMARY KEY,
+    Status      TEXT NOT NULL DEFAULT 'Pending',   -- Pending | Processed
+    CreatedAt   TEXT NOT NULL,
+    ProcessedAt TEXT NULL,
+    Payload     TEXT NOT NULL
+);
+```
+
+**`SqlSettings` properties:**
+
+| Property | Default | Description |
+|---|---|---|
+| `ConnectionString` | `Data Source=messages.db` | SQLite connection string |
+| `TableName` | `NymBrokerMessages` | Table to read/write |
+| `BatchSize` | `10` | Max rows read per poll cycle |
+| `AutoCreateTable` | `true` | Create table + index on first connect |
+| `PollInterval` | `100 ms` | Delay between poll cycles; `TimeSpan.Zero` = poll immediately after a full batch |
+
+From a JSON config file (call `.WithSql()` after `.LoadConfiguration()`):
+
+```json
+{
+  "NymBroker": {
+    "Endpoints": [
+      {
+        "Name": "SqlQueue",
+        "Type": "Sql",
+        "Config": {
+          "connectionString": "Data Source=messages.db",
+          "tableName": "Orders",
+          "batchSize": 25
+        }
+      }
+    ]
+  }
+}
+```
+
+```csharp
+services.AddNymBroker()
+    .LoadConfiguration("queuesettings.json")
+    .WithSql()
+    .AddConsumer<OrderConsumer>()
+    .Build();
 ```
 
 ### RabbitMQ
@@ -432,6 +505,9 @@ dotnet run --project samples/NymBroker.Sample
 
 # JSON config file demo
 dotnet run --project samples/NymBroker.ConfigSample
+
+# SQLite endpoint demo (posts orders before start, broker reads them from DB)
+dotnet run --project samples/NymBroker.SqlSample
 ```
 
 ## Benchmarks
@@ -466,6 +542,7 @@ A warmup pass runs first to JIT the hot paths before measurements begin. GC is f
 | **PubSub – 3 subs** | `Memory` | 50 000 × 3 | Three subscribers on the same topic. Fan-out is sequential within the topic; each message must signal three times before it counts as complete. Measures per-subscriber overhead and shows how throughput scales with subscriber count. |
 | **PubSub – endpoint** | `Memory` → `PubSubDest` | 50 000 | Topic fans out to a second `PubSubDest` memory endpoint; the consumer on that endpoint signals. `NotFromRouteCondition` prevents the copy from re-triggering the topic. Exercises the endpoint-based fan-out path. |
 | **File – direct** | `FileLoop` | 100 | Messages are written as JSON files to `bench-in/`, picked up by `FileSystemWatcher`, deserialized, and dispatched. Exercises the full file I/O path including Polly retry and `.processed` rename. Lower count because disk I/O dominates. |
+| **SQL – direct** | `SqlBench` | 1 000 | Messages are inserted into an in-memory SQLite database via Dapper, then claimed and dispatched by the endpoint's internal poll loop (`BatchSize=100`, `PollInterval=0`). Measures the overhead of the optimistic UPDATE claim and async Dapper round trips. |
 
 ### Configuration
 
@@ -498,14 +575,15 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 
 ```
 Scenario                      Msg/sec     Elapsed   Gen0   Gen1   Gen2     Alloc/msg
-───────────────────────────────────────────────────────────────────────────────────
-Memory – direct                56 000      889 ms     33      0      0    7.9 KB/msg
-Memory – routed                33 000    1 525 ms     66     26      0   14.9 KB/msg
-Memory – filtered             114 000      439 ms     33     12      0    7.9 KB/msg
-PubSub – 1 sub                     —          —      —      —      —           —
-PubSub – 3 subs                    —          —      —      —      —           —
-PubSub – endpoint                  —          —      —      —      —           —
-File   – direct                   300      325 ms      1      0      0  145.2 KB/msg
+──────────────────────────────────────────────────────────────────────────────────────
+Memory – direct                66 050      757 ms     29      0      0    7.1 KB/msg
+Memory – routed                47 303    1 057 ms     59     13      0   13.7 KB/msg
+Memory – filtered              98 039      510 ms     29      3      0    7.1 KB/msg
+PubSub – 1 sub                 52 631      950 ms     25      0      0    6.3 KB/msg
+PubSub – 3 subs                65 104      768 ms     25      0      0    6.3 KB/msg
+PubSub – endpoint              87 260      573 ms     51      1      0   12.6 KB/msg
+File   – direct                   265      376 ms      1      0      0  143.2 KB/msg
+SQL    – direct                   664    1 506 ms      0      0      0   11.5 KB/msg
 ```
 
 Run `dotnet run --project samples/NymBroker.Benchmarks` for current pub/sub numbers on your hardware.
@@ -517,6 +595,7 @@ Notes on the numbers:
 - **PubSub – 3 subs** throughput measured as messages-posted/elapsed; since each message signals three times the total signal count is `3 × 50 000`. Expect roughly `1/(N_subs)` throughput relative to 1 sub due to sequential fan-out within a topic.
 - **PubSub – endpoint** exercises the endpoint-based fan-out path: the topic serializes the message context and posts it to `PubSubDest`, where the broker picks it up and dispatches to `BenchmarkConsumer`.
 - **File** allocation per message is high because `StreamReader.ReadToEndAsync` allocates a string for each file; this is inherent to file-based transport.
+- **SQL** runs against an in-memory SQLite database (`BatchSize=100`, `PollInterval=0`). Each message costs one INSERT plus a SELECT and UPDATE (optimistic claim) spread across a batch. Gen0 collections are zero because all allocations are short-lived and collected before the measurement window or stay alive for the run; Dapper's parameter boxing contributes to the 11.5 KB/msg figure. ~664 msg/s is the ceiling for single-connection `:memory:` SQLite on this hardware; a file-backed database will be lower.
 
 ## Running tests
 

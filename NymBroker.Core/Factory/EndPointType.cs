@@ -7,5 +7,6 @@ public enum EndPointType
 {
     File,
     RabbitMq,
-    Memory
+    Memory,
+    Sql
 }

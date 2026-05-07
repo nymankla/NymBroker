@@ -4,11 +4,13 @@ using NymBroker.Core.DI;
 using NymBroker.Core.Factory;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Route;
+using NymBroker.Sql;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 const int MemoryCount = 50_000;
 const int FileCount   = 100;
+const int SqlCount    = 1_000;
 var Settings = Path.Combine(AppContext.BaseDirectory, "benchmarksettings.json");
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -16,6 +18,7 @@ Console.WriteLine("NymBroker Throughput Benchmarks");
 Console.WriteLine(new string('=', 42));
 Console.WriteLine($"  Memory scenarios : {MemoryCount:N0} messages");
 Console.WriteLine($"  File scenario    : {FileCount:N0} messages");
+Console.WriteLine($"  SQL scenario     : {SqlCount:N0} messages");
 Console.WriteLine();
 
 Console.Write("Warming up... ");
@@ -66,6 +69,15 @@ var results = new List<BenchmarkResult>
         }),
 
     await RunAsync("File   – direct",     "FileLoop", FileCount, fileDir: "bench-in"),
+
+    await RunAsync("SQL    – direct",     "SqlBench", SqlCount,
+        configureBuilder: b => b.AddSqlEndPoint("SqlBench", new SqlSettings
+        {
+            ConnectionString = "Data Source=:memory:",
+            TableName        = "BenchMessages",
+            BatchSize        = 100,
+            PollInterval     = TimeSpan.Zero
+        })),
 };
 
 PrintTable(results);
