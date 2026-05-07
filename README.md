@@ -140,23 +140,30 @@ services.AddNymBroker()
         ConnectionString = "Data Source=messages.db",
         TableName        = "NymBrokerMessages",
         BatchSize        = 10,
-        AutoCreateTable  = true   // creates table + index on first use
+        AutoCreateTable  = true,  // creates table + indexes on first use
+        LeaseTimeout     = TimeSpan.FromMinutes(5),
+        MaxRetryCount    = 5
     })
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
 
-Messages written via `PostAsync` are stored as `Status='Pending'` rows. The broker's poll cycle reads them in `CreatedAt` order up to `BatchSize` at a time and marks each claimed row as `Status='Processed'` before yielding it. An optimistic `UPDATE … WHERE Status='Pending'` is used as the claim, so multiple application instances can poll the same database without processing duplicates.
+Messages written via `PostAsync` are stored as `Pending` rows. The broker claims them by moving them to `InProgress`, setting a lease (`LockedUntilUtc`) and incrementing `AttemptCount`. Successful processing moves them to `Completed`; failures are returned to `Pending` until `MaxRetryCount` is reached, after which they are marked `Failed`. Expired leases are reclaimable, so multiple application instances can safely poll the same database.
 
 **Schema** (auto-created when `AutoCreateTable = true`):
 
 ```sql
 CREATE TABLE NymBrokerMessages (
-    Id          TEXT NOT NULL PRIMARY KEY,
-    Status      TEXT NOT NULL DEFAULT 'Pending',   -- Pending | Processed
-    CreatedAt   TEXT NOT NULL,
-    ProcessedAt TEXT NULL,
-    Payload     TEXT NOT NULL
+    QueueId        INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    MessageId      TEXT    NOT NULL UNIQUE,
+    Status         INTEGER NOT NULL DEFAULT 0 CHECK (Status IN (0, 1, 2, 3)),
+    CreatedAtUtc   INTEGER NOT NULL DEFAULT (unixepoch()),
+    LockedUntilUtc INTEGER NULL,
+    CompletedAtUtc INTEGER NULL,
+    FailedAtUtc    INTEGER NULL,
+    AttemptCount   INTEGER NOT NULL DEFAULT 0,
+    LastError      TEXT NULL,
+    Payload        TEXT NOT NULL
 );
 ```
 
@@ -167,8 +174,10 @@ CREATE TABLE NymBrokerMessages (
 | `ConnectionString` | `Data Source=messages.db` | SQLite connection string |
 | `TableName` | `NymBrokerMessages` | Table to read/write |
 | `BatchSize` | `10` | Max rows read per poll cycle |
-| `AutoCreateTable` | `true` | Create table + index on first connect |
+| `AutoCreateTable` | `true` | Create table + indexes on first connect |
 | `PollInterval` | `100 ms` | Delay between poll cycles; `TimeSpan.Zero` = poll immediately after a full batch |
+| `LeaseTimeout` | `5 min` | How long a claimed message stays leased before it can be reclaimed |
+| `MaxRetryCount` | `5` | Number of failed attempts before a message is marked `Failed` |
 
 From a JSON config file (call `.WithSql()` after `.LoadConfiguration()`):
 
