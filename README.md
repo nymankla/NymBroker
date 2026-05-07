@@ -27,6 +27,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 | `NymBroker.Core` | Framework core — no external transport dependency |
 | `NymBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
 | `NymBroker.Sql` | Optional SQLite transport via Dapper (add when needed) |
+| `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
 | `NymBroker.Tests` | xUnit tests |
 | `samples/NymBroker.Sample` | Fluent API demo |
 | `samples/NymBroker.ConfigSample` | JSON config file demo |
@@ -203,6 +204,86 @@ From a JSON config file (call `.WithSql()` after `.LoadConfiguration()`):
 services.AddNymBroker()
     .LoadConfiguration("queuesettings.json")
     .WithSql()
+    .AddConsumer<OrderConsumer>()
+    .Build();
+```
+
+### PostgreSQL
+
+Add a reference to `NymBroker.Postgres` and use the extension method:
+
+```csharp
+using NymBroker.Postgres;
+
+services.AddNymBroker()
+    .AddPostgresEndPoint("PgQueue", new PostgresSettings
+    {
+        ConnectionString = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres",
+        TableName        = "nymbroker_messages",
+        BatchSize        = 10,
+        AutoCreateTable  = true,
+        LeaseTimeout     = TimeSpan.FromMinutes(5),
+        MaxRetryCount    = 5
+    })
+    .AddConsumer<OrderConsumer>()
+    .Build();
+```
+
+Messages use the same lifecycle as the SQLite endpoint (`Pending -> InProgress -> Completed/Failed`), but claiming is implemented with PostgreSQL row locking using `FOR UPDATE SKIP LOCKED`. That allows concurrent consumers across multiple application instances without a process-wide lock.
+
+**Schema** (auto-created when `AutoCreateTable = true`):
+
+```sql
+CREATE TABLE nymbroker_messages (
+    queue_id         BIGSERIAL PRIMARY KEY,
+    message_id       UUID        NOT NULL UNIQUE,
+    status           INTEGER     NOT NULL DEFAULT 0 CHECK (status IN (0, 1, 2, 3)),
+    created_at_utc   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    locked_until_utc TIMESTAMPTZ NULL,
+    completed_at_utc TIMESTAMPTZ NULL,
+    failed_at_utc    TIMESTAMPTZ NULL,
+    attempt_count    INTEGER     NOT NULL DEFAULT 0,
+    last_error       TEXT        NULL,
+    payload          TEXT        NOT NULL
+);
+```
+
+**`PostgresSettings` properties:**
+
+| Property | Default | Description |
+|---|---|---|
+| `ConnectionString` | `Host=localhost;Database=nymbroker;Username=postgres;Password=postgres` | PostgreSQL connection string |
+| `TableName` | `nymbroker_messages` | Table to read/write |
+| `BatchSize` | `10` | Max rows read per poll cycle |
+| `AutoCreateTable` | `true` | Create table + indexes on first connect |
+| `PollInterval` | `100 ms` | Delay between poll cycles; `TimeSpan.Zero` = poll immediately after a full batch |
+| `LeaseTimeout` | `5 min` | How long a claimed message stays leased before it can be reclaimed |
+| `MaxRetryCount` | `5` | Number of failed attempts before a message is marked `Failed` |
+
+From a JSON config file (call `.WithPostgres()` after `.LoadConfiguration()`):
+
+```json
+{
+  "NymBroker": {
+    "Endpoints": [
+      {
+        "Name": "PgQueue",
+        "Type": "Postgres",
+        "Config": {
+          "connectionString": "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres",
+          "tableName": "orders",
+          "batchSize": 25
+        }
+      }
+    ]
+  }
+}
+```
+
+```csharp
+services.AddNymBroker()
+    .LoadConfiguration("queuesettings.json")
+    .WithPostgres()
     .AddConsumer<OrderConsumer>()
     .Build();
 ```

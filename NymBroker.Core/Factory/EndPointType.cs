@@ -8,5 +8,6 @@ public enum EndPointType
     File,
     RabbitMq,
     Memory,
-    Sql
+    Sql,
+    Postgres
 }

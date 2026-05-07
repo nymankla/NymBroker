@@ -10,6 +10,7 @@ using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using NymBroker.Postgres;
 
 namespace NymBroker.Tests;
 
@@ -144,7 +145,8 @@ public sealed class BuilderConfigurationTests
             {
               "NymBroker": {
                 "Endpoints": [
-                  { "name": "Mem1", "type": "Memory" }
+                  { "name": "Mem1", "type": "Memory" },
+                  { "name": "Pg1", "type": "Postgres" }
                 ]
               }
             }
@@ -157,9 +159,11 @@ public sealed class BuilderConfigurationTests
 
         var config = BrokerConfigurationReader.Read(configuration);
 
-        Assert.Single(config.Endpoints);
+        Assert.Equal(2, config.Endpoints.Count);
         Assert.Equal("Mem1", config.Endpoints[0].Name);
         Assert.Equal(EndPointType.Memory, config.Endpoints[0].Type);
+        Assert.Equal("Pg1", config.Endpoints[1].Name);
+        Assert.Equal(EndPointType.Postgres, config.Endpoints[1].Type);
     }
 
     [Fact]
@@ -178,6 +182,22 @@ public sealed class BuilderConfigurationTests
         var ep = new EndPointConfiguration { Name = "F", Type = EndPointType.File };
         var settings = ep.ToFileSettings();
         Assert.NotNull(settings);
+    }
+
+    [Fact]
+    public void AddPostgresEndPoint_RegistersEndpointInContainer()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        services.AddNymBroker()
+            .AddPostgresEndPoint("Pg", new PostgresSettings { AutoCreateTable = false })
+            .Build();
+
+        using var sp = services.BuildServiceProvider();
+        var endpoint = sp.GetRequiredKeyedService<IEndPoint>("Pg");
+
+        Assert.IsType<PostgresEndPoint>(endpoint);
     }
 
     // --- RegisterEndpoint adds name to the endpoint list ---
