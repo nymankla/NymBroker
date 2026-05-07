@@ -1,4 +1,6 @@
 using System.Text;
+using Dapper;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using NymBroker.Sql;
 
@@ -121,7 +123,8 @@ public sealed class SqlEndPointTests : IAsyncDisposable
             {
                 ConnectionString = "Data Source=:memory:",
                 AutoCreateTable  = true,
-                PollInterval     = TimeSpan.Zero
+                PollInterval     = TimeSpan.Zero,
+                MaxRetryCount    = 3
             },
             NullLogger<SqlEndPoint>.Instance);
 
@@ -143,6 +146,116 @@ public sealed class SqlEndPointTests : IAsyncDisposable
         await ep.StopListeningAsync();
 
         Assert.Equal(2, received.Count);
+    }
+
+    [Fact]
+    public async Task StartListeningAsync_RetriesFailedMessages_AndEventuallyCompletes()
+    {
+        await using var ep = new SqlEndPoint("retry-test",
+            new SqlSettings
+            {
+                ConnectionString = "Data Source=:memory:",
+                AutoCreateTable  = true,
+                PollInterval     = TimeSpan.Zero,
+                MaxRetryCount    = 3,
+                LeaseTimeout     = TimeSpan.FromSeconds(1)
+            },
+            NullLogger<SqlEndPoint>.Instance);
+
+        await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"retry":true}""")));
+
+        var attempts = 0;
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await ep.StartListeningAsync((_, _) =>
+        {
+            attempts++;
+            if (attempts < 2)
+                throw new InvalidOperationException("Transient failure");
+
+            completed.TrySetResult();
+            return Task.CompletedTask;
+        }, cts.Token);
+
+        await completed.Task;
+        await ep.StopListeningAsync();
+
+        Assert.Equal(2, attempts);
+
+        var items = new List<string>();
+        await foreach (var item in ep.ReadAsync())
+            items.Add(item);
+
+        Assert.Empty(items);
+    }
+
+    [Fact]
+    public async Task StartListeningAsync_MarksMessageFailed_AfterMaxRetries()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"nymbroker-sql-{Guid.NewGuid():N}.db");
+        SqlEndPoint? ep = null;
+        try
+        {
+            var connectionString = $"Data Source={dbPath}";
+            ep = new SqlEndPoint("failed-test",
+                new SqlSettings
+                {
+                    ConnectionString = connectionString,
+                    AutoCreateTable  = true,
+                    PollInterval     = TimeSpan.Zero,
+                    MaxRetryCount    = 2,
+                    LeaseTimeout     = TimeSpan.FromSeconds(1)
+                },
+                NullLogger<SqlEndPoint>.Instance);
+
+            await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"fail":true}""")));
+
+            var attempts = 0;
+            var exhausted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await ep.StartListeningAsync((_, _) =>
+            {
+                attempts++;
+                if (attempts >= 2) exhausted.TrySetResult();
+                throw new InvalidOperationException("Permanent failure");
+            }, cts.Token);
+
+            await exhausted.Task;
+            await ep.StopListeningAsync();
+
+            await using var conn = new SqliteConnection(connectionString);
+            await conn.OpenAsync();
+
+            var failedCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(1) FROM NymBrokerMessages WHERE Status = 3");
+            var pendingCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(1) FROM NymBrokerMessages WHERE Status = 0");
+            var inProgressCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(1) FROM NymBrokerMessages WHERE Status = 1");
+
+            Assert.Equal(2, attempts);
+            Assert.Equal(1, failedCount);
+            Assert.Equal(0, pendingCount);
+            Assert.Equal(0, inProgressCount);
+        }
+        finally
+        {
+            if (ep is not null)
+                await ep.DisposeAsync();
+
+            if (File.Exists(dbPath))
+            {
+                try
+                {
+                    File.Delete(dbPath);
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+        }
     }
 
     private Task Post(string payload) =>
