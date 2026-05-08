@@ -8,7 +8,7 @@ using NymBroker.Core.Endpoint.HealthCheck;
 
 namespace NymBroker.Sql;
 
-public sealed class SqliteEndPoint : IEndPointPoll, IEndPointEventDriven, IAsyncDisposable
+public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
 {
     private const string ReadAsyncLeaseReturnedMessage = "Message lease returned by ReadAsync without acknowledgement.";
 
@@ -88,8 +88,6 @@ public sealed class SqliteEndPoint : IEndPointPoll, IEndPointEventDriven, IAsync
         _listeningCts?.Cancel();
         return Task.CompletedTask;
     }
-
-    // ── IEndPointPoll ───────────────────────────────────────────────────────
 
     public async IAsyncEnumerable<string> ReadAsync(
         [EnumeratorCancellation] CancellationToken ct = default)

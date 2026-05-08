@@ -5,7 +5,7 @@ using Polly.Retry;
 
 namespace NymBroker.Core.Endpoint.File;
 
-public sealed class FileEndPoint : IEndPointEventDriven, IEndPointPoll
+public sealed class FileEndPoint : IEndPointEventDriven
 {
     private readonly FileSettings _settings;
     private readonly ILogger<FileEndPoint> _logger;
