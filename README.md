@@ -26,7 +26,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 |---|---|
 | `NymBroker.Core` | Framework core — no external transport dependency |
 | `NymBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
-| `NymBroker.Sql` | Optional SQLite transport via Dapper (add when needed) |
+| `NymBroker.Sqlite` | Optional SQLite transport via Dapper (add when needed) |
 | `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
 | `NymBroker.Tests` | xUnit tests |
 | `samples/NymBroker.Sample` | Fluent API demo |
@@ -106,26 +106,66 @@ await broker.PostAsync("MemQueue", new OrderMessage { OrderId = "ORD-1", Custome
 
 ### Memory
 
-In-process bounded channel — useful for tests and internal routing:
+In-process bounded `Channel<string>` — zero I/O, useful for internal routing and tests:
 
 ```csharp
-.AddMemoryEndPoint("MemQueue")            // default capacity 1000
+.AddMemoryEndPoint("MemQueue")            // default capacity 1 000
 .AddMemoryEndPoint("HighPriority", 100)   // custom capacity
+```
+
+`PostAsync` blocks when the channel is full (backpressure). `EnqueueAsync` is also available for direct string injection without serialization overhead:
+
+```csharp
+var ep = host.Services.GetRequiredKeyedService<IEndPoint>("MemQueue") as MemoryQueueEndPoint;
+await ep!.EnqueueAsync("""{"orderId":"ORD-1"}""");
+```
+
+From a JSON config file (`Memory` endpoints are processed automatically by `LoadConfiguration`):
+
+```json
+{ "Name": "MemQueue", "Type": "Memory" }
 ```
 
 ### File
 
-Watches a directory for incoming JSON files; writes outgoing messages to another:
+Watches a directory for incoming JSON files and writes outgoing messages to another directory. Incoming files are renamed to `.processed` after a successful read:
 
 ```csharp
-.AddFileEndPoint("FileIn")   // defaults: readPath="in", postPath="out"
+.AddFileEndPoint("FileIn")   // defaults: ReadPath="in", PostPath="out"
 
 .AddFileEndPoint("FileOut", new FileSettings
 {
-    ReadPath    = "processed",
-    PostPath    = "out",
-    PollInterval = TimeSpan.FromSeconds(2)
+    ReadPath       = "orders-in",
+    PostPath       = "orders-out",
+    SearchPattern  = "*.json",
+    PollInterval   = TimeSpan.FromSeconds(5),
+    IsAbsolutePath = false        // paths are relative to the working directory
 })
+```
+
+**`FileSettings` properties:**
+
+| Property | Default | Description |
+|---|---|---|
+| `ReadPath` | `in` | Directory to watch for incoming files |
+| `PostPath` | `out` | Directory to write outgoing files |
+| `SearchPattern` | `*.json` | File glob pattern for the watcher |
+| `PollInterval` | `5 s` | How often to scan for files that were missed by the watcher |
+| `IsAbsolutePath` | `false` | When `true`, `ReadPath`/`PostPath` are treated as absolute paths |
+
+From a JSON config file:
+
+```json
+{
+  "Name": "FileOut",
+  "Type": "File",
+  "Config": {
+    "readPath": "orders-in",
+    "postPath": "orders-out",
+    "searchPattern": "*.json",
+    "pollInterval": "00:00:05"
+  }
+}
 ```
 
 ### SQL (SQLite)

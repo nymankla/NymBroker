@@ -12,7 +12,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
                                     Aggregator / Splitter
 ```
 
-Primary endpoints are **RabbitMQ** and **File**. Memory endpoint is used for in-process routing and tests.
+Endpoints: **RabbitMQ**, **SQLite**, **PostgreSQL**, **File**, **Memory** (in-process / tests).
 
 ## Commands
 
@@ -24,6 +24,7 @@ dotnet test
 dotnet test --filter "FullyQualifiedName~SerializerTests"   # single test class
 dotnet run --project samples/NymBroker.Sample            # fluent API demo
 dotnet run --project samples/NymBroker.ConfigSample      # JSON config demo
+dotnet run --project samples/NymBroker.SqlSample         # SQLite endpoint demo
 dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 
 # RabbitMQ (Docker Desktop required)
@@ -38,12 +39,15 @@ dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 
 | Project | Role |
 |---|---|
-| `NymBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No RabbitMQ dependency. |
-| `NymBroker.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, and `AddRabbitMqEndPoint`/`WithRabbitMq` extension methods. Reference only when using RabbitMQ. |
-| `NymBroker.Tests` | xUnit tests (use Memory endpoint — no RabbitMQ/file I/O) |
+| `NymBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No transport dependency. |
+| `NymBroker.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, `AddRabbitMqEndPoint`/`WithRabbitMq`. |
+| `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses Dapper + `Microsoft.Data.Sqlite`. |
+| `NymBroker.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
+| `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. |
 | `samples/NymBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
 | `samples/NymBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
-| `samples/NymBroker.Benchmarks` | Throughput + allocation benchmark — Memory and File endpoints, config from `benchmarksettings.json` |
+| `samples/NymBroker.SqlSample` | SQLite endpoint demo — posts orders, broker claims and dispatches |
+| `samples/NymBroker.Benchmarks` | Throughput + allocation benchmark — Memory, File, and SQLite scenarios |
 
 ### Key Abstractions
 
@@ -60,6 +64,8 @@ IConsume<T>               ← consumer contract; implement + register via AddCon
 IRouteBuilder<T>          ← fluent route definition (see Routing section)
 IRouteCondition           ← composable predicate evaluated on (IMessageContext, JsonElement)
 ```
+
+`NymBrokerImpl.StartAsync` only starts `IEndPointEventDriven` endpoints. `IEndPointPoll`-only endpoints are never auto-driven by the broker engine. `SqliteEndPoint` and `PostgresEndPoint` implement **both** interfaces — their internal poll loop runs on `Task.Run` and calls `ProcessAsync` on each claimed message.
 
 ### Message Envelope (JSON wire format)
 
@@ -122,6 +128,8 @@ broker.Route<Order>()
     .Build();
 ```
 
+**Routing loop hazard**: any event-driven endpoint registered with the broker has `ProcessAsync` wired to its listener. Routing a message back to the same endpoint re-evaluates all routes — infinite loop without a source guard (`WhenFrom`/`WhenNotFrom`).
+
 ### Consumer Dispatch (Performance)
 
 `ConsumerDispatcher` (separate from the broker, injected via DI) handles typed dispatch:
@@ -152,36 +160,75 @@ Thread-safety: each `Aggregate` instance is lock-guarded and carries an `IsCompl
 ### Factory / DI
 
 ```csharp
-// Core only (no RabbitMQ dependency):
+// Core only:
 services.AddNymBroker()
     .AddFileEndPoint("In",  new FileSettings { ReadPath = "in",  PostPath = "in-out" })
-    .AddFileEndPoint("Out", new FileSettings { ReadPath = "out", PostPath = "out-out" })
-    .AddMemoryEndPoint("Mem")
-    .AddConsumer<OrderConsumer>()   // implements IConsume<OrderMessage>
-    .Build();
-
-// With RabbitMQ (reference NymBroker.RabbitMq project):
-services.AddNymBroker()
-    .AddRabbitMqEndPoint("Rabbit", new RabbitMqSettings { HostName = "localhost", ReadQueueName = "q.in" })
     .AddMemoryEndPoint("Mem")
     .AddConsumer<OrderConsumer>()
     .Build();
-// INymBroker registered as singleton; NymBrokerHostedService registered as IHostedService.
+
+// With SQLite (reference NymBroker.Sqlite):
+services.AddNymBroker()
+    .AddSqliteEndPoint("SqlQueue", new SqliteSettings
+    {
+        ConnectionString = "Data Source=messages.db",
+        AutoCreateTable  = true,
+        LeaseTimeout     = TimeSpan.FromMinutes(5),
+        MaxRetryCount    = 5
+    })
+    .AddConsumer<OrderConsumer>()
+    .Build();
+
+// With PostgreSQL (reference NymBroker.Postgres):
+services.AddNymBroker()
+    .AddPostgresEndPoint("PgQueue", new PostgresSettings
+    {
+        ConnectionString = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres",
+        AutoCreateTable  = true
+    })
+    .AddConsumer<OrderConsumer>()
+    .Build();
+
+// With RabbitMQ (reference NymBroker.RabbitMq):
+services.AddNymBroker()
+    .AddRabbitMqEndPoint("Rabbit", new RabbitMqSettings { HostName = "localhost", ReadQueueName = "q.in" })
+    .AddConsumer<OrderConsumer>()
+    .Build();
 ```
 
-Or from a config file (RabbitMq entries require calling `WithRabbitMq()`):
+From a config file — each transport requires its own `With*()` call:
 
 ```csharp
 services.AddNymBroker()
     .LoadConfiguration("queuesettings.json")
-    .WithRabbitMq()               // from NymBroker.RabbitMq — processes RabbitMq endpoints
+    .WithRabbitMq()     // processes Type=RabbitMq entries
+    .WithSql()          // processes Type=Sql entries (from NymBroker.Sqlite)
+    .WithPostgres()     // processes Type=Postgres entries
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
 
-Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type` (`File|RabbitMq|Memory`), `Config` (camelCase type-specific settings).
+Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type` (`File|Memory|RabbitMq|Sql|Postgres`), `Config` (camelCase type-specific settings). `File` and `Memory` are processed automatically by `LoadConfiguration` without a `With*()` call.
 
 `NymBrokerBuilder` exposes `Services` (the DI container) and `LoadedConfiguration` as public properties so extension packages in other assemblies can register their endpoint types.
+
+### SQLite Endpoint
+
+`SqliteEndPoint` (namespace `NymBroker.Sql`, project `NymBroker.Sqlite`) implements both `IEndPointPoll` and `IEndPointEventDriven`.
+
+**Message lifecycle**: `Pending (0)` → `InProgress (1)` → `Completed (2)` or `Failed (3)`.
+
+**Claiming**: a `SemaphoreSlim(1,1)` (`_dbLock`) serializes all DB operations because `SqliteConnection` is not safe for concurrent access. `ClaimMessagesAsync` runs a SELECT + per-row UPDATE inside a transaction; only rows where `rows_affected > 0` are yielded (optimistic claim). Expired leases (`LockedUntilUtc <= unixepoch()`) are reclaimable.
+
+**Retry**: `AttemptCount` is incremented on every claim. On handler failure, messages are returned to `Pending` until `AttemptCount >= MaxRetryCount`, then marked `Failed`. `LeaseTimeout` controls how long a claimed message stays locked before another poller can reclaim it.
+
+**Schema migration**: `EnsureSchemaAsync` detects old single-status schemas and migrates them to the full leasing schema in a transaction (backup table + INSERT SELECT).
+
+**In-memory SQLite** (`Data Source=:memory:`) requires a single persistent connection — tests use this via `EnsureConnectionAsync` (lazy init under `_dbLock`).
+
+### PostgreSQL Endpoint
+
+`PostgresEndPoint` (namespace `NymBroker.Postgres`) uses the same message lifecycle as SQLite. Claiming uses `SELECT … FOR UPDATE SKIP LOCKED` so multiple application instances can poll the same table concurrently without a process-wide lock.
 
 ### Performance Design
 
@@ -191,6 +238,7 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type` (`File|R
 - **PropertyInfo cache** in `MessageSerializerJson.PropCache` — one reflection lookup per concrete `MessageContext<T>` type.
 - **Bounded `Channel<string>`** in `MemoryQueueEndPoint` for backpressure.
 - **`FileShare.ReadWrite | FileShare.Delete`** in `FileEndPoint.ReadAndArchiveAsync` — `FileShare.Delete` is required so that `File.Move` (rename) can succeed while the read handle is still open. Without it, Windows enforces sharing semantics and the rename fails with ERROR_SHARING_VIOLATION even from the same process.
+- **`SemaphoreSlim(1,1)` in `SqliteEndPoint`** — SQLite single-connection; all DB ops serialized. `ReadAsync` collects rows under the lock then yields outside it to avoid holding the lock during consumer execution.
 
 ### Error Handling / Logging Guarantees
 
@@ -206,6 +254,7 @@ No exception is silently swallowed. The policy per layer:
 | `FileEndPoint.ProcessExistingFilesAsync` | Per-file handler failure → `LogError` (remaining files still processed). Structural failure (e.g. directory gone) → `LogError` on outer Task.Run. |
 | `FileEndPoint.ReadAndArchiveAsync` | IOException after retries → `LogWarning`, file skipped. |
 | `MemoryQueueEndPoint.StartListeningAsync` | Per-message handler failure → `LogError` (loop continues). Unexpected loop termination → `LogCritical`. |
+| `SqliteEndPoint` (listener loop) | Per-message handler failure → `LogError`, message returned to `Pending` or marked `Failed` after max retries. Poll error → `LogError` (loop continues). Unexpected termination → `LogCritical`. |
 | `RabbitMqEndPoint` (message handler) | Handler failure → `LogError`, message nacked with `requeue: true`. |
 | `RabbitMqEndPoint` (listener loop) | Unexpected loop termination → `LogCritical`. `OperationCanceledException` swallowed. |
 
@@ -229,3 +278,4 @@ No exception is silently swallowed. The policy per layer:
 - Consumers are keyed services: key = `typeof(TConsumer).Name`.
 - `RouteContext` is non-sealed and `Evaluate()` is virtual — subclass for custom route logic.
 - Never swallow exceptions silently — every fire-and-forget boundary and catch block must log.
+- New transport endpoints must implement both `IEndPointPoll` and `IEndPointEventDriven` so the broker engine drives them automatically.
