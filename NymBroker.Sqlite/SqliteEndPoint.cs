@@ -310,42 +310,34 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
                     _settings.BatchSize
                 }, tx)).ToList();
 
-            var claimed = new List<ClaimedMessage>(rows.Count);
-            foreach (var row in rows)
+            if (rows.Count > 0)
             {
-                var updated = await conn.ExecuteAsync($"""
+                var ids = string.Join(",", rows.Select(r => r.QueueId));
+                await conn.ExecuteAsync($"""
                     UPDATE {_settings.TableName}
                     SET Status = @InProgressStatus,
                         LockedUntilUtc = unixepoch() + @LeaseTimeoutSeconds,
                         AttemptCount = AttemptCount + 1,
                         LastError = NULL,
                         FailedAtUtc = NULL
-                    WHERE QueueId = @QueueId
-                      AND (Status = @PendingStatus
-                        OR (Status = @InProgressStatus AND LockedUntilUtc IS NOT NULL AND LockedUntilUtc <= unixepoch()))
+                    WHERE QueueId IN ({ids})
                     """,
                     new
                     {
-                        row.QueueId,
-                        PendingStatus = (int)MessageStatus.Pending,
                         InProgressStatus = (int)MessageStatus.InProgress,
                         LeaseTimeoutSeconds = GetLeaseTimeoutSeconds()
                     }, tx);
-
-                if (updated > 0)
-                {
-                    claimed.Add(new ClaimedMessage
-                    {
-                        QueueId = row.QueueId,
-                        MessageId = row.MessageId,
-                        Payload = row.Payload,
-                        AttemptCount = row.AttemptCount + 1
-                    });
-                }
             }
 
             await tx.CommitAsync(ct);
-            return claimed;
+
+            return rows.Select(r => new ClaimedMessage
+            {
+                QueueId      = r.QueueId,
+                MessageId    = r.MessageId,
+                Payload      = r.Payload,
+                AttemptCount = r.AttemptCount + 1
+            }).ToList();
         }
         finally
         {
