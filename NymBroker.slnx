@@ -13,4 +13,5 @@
   <Project Path="samples/NymBroker.SqlSample/NymBroker.SqlSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
+  <Project Path="samples/NymBroker.WebSample/NymBroker.WebSample.csproj" />
 </Solution>
