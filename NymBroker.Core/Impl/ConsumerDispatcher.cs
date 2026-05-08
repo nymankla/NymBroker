@@ -10,20 +10,18 @@ namespace NymBroker.Core.Impl;
 
 public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogger<ConsumerDispatcher> logger)
 {
-    private ImmutableDictionary<MessageKey, string> _consumerKeys = ImmutableDictionary<MessageKey, string>.Empty;
+    private ImmutableDictionary<Type, string> _consumerKeys = ImmutableDictionary<Type, string>.Empty;
 
     private static readonly ConcurrentDictionary<Type, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>> DispatchCache = new();
 
     public void RegisterConsumer(Type messageType, string serviceKey)
     {
-        var key = new MessageKey(messageType);
-        _consumerKeys = _consumerKeys.SetItem(key, serviceKey);
+        _consumerKeys = _consumerKeys.SetItem(messageType, serviceKey);
     }
 
     public async Task DispatchAsync(Type messageType, object message, IMessageContext context, CancellationToken ct)
     {
-        var key = new MessageKey(messageType);
-        if (!_consumerKeys.TryGetValue(key, out var serviceKey))
+        if (!_consumerKeys.TryGetValue(messageType, out var serviceKey))
         {
             logger.LogWarning("No consumer registered for message type '{MessageType}'", messageType.Name);
             return;

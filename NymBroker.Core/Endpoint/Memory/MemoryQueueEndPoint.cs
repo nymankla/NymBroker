@@ -29,8 +29,14 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
 
     public async Task PostAsync(Stream message, CancellationToken ct = default)
     {
-        using var reader = new StreamReader(message, Encoding.UTF8, leaveOpen: true);
-        var json = await reader.ReadToEndAsync(ct);
+        string json;
+        if (message is MemoryStream ms && ms.TryGetBuffer(out var buf))
+            json = Encoding.UTF8.GetString(buf.Array!, buf.Offset, buf.Count);
+        else
+        {
+            using var reader = new StreamReader(message, Encoding.UTF8, leaveOpen: true);
+            json = await reader.ReadToEndAsync(ct);
+        }
         await _channel.Writer.WriteAsync(json, ct);
     }
 
