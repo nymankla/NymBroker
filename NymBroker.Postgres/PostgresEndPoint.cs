@@ -8,7 +8,7 @@ using NymBroker.Core.Endpoint.HealthCheck;
 
 namespace NymBroker.Postgres;
 
-public sealed class PostgresEndPoint : IEndPointPoll, IEndPointEventDriven, IAsyncDisposable
+public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
 {
     private const string ReadAsyncLeaseReturnedMessage = "Message lease returned by ReadAsync without acknowledgement.";
 

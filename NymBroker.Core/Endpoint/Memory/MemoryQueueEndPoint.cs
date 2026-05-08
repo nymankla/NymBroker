@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace NymBroker.Core.Endpoint.Memory;
 
 /// <summary>In-process endpoint backed by a bounded Channel. Useful for testing and inter-component routing.</summary>
-public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IEndPointPoll
+public sealed class MemoryQueueEndPoint : IEndPointEventDriven
 {
     private readonly Channel<string> _channel;
     private readonly ILogger<MemoryQueueEndPoint> _logger;

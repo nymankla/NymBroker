@@ -32,6 +32,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 | `samples/NymBroker.Sample` | Fluent API demo |
 | `samples/NymBroker.ConfigSample` | JSON config file demo |
 | `samples/NymBroker.SqlSample` | SQLite endpoint demo |
+| `samples/NymBroker.WebSample` | ASP.NET Core minimal API demo — REST POST → SQLite queue → consumer |
 | `samples/NymBroker.Benchmarks` | Throughput and allocation benchmark |
 
 ## Getting started
@@ -638,6 +639,10 @@ dotnet run --project samples/NymBroker.ConfigSample
 
 # SQLite endpoint demo (posts orders before start, broker reads them from DB)
 dotnet run --project samples/NymBroker.SqlSample
+
+# ASP.NET Core web API demo (REST POST → SQLite queue → consumer)
+dotnet run --project samples/NymBroker.WebSample
+# then open http://localhost:5000 for the Scalar API explorer
 ```
 
 ## Benchmarks
@@ -704,16 +709,16 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 ### Indicative results (Windows 11, .NET 10, Ryzen 7)
 
 ```
-Scenario                      Msg/sec     Elapsed   Gen0   Gen1   Gen2     Alloc/msg
+Scenario                        Msg/sec     Elapsed   Gen0   Gen1   Gen2     Alloc/msg
 ──────────────────────────────────────────────────────────────────────────────────────
-Memory – direct                66 050      757 ms     29      0      0    7.1 KB/msg
-Memory – routed                47 303    1 057 ms     59     13      0   13.7 KB/msg
-Memory – filtered              98 039      510 ms     29      3      0    7.1 KB/msg
-PubSub – 1 sub                 52 631      950 ms     25      0      0    6.3 KB/msg
-PubSub – 3 subs                65 104      768 ms     25      0      0    6.3 KB/msg
-PubSub – endpoint              87 260      573 ms     51      1      0   12.6 KB/msg
-File   – direct                   265      376 ms      1      0      0  143.2 KB/msg
-SQL    – direct                   664    1 506 ms      0      0      0   11.5 KB/msg
+Memory – direct                  81 967      610 ms     29      0      0    7.2 KB/msg
+Memory – routed                  59 311      843 ms     59     15      0   13.8 KB/msg
+Memory – filtered               111 607      448 ms     29      4      0    7.1 KB/msg
+PubSub – 1 sub                   72 568      689 ms     25      0      0    6.3 KB/msg
+PubSub – 3 subs                  95 785      522 ms     25      0      0    6.3 KB/msg
+PubSub – endpoint               131 233      381 ms     51      1      0   12.6 KB/msg
+File   – direct                     487      205 ms      1      0      0  143.6 KB/msg
+SQL    – direct                   1 074      931 ms      1      0      0   18.6 KB/msg
 ```
 
 Run `dotnet run --project samples/NymBroker.Benchmarks` for current pub/sub numbers on your hardware.
