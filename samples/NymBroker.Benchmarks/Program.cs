@@ -5,12 +5,16 @@ using NymBroker.Core.Factory;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Route;
 using NymBroker.Sql;
+using NymBroker.Postgres;
+using Npgsql;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 const int MemoryCount = 50_000;
 const int FileCount   = 100;
 const int SqlCount    = 1_000;
+const int PgCount     = 1_000;
+const string PgConnStr = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
 var Settings = Path.Combine(AppContext.BaseDirectory, "benchmarksettings.json");
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -19,6 +23,7 @@ Console.WriteLine(new string('=', 42));
 Console.WriteLine($"  Memory scenarios : {MemoryCount:N0} messages");
 Console.WriteLine($"  File scenario    : {FileCount:N0} messages");
 Console.WriteLine($"  SQL scenario     : {SqlCount:N0} messages");
+Console.WriteLine($"  Postgres scenario: {PgCount:N0} messages");
 Console.WriteLine();
 
 Console.Write("Warming up... ");
@@ -80,7 +85,48 @@ var results = new List<BenchmarkResult>
         })),
 };
 
+if (await IsPostgresAvailableAsync())
+{
+    await CleanPgTableAsync();
+    results.Add(await RunAsync("Postgres – direct", "PgBench", PgCount,
+        configureBuilder: b => b.AddPostgresEndPoint("PgBench", new PostgresSettings
+        {
+            ConnectionString = PgConnStr,
+            TableName        = "nymbroker_bench",
+            BatchSize        = 50,
+            AutoCreateTable  = true,
+            PollInterval     = TimeSpan.Zero
+        })));
+}
+else
+{
+    Console.WriteLine("  Postgres – direct        ... skipped (Postgres not available)");
+}
+
 PrintTable(results);
+
+// ─── postgres helpers ────────────────────────────────────────────────────────
+
+async Task<bool> IsPostgresAvailableAsync()
+{
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await using var ds   = NpgsqlDataSource.Create(PgConnStr);
+        await using var conn = await ds.OpenConnectionAsync(cts.Token);
+        return true;
+    }
+    catch { return false; }
+}
+
+async Task CleanPgTableAsync()
+{
+    await using var ds   = NpgsqlDataSource.Create(PgConnStr);
+    await using var conn = await ds.OpenConnectionAsync();
+    await using var cmd  = conn.CreateCommand();
+    cmd.CommandText = "DROP TABLE IF EXISTS nymbroker_bench";
+    await cmd.ExecuteNonQueryAsync();
+}
 
 // ─── watcher sanity ──────────────────────────────────────────────────────────
 
