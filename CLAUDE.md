@@ -56,7 +56,7 @@ IEndPoint                 ← all transports
   IEndPointPoll           ← pull-based: ReadAsync yields current items then completes
   IEndPointEventDriven    ← push-based: StartListeningAsync + handler callback
 
-IMessageContext<T>        ← typed envelope (Id, CorrelationId, Address, MessageType, Created, TraceParent...)
+IMessageContext<T>        ← typed envelope (Id, CorrelationId, Address, MessageType, Created)
 RawMessageContext          ← internal deserialized form; holds JsonElement RawMessage for deferred typing
 
 INymBroker            ← engine facade (see below)
@@ -76,7 +76,6 @@ IRouteCondition           ← composable predicate evaluated on (IMessageContext
   "address": { "to": "FileOut", "from": "RabbitIn" },
   "messageType": "orders.created",
   "created": "2025-01-01T00:00:00Z",
-  "traceParent": "00-...",
   "message": { "...business payload..." }
 }
 ```

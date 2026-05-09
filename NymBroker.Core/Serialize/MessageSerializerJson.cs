@@ -34,8 +34,6 @@ public sealed class MessageSerializerJson : IMessageSerializer
             Address = context.Address,
             MessageType = context.MessageType,
             Created = context.Created,
-            TraceParent = context.TraceParent,
-            TraceState = context.TraceState,
             Message = messageElement
         };
 
@@ -57,8 +55,6 @@ public sealed class MessageSerializerJson : IMessageSerializer
             Address = dto.Address,
             MessageType = dto.MessageType,
             Created = dto.Created,
-            TraceParent = dto.TraceParent,
-            TraceState = dto.TraceState,
             RawMessage = dto.Message
         };
     }
@@ -75,8 +71,6 @@ public sealed class MessageSerializerJson : IMessageSerializer
             Address = dto.Address,
             MessageType = dto.MessageType,
             Created = dto.Created,
-            TraceParent = dto.TraceParent,
-            TraceState = dto.TraceState,
             RawMessage = dto.Message
         };
     }

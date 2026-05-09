@@ -21,12 +21,6 @@ internal sealed class MessageContextDto
     [JsonPropertyName("created")]
     public DateTime Created { get; set; }
 
-    [JsonPropertyName("traceParent")]
-    public string? TraceParent { get; set; }
-
-    [JsonPropertyName("traceState")]
-    public string? TraceState { get; set; }
-
     [JsonPropertyName("message")]
     public JsonElement Message { get; set; }
 }
@@ -39,7 +33,5 @@ public sealed class RawMessageContext : IMessageContext
     public EndpointAddress? Address { get; set; }
     public string? MessageType { get; set; }
     public DateTime Created { get; set; }
-    public string? TraceParent { get; set; }
-    public string? TraceState { get; set; }
     public JsonElement RawMessage { get; set; }
 }

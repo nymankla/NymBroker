@@ -20,8 +20,7 @@ public sealed class SerializerTests
         var ctx = new MessageContext<Order>
         {
             Message = new Order { Id = "O1", Amount = 100m },
-            Address = EndpointAddress.Create("dest", "src"),
-            TraceParent = "traceparent-value"
+            Address = EndpointAddress.Create("dest", "src")
         };
 
         using var stream = _sut.Serialize(ctx);
@@ -31,7 +30,6 @@ public sealed class SerializerTests
         Assert.Equal(ctx.CorrelationId, deserialized.CorrelationId);
         Assert.Equal("dest", deserialized.Address?.To);
         Assert.Equal("src", deserialized.Address?.From);
-        Assert.Equal("traceparent-value", deserialized.TraceParent);
         Assert.Contains("Order", deserialized.MessageType);
     }
 

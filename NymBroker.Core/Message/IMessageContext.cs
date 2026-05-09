@@ -7,8 +7,6 @@ public interface IMessageContext
     EndpointAddress? Address { get; set; }
     string? MessageType { get; set; }
     DateTime Created { get; set; }
-    string? TraceParent { get; set; }
-    string? TraceState { get; set; }
 }
 
 public interface IMessageContext<T> : IMessageContext where T : class

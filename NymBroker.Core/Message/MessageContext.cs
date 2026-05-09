@@ -9,7 +9,5 @@ public sealed class MessageContext<T> : IMessageContext<T> where T : class
     public EndpointAddress? Address { get; set; }
     public string? MessageType { get; set; } = MessageTypeName.Get(typeof(T));
     public DateTime Created { get; set; } = DateTime.UtcNow;
-    public string? TraceParent { get; set; }
-    public string? TraceState { get; set; }
     public T? Message { get; set; }
 }

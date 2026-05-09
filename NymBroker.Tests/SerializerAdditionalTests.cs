@@ -11,25 +11,6 @@ public sealed class SerializerAdditionalTests
 
     private sealed class Product { public string Name { get; set; } = ""; public decimal Price { get; set; } }
 
-    // --- TraceState round-trip ---
-
-    [Fact]
-    public void Serialize_TraceState_IsPreservedRoundTrip()
-    {
-        var ctx = new MessageContext<Product>
-        {
-            Message = new Product { Name = "Widget", Price = 9.99m },
-            TraceParent = "00-abc-def-01",
-            TraceState = "vendor1=value1,vendor2=value2"
-        };
-
-        using var stream = _sut.Serialize(ctx);
-        var deserialized = _sut.Deserialize(stream);
-
-        Assert.Equal("vendor1=value1,vendor2=value2", deserialized.TraceState);
-        Assert.Equal("00-abc-def-01", deserialized.TraceParent);
-    }
-
     // --- Stream overload ---
 
     [Fact]
