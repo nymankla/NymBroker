@@ -273,16 +273,18 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         cmd.Parameters.AddWithValue("leaseTimeout", GetLeaseTimeoutSeconds());
 
         var claimed = new List<ClaimedMessage>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
         {
-            claimed.Add(new ClaimedMessage
+            while (await reader.ReadAsync(ct))
             {
-                QueueId = reader.GetInt64(0),
-                MessageId = reader.GetGuid(1),
-                Payload = reader.GetString(2),
-                AttemptCount = reader.GetInt32(3)
-            });
+                claimed.Add(new ClaimedMessage
+                {
+                    QueueId = reader.GetInt64(0),
+                    MessageId = reader.GetGuid(1),
+                    Payload = reader.GetString(2),
+                    AttemptCount = reader.GetInt32(3)
+                });
+            }
         }
 
         await tx.CommitAsync(ct);

@@ -10,7 +10,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 
 ## Features
 
-- **Multiple transports** — RabbitMQ, SQLite, File system, and in-process Memory endpoint
+- **Multiple transports** — RabbitMQ, SQLite, PostgreSQL, File system, and in-process Memory endpoint
 - **Fluent routing API** — type-safe, composable route conditions
 - **Typed consumers** — implement `IConsume<T>`, optionally handle multiple message types in one class
 - **Publish-Subscribe Channel** — EIP pub/sub; declare topics with typed `ISubscribe<T>` subscribers or endpoint fan-out
@@ -33,6 +33,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 | `samples/NymBroker.ConfigSample` | JSON config file demo |
 | `samples/NymBroker.SqlSample` | SQLite endpoint demo |
 | `samples/NymBroker.WebSample` | ASP.NET Core minimal API demo — REST POST → SQLite queue → consumer |
+| `samples/NymBroker.PostgresSample` | PostgreSQL endpoint demo — posts orders before start, broker reads from DB |
 | `samples/NymBroker.Benchmarks` | Throughput and allocation benchmark |
 
 ## Getting started
@@ -643,6 +644,9 @@ dotnet run --project samples/NymBroker.SqlSample
 # ASP.NET Core web API demo (REST POST → SQLite queue → consumer)
 dotnet run --project samples/NymBroker.WebSample
 # then open http://localhost:5000 for the Scalar API explorer
+
+# PostgreSQL endpoint demo (start Postgres first with ./setup-postgres.ps1)
+dotnet run --project samples/NymBroker.PostgresSample
 ```
 
 ## Benchmarks
@@ -678,6 +682,7 @@ A warmup pass runs first to JIT the hot paths before measurements begin. GC is f
 | **PubSub – endpoint** | `Memory` → `PubSubDest` | 50 000 | Topic fans out to a second `PubSubDest` memory endpoint; the consumer on that endpoint signals. `NotFromRouteCondition` prevents the copy from re-triggering the topic. Exercises the endpoint-based fan-out path. |
 | **File – direct** | `FileLoop` | 100 | Messages are written as JSON files to `bench-in/`, picked up by `FileSystemWatcher`, deserialized, and dispatched. Exercises the full file I/O path including Polly retry and `.processed` rename. Lower count because disk I/O dominates. |
 | **SQL – direct** | `SqlBench` | 1 000 | Messages are inserted into an in-memory SQLite database via Dapper, then claimed and dispatched by the endpoint's internal poll loop (`BatchSize=100`, `PollInterval=0`). Measures the overhead of the optimistic UPDATE claim and async Dapper round trips. |
+| **Postgres – direct** | `PgBench` | 1 000 | Messages are inserted into a real PostgreSQL table, then claimed using `FOR UPDATE SKIP LOCKED` and dispatched (`BatchSize=50`, `PollInterval=0`). Skipped automatically when PostgreSQL is not reachable. Measures the overhead of TCP round trips and the CTE-based atomic claim. |
 
 ### Configuration
 
@@ -700,7 +705,7 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 }
 ```
 
-`FileLoop` uses the same directory for reading and writing (`bench-in`), so posted files are immediately visible to the `FileSystemWatcher`. `PubSubDest` is the fan-out target used by the **PubSub – endpoint** scenario.
+`FileLoop` uses the same directory for reading and writing (`bench-in`), so posted files are immediately visible to the `FileSystemWatcher`. `PubSubDest` is the fan-out target used by the **PubSub – endpoint** scenario. The `Postgres – direct` scenario adds its endpoint directly in code (not via the settings file) and is skipped if PostgreSQL is unreachable.
 
 ### Completion tracking
 
@@ -711,17 +716,18 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 ```
 Scenario                        Msg/sec     Elapsed   Gen0   Gen1   Gen2     Alloc/msg
 ──────────────────────────────────────────────────────────────────────────────────────
-Memory – direct                  81 967      610 ms     29      0      0    7.2 KB/msg
-Memory – routed                  59 311      843 ms     59     15      0   13.8 KB/msg
-Memory – filtered               111 607      448 ms     29      4      0    7.1 KB/msg
-PubSub – 1 sub                   72 568      689 ms     25      0      0    6.3 KB/msg
-PubSub – 3 subs                  95 785      522 ms     25      0      0    6.3 KB/msg
-PubSub – endpoint               131 233      381 ms     51      1      0   12.6 KB/msg
-File   – direct                     487      205 ms      1      0      0  143.6 KB/msg
-SQL    – direct                   1 074      931 ms      1      0      0   18.6 KB/msg
+Memory – direct                  37 537    1 332 ms     13      0      0    3.1 KB/msg
+Memory – routed                  19 654    2 544 ms     23      7      0    5.6 KB/msg
+Memory – filtered                98 231      509 ms     12      4      0    3.1 KB/msg
+PubSub – 1 sub                   65 359      765 ms     25      0      0    6.3 KB/msg
+PubSub – 3 subs                  65 876      759 ms     25      0      0    6.3 KB/msg
+PubSub – endpoint                60 386      828 ms     35      0      0    8.6 KB/msg
+File   – direct                      98    1 019 ms      1      0      0  143.1 KB/msg
+SQL    – direct                     799    1 251 ms      1      0      0   15.2 KB/msg
+Postgres – direct                   522    1 913 ms      1      0      0   16.7 KB/msg
 ```
 
-Run `dotnet run --project samples/NymBroker.Benchmarks` for current pub/sub numbers on your hardware.
+Run `dotnet run -c Release --project samples/NymBroker.Benchmarks` for numbers on your hardware.
 
 Notes on the numbers:
 - **Memory – routed** is slower than direct because each message is serialized a second time to re-post to `MemoryRouted`, doubling the Gen0 collections.
@@ -730,7 +736,8 @@ Notes on the numbers:
 - **PubSub – 3 subs** throughput measured as messages-posted/elapsed; since each message signals three times the total signal count is `3 × 50 000`. Expect roughly `1/(N_subs)` throughput relative to 1 sub due to sequential fan-out within a topic.
 - **PubSub – endpoint** exercises the endpoint-based fan-out path: the topic serializes the message context and posts it to `PubSubDest`, where the broker picks it up and dispatches to `BenchmarkConsumer`.
 - **File** allocation per message is high because `StreamReader.ReadToEndAsync` allocates a string for each file; this is inherent to file-based transport.
-- **SQL** runs against an in-memory SQLite database (`BatchSize=100`, `PollInterval=0`). Each message costs one INSERT plus a SELECT and UPDATE (optimistic claim) spread across a batch. Gen0 collections are zero because all allocations are short-lived and collected before the measurement window or stay alive for the run; Dapper's parameter boxing contributes to the 11.5 KB/msg figure. ~664 msg/s is the ceiling for single-connection `:memory:` SQLite on this hardware; a file-backed database will be lower.
+- **SQL** runs against an in-memory SQLite database (`BatchSize=100`, `PollInterval=0`). Each message costs one INSERT plus a SELECT and UPDATE (optimistic claim) spread across a batch. Gen0 collections are zero because all allocations are short-lived; Dapper's parameter boxing contributes to the per-message allocation. ~800 msg/s is the ceiling for single-connection `:memory:` SQLite on this hardware; a file-backed database will be lower.
+- **Postgres** runs against a local PostgreSQL instance over TCP (`BatchSize=50`, `PollInterval=0`). Each message costs one INSERT (post) plus a CTE `FOR UPDATE SKIP LOCKED` claim UPDATE plus a finalize UPDATE — three round trips per message. The ~522 msg/s reflects TCP latency; throughput scales significantly with batch size and connection pooling in multi-instance deployments.
 
 ## Running tests
 
