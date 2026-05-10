@@ -32,7 +32,6 @@ public sealed class RoutingTests
 
     private sealed class PriceConsumer : IConsume<PriceMessage>
     {
-        public string Name => nameof(PriceConsumer);
         public List<PriceMessage> Received { get; } = [];
         public Task ConsumeAsync(PriceMessage message, IMessageContext context, CancellationToken ct = default)
         {
@@ -43,7 +42,6 @@ public sealed class RoutingTests
 
     private sealed class MultiMessageConsumer : IConsume<PriceMessage>, IConsume<CostMessage>
     {
-        public string Name => nameof(MultiMessageConsumer);
         public static List<string> ReceivedTypes { get; } = [];
 
         public Task ConsumeAsync(PriceMessage message, IMessageContext context, CancellationToken ct = default)
@@ -65,7 +63,6 @@ public sealed class RoutingTests
 
     private sealed class NamedPriceConsumer : IConsume<NamedPriceMessage>
     {
-        public string Name => nameof(NamedPriceConsumer);
         public static int ReceivedCount { get; private set; }
 
         public static void Reset() => ReceivedCount = 0;
@@ -135,7 +132,6 @@ public sealed class RoutingTests
 
     private sealed class ScopedPriceConsumer(ScopedDependency dependency) : IConsume<PriceMessage>
     {
-        public string Name => nameof(ScopedPriceConsumer);
         public static List<Guid> DependencyIds { get; } = [];
 
         public Task ConsumeAsync(PriceMessage message, IMessageContext context, CancellationToken ct = default)

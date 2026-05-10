@@ -34,8 +34,8 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 | `samples/NymBroker.SqlSample` | SQLite endpoint demo |
 | `samples/NymBroker.WebSample` | ASP.NET Core minimal API demo — REST POST → SQLite queue → consumer |
 | `samples/NymBroker.PostgresSample` | PostgreSQL endpoint demo — posts orders before start, broker reads from DB |
-| `samples/NymBroker.ProducerSample` | CLI producer — posts N messages to a shared queue and exits; supports SQLite, PostgreSQL, and RabbitMQ |
-| `samples/NymBroker.ConsumerSample` | Long-running worker — polls the same queue and logs each order; pairs with the producer sample |
+| `samples/NymBroker.ConsumerSample` | Cross-process consumer — listens on a shared queue (SQLite / Postgres / RabbitMQ) |
+| `samples/NymBroker.ProducerSample` | Cross-process producer — posts orders to a shared queue then exits |
 | `samples/NymBroker.Benchmarks` | Throughput and allocation benchmark |
 
 ## Getting started
@@ -67,8 +67,6 @@ Implement `IConsume<T>`. One class can handle multiple message types:
 public sealed class TradingConsumer : IConsume<OrderMessage>, IConsume<StockPriceMessage>
 {
     private readonly ILogger<TradingConsumer> _logger;
-
-    public string Name => nameof(TradingConsumer);
 
     public TradingConsumer(ILogger<TradingConsumer> logger) => _logger = logger;
 
@@ -719,6 +717,12 @@ dotnet run --project samples/NymBroker.WebSample
 
 # PostgreSQL endpoint demo (start Postgres first with ./setup-postgres.ps1)
 dotnet run --project samples/NymBroker.PostgresSample
+
+# Cross-process producer/consumer pair (SQLite by default; pass --transport postgres or --transport rabbitmq)
+# Terminal 1 — start the consumer first:
+dotnet run --project samples/NymBroker.ConsumerSample -- --transport sqlite
+# Terminal 2 — post messages:
+dotnet run --project samples/NymBroker.ProducerSample -- --transport sqlite
 ```
 
 ### Producer / consumer pair
@@ -810,15 +814,15 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 ```
 Scenario                        Msg/sec     Elapsed   Gen0   Gen1   Gen2     Alloc/msg
 ──────────────────────────────────────────────────────────────────────────────────────
-Memory – direct                  70 000+   ~700 ms      12      0      0    2.7 KB/msg
-Memory – routed                  20 000+  ~2 500 ms     22      7      0    5.0 KB/msg
-Memory – filtered               100 000+   ~500 ms      12      4      0    2.7 KB/msg
-PubSub – 1 sub                   80 000+   ~620 ms      10      0      0    1.9 KB/msg
-PubSub – 3 subs                  80 000+   ~620 ms      10      0      0    2.1 KB/msg
-PubSub – endpoint                70 000+   ~700 ms      30      0      0    2.9 KB/msg
-File   – direct                      98    1 019 ms      1      0      0  143.1 KB/msg
-SQL    – direct                     799    1 251 ms      1      0      0   15.2 KB/msg
-Postgres – direct                   522    1 913 ms      1      0      0   16.7 KB/msg
+Memory – direct                  71 225      702 ms     14      0      0    3.5 KB/msg
+Memory – routed                  60 753      823 ms     25      0      0    6.1 KB/msg
+Memory – filtered               123 762      404 ms     14      0      0    3.5 KB/msg
+PubSub – 1 sub                   62 500      800 ms     10      0      0    2.6 KB/msg
+PubSub – 3 subs                  76 335      655 ms     10      0      0    2.7 KB/msg
+PubSub – endpoint               114 416      437 ms     20      0      0    5.0 KB/msg
+File   – direct                     300      333 ms      1      0      0  144.3 KB/msg
+SQL    – direct                     562    1 777 ms      1      0      0   15.6 KB/msg
+Postgres – direct                   690    1 449 ms      1      0      0   17.8 KB/msg
 ```
 
 Run `dotnet run -c Release --project samples/NymBroker.Benchmarks` for numbers on your hardware.

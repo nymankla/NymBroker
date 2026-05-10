@@ -71,7 +71,6 @@ public sealed class PubSubTests
 
     private sealed class OrderConsumer : IConsume<OrderMessage>
     {
-        public string Name => nameof(OrderConsumer);
         public List<OrderMessage> Received { get; } = [];
 
         public Task ConsumeAsync(OrderMessage message, IMessageContext context, CancellationToken ct = default)

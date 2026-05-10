@@ -1,82 +1,59 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using NymBroker.Core.DI;
-using NymBroker.Sql;
+using NymBroker.ConsumerSample.Consumers;
 using NymBroker.Postgres;
 using NymBroker.RabbitMq;
-using NymBroker.ConsumerSample.Consumers;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using NymBroker.Sql;
 
-var transport = GetArg(args, "--transport", "sqlite");
-
-var dbDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "nymbrokersample");
-Directory.CreateDirectory(dbDir);
-var sqliteConnectionString  = $"Data Source={Path.Combine(dbDir, "nymbroker-queue.db")}";
-const string PgConnectionString = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
-
-var destination = transport switch
-{
-    "postgres" => $"postgres ({PgConnectionString})",
-    "rabbit"   => "rabbitmq (localhost, queue: orders)",
-    _          => sqliteConnectionString
-};
-
-Console.WriteLine("NymBroker Consumer Sample");
-Console.WriteLine($"Transport : {transport}");
-Console.WriteLine($"Source    : {destination}");
-Console.WriteLine("Press Ctrl+C to stop.");
-Console.WriteLine();
+var transport = args.SkipWhile(a => a != "--transport").Skip(1).FirstOrDefault() ?? "sqlite";
 
 var host = Host.CreateDefaultBuilder(args)
-    .ConfigureLogging(l => l.SetMinimumLevel(LogLevel.Information))
     .ConfigureServices((_, services) =>
     {
-        var broker = services.AddNymBroker();
+        var builder = services.AddNymBroker();
 
-        switch (transport)
+        switch (transport.ToLowerInvariant())
         {
             case "postgres":
-                broker.AddPostgresEndPoint("Queue", new PostgresSettings
+                builder.AddPostgresEndPoint("Queue", new PostgresSettings
                 {
-                    ConnectionString = PgConnectionString,
-                    TableName        = "orders",
-                    AutoCreateTable  = true,
-                    PollInterval     = TimeSpan.FromMilliseconds(100),
-                    MaxRetryCount    = 3,
-                    BatchSize        = 500
+                    ConnectionString = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres",
+                    TableName        = "consumer_sample",
+                    AutoCreateTable  = true
                 });
                 break;
 
-            case "rabbit":
-                broker.AddRabbitMqEndPoint("Queue", new RabbitMqSettings
+            case "rabbitmq":
+                builder.AddRabbitMqEndPoint("Queue", new RabbitMqSettings
                 {
                     HostName      = "localhost",
-                    ReadQueueName = "orders"
+                    ReadQueueName = "consumer.sample"
                 });
                 break;
 
-            default:
-                broker.AddSqliteEndPoint("Queue", new SqliteSettings
+            default: // sqlite
+                builder.AddSqliteEndPoint("Queue", new SqliteSettings
                 {
-                    ConnectionString = sqliteConnectionString,
-                    TableName        = "Orders",
-                    AutoCreateTable  = true,
-                    PollInterval     = TimeSpan.FromMilliseconds(500),
-                    MaxRetryCount    = 3,
-                    BatchSize        = 100
+                    ConnectionString = "Data Source=consumer-sample.db",
+                    AutoCreateTable  = true
                 });
                 break;
         }
 
-        broker.AddConsumer<OrderConsumer>().Build();
+        builder.AddConsumer<OrderConsumer>().Build();
     })
     .Build();
 
-await host.RunAsync();
+Console.WriteLine($"ConsumerSample started (transport: {transport}). Waiting for messages — Ctrl+C to stop.");
 
-// --- helpers ---
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-static string GetArg(string[] args, string flag, string fallback)
-{
-    var idx = Array.IndexOf(args, flag);
-    return idx >= 0 && idx + 1 < args.Length ? args[idx + 1].ToLowerInvariant() : fallback;
-}
+await host.StartAsync(cts.Token);
+
+try { await Task.Delay(Timeout.Infinite, cts.Token); }
+catch (OperationCanceledException) { }
+
+await host.StopAsync();
+Console.WriteLine("ConsumerSample stopped.");

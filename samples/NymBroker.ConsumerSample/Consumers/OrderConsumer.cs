@@ -1,23 +1,21 @@
+using Microsoft.Extensions.Logging;
 using NymBroker.ConsumerSample.Messages;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Message;
-using Microsoft.Extensions.Logging;
 
 namespace NymBroker.ConsumerSample.Consumers;
 
-public sealed class OrderConsumer(ILogger<OrderConsumer> logger) : IConsume<OrderMessage>
+public sealed class OrderConsumer : IConsume<OrderMessage>
 {
-    public string Name => nameof(OrderConsumer);
+    private readonly ILogger<OrderConsumer> _logger;
 
-    public Task ConsumeAsync(OrderMessage message, IMessageContext context, CancellationToken ct = default)
+    public OrderConsumer(ILogger<OrderConsumer> logger) => _logger = logger;
+
+    public Task ConsumeAsync(OrderMessage msg, IMessageContext ctx, CancellationToken ct = default)
     {
-        logger.LogInformation(
-            "Received order {OrderId} | Customer: {Customer} | Amount: {Amount:C} | Priority: {Priority}",
-            message.OrderId,
-            message.Customer,
-            message.Amount,
-            message.Priority);
-
+        _logger.LogInformation(
+            "Received order {Id} from {Customer} — {Amount:C} [{Priority}]",
+            msg.OrderId, msg.Customer, msg.Amount, msg.Priority);
         return Task.CompletedTask;
     }
 }

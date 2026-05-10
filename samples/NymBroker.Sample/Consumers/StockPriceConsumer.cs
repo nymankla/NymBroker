@@ -9,8 +9,6 @@ public sealed class StockPriceConsumer : IConsume<StockPriceMessage>
 {
     private readonly ILogger<StockPriceConsumer> _logger;
 
-    public string Name => nameof(StockPriceConsumer);
-
     public StockPriceConsumer(ILogger<StockPriceConsumer> logger) => _logger = logger;
 
     public Task ConsumeAsync(StockPriceMessage message, IMessageContext context, CancellationToken ct = default)
