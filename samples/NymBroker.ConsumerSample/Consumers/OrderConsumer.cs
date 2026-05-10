@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Logging;
+using NymBroker.ConsumerSample.Messages;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Message;
-using NymBroker.PostgresSample.Messages;
 
-namespace NymBroker.PostgresSample.Consumers;
+namespace NymBroker.ConsumerSample.Consumers;
 
 public sealed class OrderConsumer : IConsume<OrderMessage>
 {
@@ -14,7 +14,7 @@ public sealed class OrderConsumer : IConsume<OrderMessage>
     public Task ConsumeAsync(OrderMessage msg, IMessageContext ctx, CancellationToken ct = default)
     {
         _logger.LogInformation(
-            "[OrderConsumer] Order {Id} from {Customer} — {Amount:C} [{Priority}]",
+            "Received order {Id} from {Customer} — {Amount:C} [{Priority}]",
             msg.OrderId, msg.Customer, msg.Amount, msg.Priority);
         return Task.CompletedTask;
     }

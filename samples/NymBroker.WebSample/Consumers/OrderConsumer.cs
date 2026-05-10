@@ -9,8 +9,6 @@ public sealed class OrderConsumer : IConsume<OrderMessage>
 {
     private readonly ILogger<OrderConsumer> _logger;
 
-    public string Name => nameof(OrderConsumer);
-
     public OrderConsumer(ILogger<OrderConsumer> logger) => _logger = logger;
 
     public Task ConsumeAsync(OrderMessage msg, IMessageContext ctx, CancellationToken ct = default)

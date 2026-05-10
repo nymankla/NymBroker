@@ -17,7 +17,6 @@ public sealed class NymBrokerAdditionalTests
 
     private sealed class StockConsumer : IConsume<StockMessage>
     {
-        public string Name => nameof(StockConsumer);
         public List<StockMessage> Received { get; } = [];
 
         public Task ConsumeAsync(StockMessage message, IMessageContext context, CancellationToken ct = default)

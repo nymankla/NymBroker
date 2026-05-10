@@ -9,6 +9,12 @@
     <Build Solution="Debug|*" Project="false" />
   </Project>
   <Project Path="samples/NymBroker.ConfigSample/NymBroker.ConfigSample.csproj" />
+  <Project Path="samples/NymBroker.ConsumerSample/NymBroker.ConsumerSample.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
+  <Project Path="samples/NymBroker.ProducerSample/NymBroker.ProducerSample.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
   <Project Path="samples/NymBroker.PostgresSample/NymBroker.PostgresSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>

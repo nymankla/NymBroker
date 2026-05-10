@@ -22,7 +22,6 @@ public sealed class BuilderConfigurationTests
     // so the runtime guard in AddConsumer should throw.
     private sealed class NoConsumeInterfaceConsumer : IMessageConsumer
     {
-        public string Name => nameof(NoConsumeInterfaceConsumer);
     }
 
     [Fact]
