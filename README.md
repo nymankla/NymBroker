@@ -34,6 +34,8 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 | `samples/NymBroker.SqlSample` | SQLite endpoint demo |
 | `samples/NymBroker.WebSample` | ASP.NET Core minimal API demo — REST POST → SQLite queue → consumer |
 | `samples/NymBroker.PostgresSample` | PostgreSQL endpoint demo — posts orders before start, broker reads from DB |
+| `samples/NymBroker.ProducerSample` | CLI producer — posts N messages to a shared queue and exits; supports SQLite, PostgreSQL, and RabbitMQ |
+| `samples/NymBroker.ConsumerSample` | Long-running worker — polls the same queue and logs each order; pairs with the producer sample |
 | `samples/NymBroker.Benchmarks` | Throughput and allocation benchmark |
 
 ## Getting started
@@ -358,6 +360,75 @@ Start RabbitMQ with the provided Docker Compose file:
 ./setup-rabbitmq.ps1 -Logs    # tail logs
 ```
 
+## Endpoint modes
+
+Every endpoint has an `EndpointMode` that controls whether it can read, write, or both:
+
+| Mode | Description |
+|---|---|
+| `ReadWrite` (default) | Endpoint participates in both sending and receiving |
+| `ReadOnly` | Listener is started; `PostAsync` and routing to this endpoint throw at runtime |
+| `WriteOnly` | No listener is started; the endpoint is only used for posting messages |
+
+Pass the mode as the last argument to any `Add*EndPoint` method:
+
+```csharp
+// ReadWrite is the default — no argument needed
+.AddMemoryEndPoint("Inbox")
+
+// ReadOnly — only a consumer/listener, never a routing destination
+.AddSqliteEndPoint("AuditLog", settings, EndpointMode.ReadOnly)
+
+// WriteOnly — posts messages and exits; no poll loop is started
+.AddPostgresEndPoint("OutboxQueue", settings, EndpointMode.WriteOnly)
+```
+
+`StartAsync` logs each endpoint and its mode:
+
+```
+info: NymBroker.Core.Impl.NymBrokerImpl[0]
+      Endpoint 'OutboxQueue' registered (WriteOnly)
+info: NymBroker.Core.Impl.NymBrokerImpl[0]
+      Endpoint 'OutboxQueue' is write-only — listener not started
+```
+
+On shutdown, each endpoint whose listener was started emits a matching stop line:
+
+```
+info: NymBroker.Core.Impl.NymBrokerImpl[0]
+      Stopped listening on endpoint 'Inbox'
+```
+
+**Validation at startup:** `StartAsync` throws `InvalidOperationException` if a route or topic targets a `ReadOnly` endpoint — misconfiguration is caught before the first message arrives.
+
+### Producer / consumer pattern
+
+`WriteOnly` is designed for CLI producers that post a batch and exit immediately — no poll loop means the process doesn't hang:
+
+```csharp
+// producer process — posts and exits
+services.AddNymBroker()
+    .AddSqliteEndPoint("Queue", new SqliteSettings { ConnectionString = "...", AutoCreateTable = true },
+                       EndpointMode.WriteOnly)
+    .Build();
+
+await host.StartAsync();
+await broker.PostAsync("Queue", new OrderMessage(...));
+await host.StopAsync();   // returns immediately; no listener to cancel
+```
+
+```csharp
+// consumer process — runs until Ctrl+C
+services.AddNymBroker()
+    .AddSqliteEndPoint("Queue", new SqliteSettings { ConnectionString = "...", AutoCreateTable = true })
+    .AddConsumer<OrderConsumer>()
+    .Build();
+
+await host.RunAsync();
+```
+
+The `NymBroker.ProducerSample` and `NymBroker.ConsumerSample` projects demonstrate this pattern for SQLite, PostgreSQL, and RabbitMQ.
+
 ## Routing
 
 Route a message type to one or more destination endpoints. If a route matches, the message is forwarded to that endpoint. Consumer dispatch still runs unless explicitly suppressed.
@@ -649,6 +720,28 @@ dotnet run --project samples/NymBroker.WebSample
 # PostgreSQL endpoint demo (start Postgres first with ./setup-postgres.ps1)
 dotnet run --project samples/NymBroker.PostgresSample
 ```
+
+### Producer / consumer pair
+
+Run in two separate terminals. Start the consumer first, then post messages with the producer.
+
+**Terminal 1 — consumer (runs until Ctrl+C):**
+```bash
+dotnet run --project samples/NymBroker.ConsumerSample -- --transport sqlite
+```
+
+**Terminal 2 — producer (posts N messages and exits):**
+```bash
+dotnet run --project samples/NymBroker.ProducerSample -- 5 --transport sqlite
+```
+
+Both default to `--transport sqlite`. The shared SQLite database is written to `~/nymbrokersample/nymbroker-queue.db` so the samples work from any directory.
+
+| `--transport` | Prerequisite |
+|---|---|
+| `sqlite` (default) | none |
+| `postgres` | PostgreSQL on `localhost` — `./setup-postgres.ps1` |
+| `rabbit` | RabbitMQ on `localhost` — `./setup-rabbitmq.ps1` |
 
 ## Benchmarks
 
