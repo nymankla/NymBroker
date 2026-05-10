@@ -21,8 +21,10 @@ public sealed class NymBrokerImpl : INymBroker
     private readonly SubscriberDispatcher _subscriberDispatcher;
     private readonly ILogger<NymBrokerImpl> _logger;
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
+    private readonly TaskCompletionSource _startGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private ImmutableList<Func<CancellationToken, Task<ScheduledActionHandle>>> _scheduledActions = ImmutableList<Func<CancellationToken, Task<ScheduledActionHandle>>>.Empty;
     private ImmutableList<ScheduledActionHandle> _activeScheduledActions = ImmutableList<ScheduledActionHandle>.Empty;
+    private volatile bool _startInitiated;
     private bool _started;
 
     // Thread-safe via immutable replacement — writes are infrequent (config-time only).
@@ -152,14 +154,12 @@ public sealed class NymBrokerImpl : INymBroker
     public async Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default)
         => await PostToEndpointAsync(endpointName, messageStream, ct);
 
-    public async Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
+    public Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
         var context = new MessageContext<T> { Message = message };
         using var stream = _serializer.Serialize(context);
-        stream.Position = 0;
-        using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
-        var raw = await reader.ReadToEndAsync(ct);
-        await ProcessAsync(raw, null, ct);
+        var bytes = StreamToBytes(stream);
+        return ProcessAsync(bytes, null, ct);
     }
 
     public async Task PublishAsync<T>(string topicName, T message, CancellationToken ct = default) where T : class
@@ -175,10 +175,15 @@ public sealed class NymBrokerImpl : INymBroker
         await FanOutTopicAsync(topic, message, context, ct);
     }
 
-    public async Task ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default)
+    public Task ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default)
+        => ProcessAsync(Encoding.UTF8.GetBytes(raw), sourceEndpoint, ct);
+
+    public async Task ProcessAsync(byte[] raw, string? sourceEndpoint = null, CancellationToken ct = default)
     {
+        if (_startInitiated && !_started) await _startGate.Task.WaitAsync(ct);
+
         IMessageContext context;
-        try { context = _serializer.Deserialize(raw); }
+        try { context = _serializer.Deserialize(raw.AsSpan()); }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to deserialize message from {Source}", sourceEndpoint);
@@ -279,6 +284,8 @@ public sealed class NymBrokerImpl : INymBroker
             if (_started)
                 return;
 
+            _startInitiated = true;
+
             var startedScheduledActions = ImmutableList<ScheduledActionHandle>.Empty;
             try
             {
@@ -291,7 +298,7 @@ public sealed class NymBrokerImpl : INymBroker
                     {
                         var name = endpoint.Name;
                         await ed.StartListeningAsync(
-                            async (raw, token) => await ProcessAsync(raw, name, token),
+                            (raw, token) => ProcessAsync(raw, name, token),
                             ct);
                         _logger.LogInformation("Started listening on endpoint '{Name}'", name);
                     }
@@ -299,6 +306,7 @@ public sealed class NymBrokerImpl : INymBroker
 
                 _activeScheduledActions = startedScheduledActions;
                 _started = true;
+                _startGate.TrySetResult();
                 _logger.LogInformation("Broker started");
             }
             catch (Exception ex)
@@ -366,6 +374,20 @@ public sealed class NymBrokerImpl : INymBroker
 
         if (message != null && topic.SubscriberDispatchers.Count > 0)
             await _subscriberDispatcher.DispatchAsync(topic.SubscriberDispatchers, message, context, ct);
+    }
+
+    private static byte[] StreamToBytes(Stream stream)
+    {
+        if (stream is MemoryStream ms && ms.TryGetBuffer(out var buf))
+        {
+            var bytes = new byte[buf.Count];
+            buf.Array.AsSpan(buf.Offset, buf.Count).CopyTo(bytes);
+            return bytes;
+        }
+        stream.Position = 0;
+        using var copy = new MemoryStream();
+        stream.CopyTo(copy);
+        return copy.ToArray();
     }
 
     private async Task PostToEndpointAsync(string name, Stream stream, CancellationToken ct)

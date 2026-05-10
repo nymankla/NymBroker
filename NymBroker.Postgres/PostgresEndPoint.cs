@@ -29,7 +29,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         _logger = logger;
     }
 
-    public Task StartListeningAsync(Func<string, CancellationToken, Task> handler, CancellationToken ct)
+    public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
     {
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = _listeningCts.Token;
@@ -48,7 +48,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
                         {
                             try
                             {
-                                await handler(message.Payload, token);
+                                await handler(Encoding.UTF8.GetBytes(message.Payload), token);
                                 await FinalizeClaimedMessageAsync(message, succeeded: true, error: null, token);
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException)

@@ -55,7 +55,7 @@ public sealed class MemoryEndPointAdditionalTests
         {
             lock (received)
             {
-                received.Add(msg);
+                received.Add(Encoding.UTF8.GetString(msg));
                 if (received.Count == 3)
                     allReceived.TrySetResult();
             }

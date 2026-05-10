@@ -1,4 +1,3 @@
-using System.Text;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
 using Microsoft.Extensions.Logging;
@@ -60,7 +59,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
             cancellationToken: ct);
     }
 
-    public async Task StartListeningAsync(Func<string, CancellationToken, Task> handler, CancellationToken ct)
+    public async Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(_settings.ReadQueueName))
             throw new InvalidOperationException($"RabbitMQ endpoint '{Name}' has no ReadQueueName configured.");
@@ -78,10 +77,9 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
                     var consumer = new AsyncEventingBasicConsumer(channel);
                     consumer.ReceivedAsync += async (_, ea) =>
                     {
-                        var json = Encoding.UTF8.GetString(ea.Body.Span);
                         try
                         {
-                            await handler(json, token);
+                            await handler(ea.Body.ToArray(), token);
                             await channel.BasicAckAsync(ea.DeliveryTag, multiple: false, cancellationToken: token);
                         }
                         catch (Exception ex)

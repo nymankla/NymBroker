@@ -1,3 +1,4 @@
+using System.Text;
 using NymBroker.Core.Endpoint.HealthCheck;
 using Microsoft.Extensions.Logging;
 using Polly;
@@ -13,7 +14,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
     private readonly DirectoryInfo _postDir;
     private readonly ResiliencePipeline<string?> _fileReadyPolicy;
     private FileSystemWatcher? _watcher;
-    private Func<string, CancellationToken, Task>? _handler;
+    private Func<byte[], CancellationToken, Task>? _handler;
     private CancellationToken _listenerCt;
 
     public string Name { get; }
@@ -64,7 +65,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
         await message.CopyToAsync(fs, ct);
     }
 
-    public Task StartListeningAsync(Func<string, CancellationToken, Task> handler, CancellationToken ct)
+    public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
     {
         _handler = handler;
         _listenerCt = ct;
@@ -147,7 +148,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
                 var file = new FileInfo(e.FullPath);
                 var content = await ReadAndArchiveAsync(file, _listenerCt);
                 if (content != null)
-                    await _handler(content, _listenerCt);
+                    await _handler(Encoding.UTF8.GetBytes(content), _listenerCt);
             }
             catch (Exception ex)
             {
@@ -164,7 +165,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
             var content = await ReadAndArchiveAsync(file, ct);
             if (content != null && _handler != null)
             {
-                try { await _handler(content, ct); }
+                try { await _handler(Encoding.UTF8.GetBytes(content), ct); }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 { _logger.LogError(ex, "Unhandled error processing existing file '{File}'", file.Name); }
             }

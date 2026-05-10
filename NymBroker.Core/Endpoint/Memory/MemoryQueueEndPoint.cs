@@ -10,7 +10,7 @@ namespace NymBroker.Core.Endpoint.Memory;
 /// <summary>In-process endpoint backed by a bounded Channel. Useful for testing and inter-component routing.</summary>
 public sealed class MemoryQueueEndPoint : IEndPointEventDriven
 {
-    private readonly Channel<string> _channel;
+    private readonly Channel<byte[]> _channel;
     private readonly ILogger<MemoryQueueEndPoint> _logger;
 
     public string Name { get; }
@@ -19,28 +19,32 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
     {
         Name = name;
         _logger = logger ?? NullLogger<MemoryQueueEndPoint>.Instance;
-        _channel = Channel.CreateBounded<string>(new BoundedChannelOptions(capacity)
+        _channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = false,
+            SingleReader = true,
             SingleWriter = false
         });
     }
 
     public async Task PostAsync(Stream message, CancellationToken ct = default)
     {
-        string json;
+        byte[] bytes;
         if (message is MemoryStream ms && ms.TryGetBuffer(out var buf))
-            json = Encoding.UTF8.GetString(buf.Array!, buf.Offset, buf.Count);
+        {
+            bytes = new byte[buf.Count];
+            buf.Array!.AsSpan(buf.Offset, buf.Count).CopyTo(bytes);
+        }
         else
         {
-            using var reader = new StreamReader(message, Encoding.UTF8, leaveOpen: true);
-            json = await reader.ReadToEndAsync(ct);
+            using var ms2 = new MemoryStream();
+            await message.CopyToAsync(ms2, ct);
+            bytes = ms2.ToArray();
         }
-        await _channel.Writer.WriteAsync(json, ct);
+        await _channel.Writer.WriteAsync(bytes, ct);
     }
 
-    public Task StartListeningAsync(Func<string, CancellationToken, Task> handler, CancellationToken ct)
+    public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
     {
         _ = Task.Run(async () =>
         {
@@ -75,10 +79,10 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
 
     public async IAsyncEnumerable<string> ReadAsync([EnumeratorCancellation] CancellationToken ct = default)
     {
-        while (_channel.Reader.TryRead(out var msg))
+        while (_channel.Reader.TryRead(out var bytes))
         {
             if (ct.IsCancellationRequested) yield break;
-            yield return msg;
+            yield return Encoding.UTF8.GetString(bytes);
             await Task.Yield();
         }
     }
@@ -87,5 +91,5 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
 
     /// <summary>Direct enqueue without a Stream — convenient for tests.</summary>
     public ValueTask EnqueueAsync(string json, CancellationToken ct = default)
-        => _channel.Writer.WriteAsync(json, ct);
+        => _channel.Writer.WriteAsync(Encoding.UTF8.GetBytes(json), ct);
 }

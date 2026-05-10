@@ -75,6 +75,22 @@ public sealed class MessageSerializerJson : IMessageSerializer
         };
     }
 
+    public IMessageContext Deserialize(ReadOnlySpan<byte> utf8Json)
+    {
+        var dto = JsonSerializer.Deserialize<MessageContextDto>(utf8Json, JsonOptions)
+            ?? throw new InvalidOperationException("Failed to deserialize message context.");
+
+        return new RawMessageContext
+        {
+            Id = dto.Id,
+            CorrelationId = dto.CorrelationId,
+            Address = dto.Address,
+            MessageType = dto.MessageType,
+            Created = dto.Created,
+            RawMessage = dto.Message
+        };
+    }
+
     /// <summary>Typed deserialization of the message payload from an already-deserialized context.</summary>
     public static T? DeserializeMessage<T>(RawMessageContext ctx) where T : class
         => ctx.RawMessage.Deserialize<T>(JsonOptions);

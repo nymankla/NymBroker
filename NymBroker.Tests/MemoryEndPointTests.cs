@@ -14,7 +14,7 @@ public sealed class MemoryEndPointTests
 
         await ep.StartListeningAsync(async (msg, _) =>
         {
-            received = msg;
+            received = Encoding.UTF8.GetString(msg);
             cts.Cancel();
             await Task.CompletedTask;
         }, cts.Token);

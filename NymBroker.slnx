@@ -9,11 +9,11 @@
     <Build Solution="Debug|*" Project="false" />
   </Project>
   <Project Path="samples/NymBroker.ConfigSample/NymBroker.ConfigSample.csproj" />
-  <Project Path="samples/NymBroker.Sample/NymBroker.Sample.csproj" />
-  <Project Path="samples/NymBroker.SqlSample/NymBroker.SqlSample.csproj">
+  <Project Path="samples/NymBroker.PostgresSample/NymBroker.PostgresSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
-  <Project Path="samples/NymBroker.PostgresSample/NymBroker.PostgresSample.csproj">
+  <Project Path="samples/NymBroker.Sample/NymBroker.Sample.csproj" />
+  <Project Path="samples/NymBroker.SqlSample/NymBroker.SqlSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
   <Project Path="samples/NymBroker.WebSample/NymBroker.WebSample.csproj">

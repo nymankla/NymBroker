@@ -40,6 +40,9 @@ public interface INymBroker
     /// <summary>Publish a message directly to a named topic, bypassing type-based topic matching.</summary>
     Task PublishAsync<T>(string topicName, T message, CancellationToken ct = default) where T : class;
 
-    /// <summary>Process a raw JSON string arriving from an endpoint. Called by endpoint listeners.</summary>
+    /// <summary>Process raw UTF-8 JSON bytes arriving from an endpoint. Called by endpoint listeners.</summary>
+    Task ProcessAsync(byte[] raw, string? sourceEndpoint = null, CancellationToken ct = default);
+
+    /// <summary>Convenience overload for tests and external callers; converts the string to UTF-8 bytes.</summary>
     Task ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default);
 }

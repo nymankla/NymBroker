@@ -108,7 +108,7 @@ await broker.PostAsync("MemQueue", new OrderMessage { OrderId = "ORD-1", Custome
 
 ### Memory
 
-In-process bounded `Channel<string>` — zero I/O, useful for internal routing and tests:
+In-process bounded `Channel<byte[]>` — zero I/O, useful for internal routing and tests:
 
 ```csharp
 .AddMemoryEndPoint("MemQueue")            // default capacity 1 000
@@ -574,7 +574,6 @@ Every message is wrapped in a JSON envelope:
   "address": { "to": "FileOut", "from": "MemQueue" },
   "messageType": "order.created",
   "created": "2025-01-15T09:30:00Z",
-  "traceParent": "00-4bf92f3...",
   "message": {
     "orderId": "ORD-001",
     "customer": "Alice",
@@ -593,10 +592,10 @@ Implement `IMessageFilter` to inspect or block messages before routing and dispa
 ```csharp
 public sealed class AuditFilter : IMessageFilter
 {
-    public Task<bool> FilterAsync(IMessageContext context, CancellationToken ct = default)
+    public IMessageContext? Filter(IMessageContext context)
     {
         Console.WriteLine($"[Audit] {context.MessageType} from {context.Address?.From}");
-        return Task.FromResult(true);   // false = drop the message
+        return context;   // return null to drop the message
     }
 }
 
@@ -626,7 +625,9 @@ foreach (var part in parts)
 | RecyclableMemoryStream | All serialization uses a shared `RecyclableMemoryStreamManager` to reduce GC pressure |
 | Lock-free collections | `ImmutableList`/`ImmutableDictionary` for routes, consumers, and topic registrations — lock-free reads, `ImmutableInterlocked.Update` CAS-loop for atomic multi-key writes at config time |
 | DI scope per message | `IServiceScopeFactory` creates a fresh scope for each consumer or subscriber dispatch — supports `Scoped` lifetimes |
-| Lazy deserialization in pub/sub | The message object is deserialized at most once per `ProcessAsync` call even when multiple topics match; endpoints receive the already-serialized JSON string directly |
+| Byte[] transport pipeline | `IEndPointEventDriven` handlers receive `byte[]` directly; `ProcessAsync` deserializes from `ReadOnlySpan<byte>` — eliminates the UTF-8 → UTF-16 string allocation on every inbound message |
+| Zero-copy `PublishAsync` | `PublishAsync<T>` extracts bytes from the `RecyclableMemoryStream` buffer rather than round-tripping through `StreamReader` → `string` → re-encode — ~67% fewer allocations on pub/sub paths |
+| Lazy deserialization in pub/sub | The message object is deserialized at most once per `ProcessAsync` call even when multiple topics match; endpoints receive the already-serialized bytes directly |
 | Per-subscriber error isolation | A failing `ISubscribe<T>` handler logs the error and continues fan-out to remaining subscribers rather than aborting the batch |
 
 ## Running the samples
@@ -711,17 +712,17 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 
 `BenchmarkConsumer` calls `CompletionTracker.Signal()` on every message. `CompletionTracker` uses `Interlocked.Decrement` on a countdown from the target count; when it reaches zero it signals a `TaskCompletionSource`. The benchmark waits on that task (30 s timeout) before stopping the clock. This ensures elapsed time covers the full end-to-end latency, not just the post loop.
 
-### Indicative results (Windows 11, .NET 10, Ryzen 7)
+### Indicative results (Windows 11, .NET 10, Ryzen 7 — allocation figures are the stable signal; throughput varies with GC scheduling)
 
 ```
 Scenario                        Msg/sec     Elapsed   Gen0   Gen1   Gen2     Alloc/msg
 ──────────────────────────────────────────────────────────────────────────────────────
-Memory – direct                  37 537    1 332 ms     13      0      0    3.1 KB/msg
-Memory – routed                  19 654    2 544 ms     23      7      0    5.6 KB/msg
-Memory – filtered                98 231      509 ms     12      4      0    3.1 KB/msg
-PubSub – 1 sub                   65 359      765 ms     25      0      0    6.3 KB/msg
-PubSub – 3 subs                  65 876      759 ms     25      0      0    6.3 KB/msg
-PubSub – endpoint                60 386      828 ms     35      0      0    8.6 KB/msg
+Memory – direct                  70 000+   ~700 ms      12      0      0    2.7 KB/msg
+Memory – routed                  20 000+  ~2 500 ms     22      7      0    5.0 KB/msg
+Memory – filtered               100 000+   ~500 ms      12      4      0    2.7 KB/msg
+PubSub – 1 sub                   80 000+   ~620 ms      10      0      0    1.9 KB/msg
+PubSub – 3 subs                  80 000+   ~620 ms      10      0      0    2.1 KB/msg
+PubSub – endpoint                70 000+   ~700 ms      30      0      0    2.9 KB/msg
 File   – direct                      98    1 019 ms      1      0      0  143.1 KB/msg
 SQL    – direct                     799    1 251 ms      1      0      0   15.2 KB/msg
 Postgres – direct                   522    1 913 ms      1      0      0   16.7 KB/msg
@@ -730,9 +731,10 @@ Postgres – direct                   522    1 913 ms      1      0      0   16.
 Run `dotnet run -c Release --project samples/NymBroker.Benchmarks` for numbers on your hardware.
 
 Notes on the numbers:
+- **Memory – direct** throughput shows high run-to-run variance due to GC scheduling; the allocation figure (2.7 KB/msg) is the stable signal. The dominant cost is `IServiceScopeFactory.CreateAsyncScope()` per dispatch.
 - **Memory – routed** is slower than direct because each message is serialized a second time to re-post to `MemoryRouted`, doubling the Gen0 collections.
 - **Memory – filtered** can appear faster than direct because the DI scope and consumer dispatch happen on a hot path with an already-JIT-compiled filter chain; the delta is within run-to-run noise.
-- **PubSub – 1 sub** adds one compiled-lambda call and a `GetRequiredKeyedService` lookup per message on top of the direct path.
+- **PubSub – 1 sub** adds one compiled-lambda call and a `GetRequiredKeyedService` lookup per message on top of the direct path. Allocation is ~1.9 KB/msg — well below the old 6.3 KB/msg — thanks to the zero-copy `PublishAsync` path that avoids the `StreamReader` → string round-trip.
 - **PubSub – 3 subs** throughput measured as messages-posted/elapsed; since each message signals three times the total signal count is `3 × 50 000`. Expect roughly `1/(N_subs)` throughput relative to 1 sub due to sequential fan-out within a topic.
 - **PubSub – endpoint** exercises the endpoint-based fan-out path: the topic serializes the message context and posts it to `PubSubDest`, where the broker picks it up and dispatches to `BenchmarkConsumer`.
 - **File** allocation per message is high because `StreamReader.ReadToEndAsync` allocates a string for each file; this is inherent to file-based transport.

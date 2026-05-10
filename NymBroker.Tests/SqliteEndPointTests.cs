@@ -137,7 +137,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await ep.StartListeningAsync(async (msg, _) =>
         {
-            received.Add(msg);
+            received.Add(System.Text.Encoding.UTF8.GetString(msg));
             if (received.Count >= 2) tcs.TrySetResult();
             await Task.CompletedTask;
         }, cts.Token);
