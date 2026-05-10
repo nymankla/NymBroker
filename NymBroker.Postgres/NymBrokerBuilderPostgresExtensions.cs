@@ -16,11 +16,12 @@ public static class NymBrokerBuilderPostgresExtensions
     };
 
     public static NymBrokerBuilder AddPostgresEndPoint(
-        this NymBrokerBuilder builder, string name, PostgresSettings? settings = null)
+        this NymBrokerBuilder builder, string name, PostgresSettings? settings = null,
+        EndpointMode mode = EndpointMode.ReadWrite)
     {
         var s = settings ?? new PostgresSettings();
         builder.Services.AddKeyedSingleton<IEndPoint>(name,
-            (sp, _) => new PostgresEndPoint(name, s, sp.GetRequiredService<ILogger<PostgresEndPoint>>()));
+            (sp, _) => new PostgresEndPoint(name, s, sp.GetRequiredService<ILogger<PostgresEndPoint>>(), mode));
         builder.RegisterEndpoint(name);
         return builder;
     }
@@ -32,7 +33,7 @@ public static class NymBrokerBuilderPostgresExtensions
         foreach (var ep in builder.LoadedConfiguration.Endpoints)
         {
             if (ep.Type == EndPointType.Postgres)
-                builder.AddPostgresEndPoint(ep.Name, ToSettings(ep));
+                builder.AddPostgresEndPoint(ep.Name, ToSettings(ep), ep.Mode);
         }
 
         return builder;

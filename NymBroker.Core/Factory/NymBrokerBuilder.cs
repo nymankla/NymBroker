@@ -36,17 +36,17 @@ public sealed class NymBrokerBuilder
 
     // --- Endpoint registration ---
 
-    public NymBrokerBuilder AddFileEndPoint(string name, FileSettings? settings = null)
+    public NymBrokerBuilder AddFileEndPoint(string name, FileSettings? settings = null, EndpointMode mode = EndpointMode.ReadWrite)
     {
         var s = settings ?? new FileSettings();
-        _services.AddKeyedSingleton<IEndPoint>(name, (sp, _) => new FileEndPoint(name, s, sp.GetRequiredService<ILogger<FileEndPoint>>()));
+        _services.AddKeyedSingleton<IEndPoint>(name, (sp, _) => new FileEndPoint(name, s, sp.GetRequiredService<ILogger<FileEndPoint>>(), mode));
         _endpoints.Add(name);
         return this;
     }
 
-    public NymBrokerBuilder AddMemoryEndPoint(string name, int capacity = 1000)
+    public NymBrokerBuilder AddMemoryEndPoint(string name, int capacity = 1000, EndpointMode mode = EndpointMode.ReadWrite)
     {
-        _services.AddKeyedSingleton<IEndPoint>(name, (sp, _) => new MemoryQueueEndPoint(name, capacity, sp.GetRequiredService<ILogger<MemoryQueueEndPoint>>()));
+        _services.AddKeyedSingleton<IEndPoint>(name, (sp, _) => new MemoryQueueEndPoint(name, capacity, sp.GetRequiredService<ILogger<MemoryQueueEndPoint>>(), mode));
         _endpoints.Add(name);
         return this;
     }
@@ -101,8 +101,8 @@ public sealed class NymBrokerBuilder
         {
             switch (ep.Type)
             {
-                case EndPointType.File: AddFileEndPoint(ep.Name, ep.ToFileSettings()); break;
-                case EndPointType.Memory: AddMemoryEndPoint(ep.Name); break;
+                case EndPointType.File: AddFileEndPoint(ep.Name, ep.ToFileSettings(), ep.Mode); break;
+                case EndPointType.Memory: AddMemoryEndPoint(ep.Name, mode: ep.Mode); break;
                 // EndPointType.RabbitMq is handled by NymBroker.RabbitMq via WithRabbitMq()
             }
         }

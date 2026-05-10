@@ -16,11 +16,12 @@ public static class NymBrokerBuilderSqliteExtensions
     };
 
     public static NymBrokerBuilder AddSqliteEndPoint(
-        this NymBrokerBuilder builder, string name, SqliteSettings? settings = null)
+        this NymBrokerBuilder builder, string name, SqliteSettings? settings = null,
+        EndpointMode mode = EndpointMode.ReadWrite)
     {
         var s = settings ?? new SqliteSettings();
         builder.Services.AddKeyedSingleton<IEndPoint>(name,
-            (sp, _) => new SqliteEndPoint(name, s, sp.GetRequiredService<ILogger<SqliteEndPoint>>()));
+            (sp, _) => new SqliteEndPoint(name, s, sp.GetRequiredService<ILogger<SqliteEndPoint>>(), mode));
         builder.RegisterEndpoint(name);
         return builder;
     }
@@ -36,7 +37,7 @@ public static class NymBrokerBuilderSqliteExtensions
         foreach (var ep in builder.LoadedConfiguration.Endpoints)
         {
             if (ep.Type == EndPointType.Sql)
-                builder.AddSqliteEndPoint(ep.Name, ToSettings(ep));
+                builder.AddSqliteEndPoint(ep.Name, ToSettings(ep), ep.Mode);
         }
 
         return builder;
