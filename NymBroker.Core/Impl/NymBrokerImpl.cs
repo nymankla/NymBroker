@@ -286,6 +286,28 @@ public sealed class NymBrokerImpl : INymBroker
 
             _startInitiated = true;
 
+            // Log all registered endpoints and validate mode constraints.
+            if (_logger.IsEnabled(LogLevel.Information))
+                foreach (var endpoint in _endpoints.Values)
+                    _logger.LogInformation("Endpoint '{Name}' registered ({Mode})", endpoint.Name, endpoint.Mode.ToString());
+
+            foreach (var route in _routes)
+            {
+                if (_endpoints.TryGetValue(route.DestinationEndpoint, out var dest) && dest.Mode == EndpointMode.ReadOnly)
+                    throw new InvalidOperationException(
+                        $"Route targets read-only endpoint '{route.DestinationEndpoint}'. Read-only endpoints cannot receive posted messages.");
+            }
+
+            foreach (var topic in _topics)
+            {
+                foreach (var epName in topic.SubscriberEndpoints)
+                {
+                    if (_endpoints.TryGetValue(epName, out var dest) && dest.Mode == EndpointMode.ReadOnly)
+                        throw new InvalidOperationException(
+                            $"Topic '{topic.TopicName}' targets read-only endpoint '{epName}'. Read-only endpoints cannot receive posted messages.");
+                }
+            }
+
             var startedScheduledActions = ImmutableList<ScheduledActionHandle>.Empty;
             try
             {
@@ -294,13 +316,17 @@ public sealed class NymBrokerImpl : INymBroker
 
                 foreach (var endpoint in _endpoints.Values)
                 {
-                    if (endpoint is IEndPointEventDriven ed)
+                    if (endpoint is IEndPointEventDriven ed && endpoint.Mode != EndpointMode.WriteOnly)
                     {
                         var name = endpoint.Name;
                         await ed.StartListeningAsync(
                             (raw, token) => ProcessAsync(raw, name, token),
                             ct);
                         _logger.LogInformation("Started listening on endpoint '{Name}'", name);
+                    }
+                    else if (endpoint.Mode == EndpointMode.WriteOnly)
+                    {
+                        _logger.LogInformation("Endpoint '{Name}' is write-only — listener not started", endpoint.Name);
                     }
                 }
 
@@ -338,7 +364,12 @@ public sealed class NymBrokerImpl : INymBroker
             _activeScheduledActions = ImmutableList<ScheduledActionHandle>.Empty;
 
             foreach (var endpoint in _endpoints.Values.OfType<IEndPointEventDriven>())
+            {
+                var epName = endpoint.Name;
                 await endpoint.StopListeningAsync();
+                if (_logger.IsEnabled(LogLevel.Information))
+                    _logger.LogInformation("Stopped listening on endpoint '{Name}'", epName);
+            }
 
             _started = false;
             _logger.LogInformation("Broker stopped");
@@ -358,6 +389,11 @@ public sealed class NymBrokerImpl : INymBroker
             if (!_endpoints.TryGetValue(endpointName, out var endpoint))
             {
                 _logger.LogWarning("Topic '{Topic}' references unknown endpoint '{Endpoint}'", topic.TopicName, endpointName);
+                continue;
+            }
+            if (endpoint.Mode == EndpointMode.ReadOnly)
+            {
+                _logger.LogWarning("Topic '{Topic}' cannot deliver to read-only endpoint '{Endpoint}'", topic.TopicName, endpointName);
                 continue;
             }
             try
@@ -394,6 +430,8 @@ public sealed class NymBrokerImpl : INymBroker
     {
         if (!_endpoints.TryGetValue(name, out var endpoint))
             throw new InvalidOperationException($"No endpoint registered with name '{name}'.");
+        if (endpoint.Mode == EndpointMode.ReadOnly)
+            throw new InvalidOperationException($"Endpoint '{name}' is read-only and cannot receive posted messages.");
         await endpoint.PostAsync(stream, ct);
     }
 

@@ -20,10 +20,12 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
     private CancellationTokenSource? _listeningCts;
 
     public string Name { get; }
+    public EndpointMode Mode { get; }
 
-    public SqliteEndPoint(string name, SqliteSettings settings, ILogger<SqliteEndPoint> logger)
+    public SqliteEndPoint(string name, SqliteSettings settings, ILogger<SqliteEndPoint> logger, EndpointMode mode = EndpointMode.ReadWrite)
     {
         Name = name;
+        Mode = mode;
         _settings = settings;
         _logger = logger;
     }

@@ -14,10 +14,12 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
     private readonly ILogger<MemoryQueueEndPoint> _logger;
 
     public string Name { get; }
+    public EndpointMode Mode { get; }
 
-    public MemoryQueueEndPoint(string name, int capacity = 1000, ILogger<MemoryQueueEndPoint>? logger = null)
+    public MemoryQueueEndPoint(string name, int capacity = 1000, ILogger<MemoryQueueEndPoint>? logger = null, EndpointMode mode = EndpointMode.ReadWrite)
     {
         Name = name;
+        Mode = mode;
         _logger = logger ?? NullLogger<MemoryQueueEndPoint>.Instance;
         _channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(capacity)
         {

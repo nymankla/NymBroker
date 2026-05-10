@@ -16,11 +16,12 @@ public static class NymBrokerBuilderRabbitMqExtensions
     };
 
     public static NymBrokerBuilder AddRabbitMqEndPoint(
-        this NymBrokerBuilder builder, string name, RabbitMqSettings? settings = null)
+        this NymBrokerBuilder builder, string name, RabbitMqSettings? settings = null,
+        EndpointMode mode = EndpointMode.ReadWrite)
     {
         var s = settings ?? new RabbitMqSettings();
         builder.Services.AddKeyedSingleton<IEndPoint>(name,
-            (sp, _) => new RabbitMqEndPoint(name, s, sp.GetRequiredService<ILogger<RabbitMqEndPoint>>()));
+            (sp, _) => new RabbitMqEndPoint(name, s, sp.GetRequiredService<ILogger<RabbitMqEndPoint>>(), mode));
         builder.RegisterEndpoint(name);
         return builder;
     }
@@ -42,7 +43,7 @@ public static class NymBrokerBuilderRabbitMqExtensions
         foreach (var ep in builder.LoadedConfiguration.Endpoints)
         {
             if (ep.Type == EndPointType.RabbitMq)
-                builder.AddRabbitMqEndPoint(ep.Name, ToSettings(ep));
+                builder.AddRabbitMqEndPoint(ep.Name, ToSettings(ep), ep.Mode);
         }
 
         return builder;

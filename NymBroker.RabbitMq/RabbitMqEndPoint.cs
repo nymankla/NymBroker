@@ -22,10 +22,12 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     private IChannel? _consumeChannel;
 
     public string Name { get; }
+    public EndpointMode Mode { get; }
 
-    public RabbitMqEndPoint(string name, RabbitMqSettings settings, ILogger<RabbitMqEndPoint> logger)
+    public RabbitMqEndPoint(string name, RabbitMqSettings settings, ILogger<RabbitMqEndPoint> logger, EndpointMode mode = EndpointMode.ReadWrite)
     {
         Name = name;
+        Mode = mode;
         _settings = settings;
         _logger = logger;
 

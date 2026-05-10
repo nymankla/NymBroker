@@ -18,10 +18,12 @@ public sealed class FileEndPoint : IEndPointEventDriven
     private CancellationToken _listenerCt;
 
     public string Name { get; }
+    public EndpointMode Mode { get; }
 
-    public FileEndPoint(string name, FileSettings settings, ILogger<FileEndPoint> logger)
+    public FileEndPoint(string name, FileSettings settings, ILogger<FileEndPoint> logger, EndpointMode mode = EndpointMode.ReadWrite)
     {
         Name = name;
+        Mode = mode;
         _settings = settings;
         _logger = logger;
 

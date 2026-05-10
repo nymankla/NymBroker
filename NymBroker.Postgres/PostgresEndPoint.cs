@@ -21,10 +21,12 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
     private CancellationTokenSource? _listeningCts;
 
     public string Name { get; }
+    public EndpointMode Mode { get; }
 
-    public PostgresEndPoint(string name, PostgresSettings settings, ILogger<PostgresEndPoint> logger)
+    public PostgresEndPoint(string name, PostgresSettings settings, ILogger<PostgresEndPoint> logger, EndpointMode mode = EndpointMode.ReadWrite)
     {
         Name = name;
+        Mode = mode;
         _settings = settings;
         _logger = logger;
     }
