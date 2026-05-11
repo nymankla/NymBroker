@@ -1,0 +1,19 @@
+ConsumerSample started (transport: sqlite). Waiting for messages — Ctrl+C to stop.
+info: NymBroker.Core.Impl.NymBrokerImpl[0]
+      Endpoint 'Queue' registered (ReadWrite)
+info: NymBroker.Core.Impl.NymBrokerImpl[0]
+      Started listening on endpoint 'Queue'
+info: NymBroker.Core.Impl.NymBrokerImpl[0]
+      Broker started
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Production
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: E:\utv\POC\NymBroker
+info: NymBroker.ConsumerSample.Consumers.OrderConsumer[0]
+      Received order ORD-001 from Alice — ¤499.00 [high]
+info: NymBroker.ConsumerSample.Consumers.OrderConsumer[0]
+      Received order ORD-002 from Bob — ¤29.99 [normal]
+info: NymBroker.ConsumerSample.Consumers.OrderConsumer[0]
+      Received order ORD-003 from Carol — ¤1,200.00 [high]

@@ -43,7 +43,7 @@ public sealed class NymBrokerAdditionalTests
             new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
             NullLogger<NymBrokerImpl>.Instance);
 
-        broker.AddEndpoint(dest);
+        broker.AddEndpoint("Dest", dest);
         return (broker, dest);
     }
 

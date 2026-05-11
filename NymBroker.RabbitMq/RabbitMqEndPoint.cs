@@ -13,6 +13,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     private readonly RabbitMqSettings _settings;
     private readonly ILogger<RabbitMqEndPoint> _logger;
     private readonly ResiliencePipeline _reconnectPolicy;
+    private readonly string _name;
 
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly SemaphoreSlim _publishChannelLock = new(1, 1);
@@ -21,12 +22,11 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     private IChannel? _publishChannel;
     private IChannel? _consumeChannel;
 
-    public string Name { get; }
     public EndpointMode Mode { get; }
 
     public RabbitMqEndPoint(string name, RabbitMqSettings settings, ILogger<RabbitMqEndPoint> logger, EndpointMode mode = EndpointMode.ReadWrite)
     {
-        Name = name;
+        _name = name;
         Mode = mode;
         _settings = settings;
         _logger = logger;
@@ -39,7 +39,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
                 OnRetry = args =>
                 {
                     _logger.LogWarning("RabbitMQ [{Name}] reconnecting (attempt {Attempt}): {Error}",
-                        Name, args.AttemptNumber + 1, args.Outcome.Exception?.Message);
+                        _name, args.AttemptNumber + 1, args.Outcome.Exception?.Message);
                     return ValueTask.CompletedTask;
                 }
             })
@@ -64,7 +64,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     public async Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(_settings.ReadQueueName))
-            throw new InvalidOperationException($"RabbitMQ endpoint '{Name}' has no ReadQueueName configured.");
+            throw new InvalidOperationException($"RabbitMQ endpoint '{_name}' has no ReadQueueName configured.");
 
         _ = Task.Run(async () =>
         {
@@ -98,7 +98,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogCritical(ex, "RabbitMQ [{Name}] listener loop terminated unexpectedly", Name);
+                _logger.LogCritical(ex, "RabbitMQ [{Name}] listener loop terminated unexpectedly", _name);
             }
         }, ct);
     }
@@ -116,7 +116,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     {
         return _connection?.IsOpen == true
             ? HealthCheckResult.Healthy()
-            : HealthCheckResult.Unhealthy($"RabbitMQ [{Name}] not connected");
+            : HealthCheckResult.Unhealthy($"RabbitMQ [{_name}] not connected");
     }
 
     public async ValueTask DisposeAsync()
@@ -176,7 +176,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
             };
 
             _connection = await factory.CreateConnectionAsync(ct);
-            _logger.LogInformation("RabbitMQ [{Name}] connected to {Host}:{Port}", Name, _settings.HostName, _settings.Port);
+            _logger.LogInformation("RabbitMQ [{Name}] connected to {Host}:{Port}", _name, _settings.HostName, _settings.Port);
             return _connection;
         }
         finally

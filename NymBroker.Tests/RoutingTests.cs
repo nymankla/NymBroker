@@ -91,9 +91,8 @@ public sealed class RoutingTests
             => base.Evaluate(messageType, context, messageElement) && DateTime.UtcNow.Hour >= 0;
     }
 
-    private sealed class DisposableEndPoint(string name) : IEndPoint, IAsyncDisposable
+    private sealed class DisposableEndPoint : IEndPoint, IAsyncDisposable
     {
-        public string Name { get; } = name;
         public bool Disposed { get; private set; }
 
         public Task PostAsync(Stream message, CancellationToken ct = default) => Task.CompletedTask;
@@ -107,9 +106,8 @@ public sealed class RoutingTests
         }
     }
 
-    private sealed class TrackingEventDrivenEndPoint(string name) : IEndPointEventDriven
+    private sealed class TrackingEventDrivenEndPoint : IEndPointEventDriven
     {
-        public string Name { get; } = name;
         public int StartCalls { get; private set; }
         public int StopCalls { get; private set; }
 
@@ -163,7 +161,7 @@ public sealed class RoutingTests
             new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
             NullLogger<NymBrokerImpl>.Instance);
 
-        broker.AddEndpoint(dest);
+        broker.AddEndpoint("Dest", dest);
         broker.RegisterConsumer(typeof(PriceMessage), nameof(PriceConsumer));
         return (broker, dest, consumer);
     }
@@ -286,7 +284,7 @@ public sealed class RoutingTests
         services.AddSingleton<IAggregator, AggregatorImpl>();
 
         DisposableEndPoint? endpoint = null;
-        services.AddKeyedSingleton<IEndPoint>("Disposable", (_, _) => endpoint = new DisposableEndPoint("Disposable"));
+        services.AddKeyedSingleton<IEndPoint>("Disposable", (_, _) => endpoint = new DisposableEndPoint());
 
         services.AddSingleton<NymBrokerImpl>(sp =>
         {
@@ -298,7 +296,7 @@ public sealed class RoutingTests
                 new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
                 NullLogger<NymBrokerImpl>.Instance);
 
-            broker.AddEndpoint(sp.GetRequiredKeyedService<IEndPoint>("Disposable"));
+            broker.AddEndpoint("Disposable", sp.GetRequiredKeyedService<IEndPoint>("Disposable"));
             return broker;
         });
 
@@ -318,7 +316,7 @@ public sealed class RoutingTests
         var services = new ServiceCollection();
         services.AddLogging();
 
-        var trackingEndPoint = new TrackingEventDrivenEndPoint("Tracked");
+        var trackingEndPoint = new TrackingEventDrivenEndPoint();
         services.AddKeyedSingleton<IEndPoint>("Tracked", trackingEndPoint);
 
         services.AddNymBroker().Build();
@@ -326,7 +324,7 @@ public sealed class RoutingTests
         await using var sp = services.BuildServiceProvider();
 
         var broker = (NymBrokerImpl)sp.GetRequiredService<INymBroker>();
-        broker.AddEndpoint(sp.GetRequiredKeyedService<IEndPoint>("Tracked"));
+        broker.AddEndpoint("Tracked", sp.GetRequiredKeyedService<IEndPoint>("Tracked"));
 
         var hostedServices = sp.GetServices<IHostedService>().ToList();
         var hostedService = Assert.Single(hostedServices);

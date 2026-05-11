@@ -72,13 +72,6 @@ public sealed class MemoryEndPointAdditionalTests
     }
 
     [Fact]
-    public void Name_ReturnsConstructorValue()
-    {
-        var ep = new MemoryQueueEndPoint("my-queue");
-        Assert.Equal("my-queue", ep.Name);
-    }
-
-    [Fact]
     public async Task ReadAsync_RespectsGivenCancellationToken()
     {
         var ep = new MemoryQueueEndPoint("cancel-test");

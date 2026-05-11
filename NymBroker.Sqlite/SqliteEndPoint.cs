@@ -14,17 +14,17 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     private readonly SqliteSettings _settings;
     private readonly ILogger<SqliteEndPoint> _logger;
+    private readonly string _name;
     // Serializes all DB operations — ensures single-connection SQLite is never accessed concurrently.
     private readonly SemaphoreSlim _dbLock = new(1, 1);
     private SqliteConnection? _connection;
     private CancellationTokenSource? _listeningCts;
 
-    public string Name { get; }
     public EndpointMode Mode { get; }
 
     public SqliteEndPoint(string name, SqliteSettings settings, ILogger<SqliteEndPoint> logger, EndpointMode mode = EndpointMode.ReadWrite)
     {
-        Name = name;
+        _name = name;
         Mode = mode;
         _settings = settings;
         _logger = logger;
@@ -57,13 +57,13 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
                             catch (Exception ex) when (ex is not OperationCanceledException)
                             {
                                 await FinalizeClaimedMessageAsync(message, succeeded: false, error: ex.Message, token);
-                                _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", Name);
+                                _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
                             }
                             processed++;
                         }
                     }
                     catch (OperationCanceledException) { return; }
-                    catch (Exception ex) { _logger.LogError(ex, "Poll error on endpoint '{Name}'", Name); }
+                    catch (Exception ex) { _logger.LogError(ex, "Poll error on endpoint '{Name}'", _name); }
 
                     // Back off when idle; poll immediately after a full batch when PollInterval is zero.
                     var delayMs = processed == 0
@@ -78,7 +78,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", Name);
+                _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", _name);
             }
         }, CancellationToken.None);
 
@@ -151,7 +151,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SQLite endpoint '{Name}' health check failed", Name);
+            _logger.LogError(ex, "SQLite endpoint '{Name}' health check failed", _name);
             return HealthCheckResult.Unhealthy(ex.Message);
         }
     }

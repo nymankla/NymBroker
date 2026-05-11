@@ -53,7 +53,7 @@ public sealed class NymBrokerImpl : INymBroker
 
     // --- Configuration (called during startup before StartAsync) ---
 
-    public void AddEndpoint(IEndPoint endpoint) => _endpoints = _endpoints.SetItem(endpoint.Name, endpoint);
+    public void AddEndpoint(string name, IEndPoint endpoint) => _endpoints = _endpoints.SetItem(name, endpoint);
 
     public void RegisterConsumer(Type messageType, string serviceKey)
     {
@@ -288,8 +288,8 @@ public sealed class NymBrokerImpl : INymBroker
 
             // Log all registered endpoints and validate mode constraints.
             if (_logger.IsEnabled(LogLevel.Information))
-                foreach (var endpoint in _endpoints.Values)
-                    _logger.LogInformation("Endpoint '{Name}' registered ({Mode})", endpoint.Name, endpoint.Mode.ToString());
+                foreach (var (name, endpoint) in _endpoints)
+                    _logger.LogInformation("Endpoint '{Name}' registered ({Mode})", name, endpoint.Mode.ToString());
 
             foreach (var route in _routes)
             {
@@ -314,11 +314,10 @@ public sealed class NymBrokerImpl : INymBroker
                 foreach (var scheduledAction in _scheduledActions)
                     startedScheduledActions = startedScheduledActions.Add(await scheduledAction(ct));
 
-                foreach (var endpoint in _endpoints.Values)
+                foreach (var (name, endpoint) in _endpoints)
                 {
                     if (endpoint is IEndPointEventDriven ed && endpoint.Mode != EndpointMode.WriteOnly)
                     {
-                        var name = endpoint.Name;
                         await ed.StartListeningAsync(
                             (raw, token) => ProcessAsync(raw, name, token),
                             ct);
@@ -326,7 +325,7 @@ public sealed class NymBrokerImpl : INymBroker
                     }
                     else if (endpoint.Mode == EndpointMode.WriteOnly)
                     {
-                        _logger.LogInformation("Endpoint '{Name}' is write-only — listener not started", endpoint.Name);
+                        _logger.LogInformation("Endpoint '{Name}' is write-only — listener not started", name);
                     }
                 }
 
@@ -363,12 +362,11 @@ public sealed class NymBrokerImpl : INymBroker
 
             _activeScheduledActions = ImmutableList<ScheduledActionHandle>.Empty;
 
-            foreach (var endpoint in _endpoints.Values.OfType<IEndPointEventDriven>())
+            foreach (var kvp in _endpoints.Where(kvp => kvp.Value is IEndPointEventDriven))
             {
-                var epName = endpoint.Name;
-                await endpoint.StopListeningAsync();
+                await ((IEndPointEventDriven)kvp.Value).StopListeningAsync();
                 if (_logger.IsEnabled(LogLevel.Information))
-                    _logger.LogInformation("Stopped listening on endpoint '{Name}'", epName);
+                    _logger.LogInformation("Stopped listening on endpoint '{Name}'", kvp.Key);
             }
 
             _started = false;
