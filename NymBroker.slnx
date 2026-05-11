@@ -1,7 +1,12 @@
 <Solution>
   <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
   <Project Path="NymBroker.RabbitMq/NymBroker.RabbitMq.csproj" />
-  <Project Path="NymBroker.Sqlite/NymBroker.Sqlite.csproj" />
+  <Project Path="NymBroker.Sqlite/NymBroker.Sqlite.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
+  <Project Path="NymBroker.Postgres/NymBroker.Postgres.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
   <Project Path="NymBroker.Tests/NymBroker.Tests.csproj" />
   <Project Path="samples/NymBroker.Benchmarks/NymBroker.Benchmarks.csproj">
     <Build Solution="Debug|*" Project="false" />
@@ -10,10 +15,10 @@
   <Project Path="samples/NymBroker.ConsumerSample/NymBroker.ConsumerSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
-  <Project Path="samples/NymBroker.ProducerSample/NymBroker.ProducerSample.csproj">
+  <Project Path="samples/NymBroker.PostgresSample/NymBroker.PostgresSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
-  <Project Path="samples/NymBroker.PostgresSample/NymBroker.PostgresSample.csproj">
+  <Project Path="samples/NymBroker.ProducerSample/NymBroker.ProducerSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
   <Project Path="samples/NymBroker.Sample/NymBroker.Sample.csproj" />
@@ -21,12 +26,6 @@
     <Build Solution="Debug|*" Project="false" />
   </Project>
   <Project Path="samples/NymBroker.WebSample/NymBroker.WebSample.csproj">
-    <Build Solution="Debug|*" Project="false" />
-  </Project>
-  <Project Path="samples/NymBroker.ProducerSample/NymBroker.ProducerSample.csproj">
-    <Build Solution="Debug|*" Project="false" />
-  </Project>
-  <Project Path="samples/NymBroker.ConsumerSample/NymBroker.ConsumerSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
 </Solution>
