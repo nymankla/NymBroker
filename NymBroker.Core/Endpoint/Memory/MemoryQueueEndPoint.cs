@@ -12,13 +12,13 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
 {
     private readonly Channel<byte[]> _channel;
     private readonly ILogger<MemoryQueueEndPoint> _logger;
+    private readonly string _name;
 
-    public string Name { get; }
     public EndpointMode Mode { get; }
 
     public MemoryQueueEndPoint(string name, int capacity = 1000, ILogger<MemoryQueueEndPoint>? logger = null, EndpointMode mode = EndpointMode.ReadWrite)
     {
-        Name = name;
+        _name = name;
         Mode = mode;
         _logger = logger ?? NullLogger<MemoryQueueEndPoint>.Instance;
         _channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(capacity)
@@ -60,14 +60,14 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", Name);
+                        _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{_name}'", _name);
                     }
                 }
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", Name);
+                _logger.LogCritical(ex, "Listener loop for endpoint '{_name}' terminated unexpectedly", _name);
             }
         }, ct);
         return Task.CompletedTask;

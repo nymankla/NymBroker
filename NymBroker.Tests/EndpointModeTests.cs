@@ -19,13 +19,11 @@ public sealed class EndpointModeTests
 
     private sealed class TrackingEndPoint : IEndPointEventDriven
     {
-        public string Name { get; }
         public EndpointMode Mode { get; }
         public int StartCalls { get; private set; }
 
-        public TrackingEndPoint(string name, EndpointMode mode = EndpointMode.ReadWrite)
+        public TrackingEndPoint(EndpointMode mode = EndpointMode.ReadWrite)
         {
-            Name = name;
             Mode = mode;
         }
 
@@ -83,8 +81,8 @@ public sealed class EndpointModeTests
     public async Task StartAsync_ReadWriteEndpoint_StartsListener()
     {
         var broker = CreateBroker();
-        var ep = new TrackingEndPoint("rw", EndpointMode.ReadWrite);
-        broker.AddEndpoint(ep);
+        var ep = new TrackingEndPoint(EndpointMode.ReadWrite);
+        broker.AddEndpoint("rw", ep);
 
         await broker.StartAsync();
         await broker.StopAsync();
@@ -96,8 +94,8 @@ public sealed class EndpointModeTests
     public async Task StartAsync_ReadOnlyEndpoint_StartsListener()
     {
         var broker = CreateBroker();
-        var ep = new TrackingEndPoint("ro", EndpointMode.ReadOnly);
-        broker.AddEndpoint(ep);
+        var ep = new TrackingEndPoint(EndpointMode.ReadOnly);
+        broker.AddEndpoint("ro", ep);
 
         await broker.StartAsync();
         await broker.StopAsync();
@@ -109,8 +107,8 @@ public sealed class EndpointModeTests
     public async Task StartAsync_WriteOnlyEndpoint_DoesNotStartListener()
     {
         var broker = CreateBroker();
-        var ep = new TrackingEndPoint("wo", EndpointMode.WriteOnly);
-        broker.AddEndpoint(ep);
+        var ep = new TrackingEndPoint(EndpointMode.WriteOnly);
+        broker.AddEndpoint("wo", ep);
 
         await broker.StartAsync();
         await broker.StopAsync();
@@ -124,7 +122,7 @@ public sealed class EndpointModeTests
     public async Task PostAsync_ToReadOnlyEndpoint_ThrowsInvalidOperation()
     {
         var broker = CreateBroker();
-        broker.AddEndpoint(new MemoryQueueEndPoint("ro", mode: EndpointMode.ReadOnly));
+        broker.AddEndpoint("ro", new MemoryQueueEndPoint("ro", mode: EndpointMode.ReadOnly));
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => broker.PostAsync("ro", new OrderMessage { Id = "1" }));
@@ -137,7 +135,7 @@ public sealed class EndpointModeTests
     public async Task PostAsync_ToWriteOnlyEndpoint_Succeeds()
     {
         var broker = CreateBroker();
-        broker.AddEndpoint(new MemoryQueueEndPoint("wo", mode: EndpointMode.WriteOnly));
+        broker.AddEndpoint("wo", new MemoryQueueEndPoint("wo", mode: EndpointMode.WriteOnly));
 
         // WriteOnly suppresses the listener; PostAsync must still work.
         await broker.PostAsync("wo", new OrderMessage { Id = "1" });
@@ -147,7 +145,7 @@ public sealed class EndpointModeTests
     public async Task PostAsync_ToReadWriteEndpoint_Succeeds()
     {
         var broker = CreateBroker();
-        broker.AddEndpoint(new MemoryQueueEndPoint("rw"));
+        broker.AddEndpoint("rw", new MemoryQueueEndPoint("rw"));
 
         await broker.PostAsync("rw", new OrderMessage { Id = "1" });
     }
@@ -158,7 +156,7 @@ public sealed class EndpointModeTests
     public async Task StartAsync_RouteTargetingReadOnlyEndpoint_Throws()
     {
         var broker = CreateBroker();
-        broker.AddEndpoint(new TrackingEndPoint("ro", EndpointMode.ReadOnly));
+        broker.AddEndpoint("ro", new TrackingEndPoint(EndpointMode.ReadOnly));
 
         broker.Route<OrderMessage>().To("ro").Build();
 
@@ -171,7 +169,7 @@ public sealed class EndpointModeTests
     public async Task StartAsync_RouteTargetingWriteOnlyEndpoint_Succeeds()
     {
         var broker = CreateBroker();
-        broker.AddEndpoint(new TrackingEndPoint("wo", EndpointMode.WriteOnly));
+        broker.AddEndpoint("wo", new TrackingEndPoint(EndpointMode.WriteOnly));
 
         broker.Route<OrderMessage>().To("wo").Build();
 
@@ -186,7 +184,7 @@ public sealed class EndpointModeTests
     public async Task StartAsync_TopicFanOutToReadOnlyEndpoint_Throws()
     {
         var broker = CreateBroker();
-        broker.AddEndpoint(new MemoryQueueEndPoint("ro", mode: EndpointMode.ReadOnly));
+        broker.AddEndpoint("ro", new MemoryQueueEndPoint("ro", mode: EndpointMode.ReadOnly));
 
         broker.AddTopic(new TopicContext
         {
@@ -204,7 +202,7 @@ public sealed class EndpointModeTests
     public async Task StartAsync_TopicFanOutToWriteOnlyEndpoint_Succeeds()
     {
         var broker = CreateBroker();
-        broker.AddEndpoint(new TrackingEndPoint("wo", EndpointMode.WriteOnly));
+        broker.AddEndpoint("wo", new TrackingEndPoint(EndpointMode.WriteOnly));
 
         broker.AddTopic(new TopicContext
         {

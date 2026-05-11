@@ -131,8 +131,8 @@ public sealed class PubSubTests
         var (broker, _) = BuildBroker();
         var ep1 = new MemoryQueueEndPoint("Sub1");
         var ep2 = new MemoryQueueEndPoint("Sub2");
-        broker.AddEndpoint(ep1);
-        broker.AddEndpoint(ep2);
+        broker.AddEndpoint("Sub1", ep1);
+        broker.AddEndpoint("Sub2", ep2);
 
         broker.AddTopic(new TopicContext
         {
@@ -252,7 +252,7 @@ public sealed class PubSubTests
     {
         var ep = new MemoryQueueEndPoint("TopicEp");
         var (broker, _) = BuildBroker();
-        broker.AddEndpoint(ep);
+        broker.AddEndpoint("TopicEp", ep);
 
         broker.AddTopic(new TopicContext
         {
@@ -283,7 +283,7 @@ public sealed class PubSubTests
     {
         var ep = new MemoryQueueEndPoint("TypeEp");
         var (broker, _) = BuildBroker();
-        broker.AddEndpoint(ep);
+        broker.AddEndpoint("TypeEp", ep);
 
         broker.AddTopic(new TopicContext
         {
@@ -312,7 +312,7 @@ public sealed class PubSubTests
     {
         var ep = new MemoryQueueEndPoint("PubEp");
         var (broker, _) = BuildBroker();
-        broker.AddEndpoint(ep);
+        broker.AddEndpoint("PubEp", ep);
 
         broker.AddTopic(new TopicContext
         {
@@ -337,7 +337,7 @@ public sealed class PubSubTests
     {
         var ep = new MemoryQueueEndPoint("NamedEp");
         var (broker, _) = BuildBroker();
-        broker.AddEndpoint(ep);
+        broker.AddEndpoint("NamedEp", ep);
 
         broker.AddTopic(new TopicContext
         {
@@ -359,8 +359,8 @@ public sealed class PubSubTests
         var ep1 = new MemoryQueueEndPoint("Ep1");
         var ep2 = new MemoryQueueEndPoint("Ep2");
         var (broker, _) = BuildBroker();
-        broker.AddEndpoint(ep1);
-        broker.AddEndpoint(ep2);
+        broker.AddEndpoint("Ep1", ep1);
+        broker.AddEndpoint("Ep2", ep2);
 
         broker.AddTopic(new TopicContext
         {
@@ -399,8 +399,8 @@ public sealed class PubSubTests
             services.AddKeyedSingleton<IMessageConsumer>(nameof(OrderConsumer), consumer));
 
         broker.RegisterConsumer(typeof(OrderMessage), nameof(OrderConsumer));
-        broker.AddEndpoint(routeEp);
-        broker.AddEndpoint(topicEp);
+        broker.AddEndpoint("RouteEp", routeEp);
+        broker.AddEndpoint("TopicEp", topicEp);
 
         // Route
         broker.Route<OrderMessage>().To("RouteEp").Build();
@@ -437,7 +437,7 @@ public sealed class PubSubTests
             services.AddKeyedSingleton<IMessageConsumer>(nameof(OrderConsumer), consumer));
 
         broker.RegisterConsumer(typeof(OrderMessage), nameof(OrderConsumer));
-        broker.AddEndpoint(topicEp);
+        broker.AddEndpoint("TopicOnly", topicEp);
 
         // Only a topic, no route
         broker.AddTopic(new TopicContext
@@ -737,8 +737,8 @@ public sealed class PubSubTests
         var ep1 = new MemoryQueueEndPoint("Multi1");
         var ep2 = new MemoryQueueEndPoint("Multi2");
         var (broker, _) = BuildBroker();
-        broker.AddEndpoint(ep1);
-        broker.AddEndpoint(ep2);
+        broker.AddEndpoint("Multi1", ep1);
+        broker.AddEndpoint("Multi2", ep2);
 
         broker.AddTopic(new TopicContext
         {
@@ -771,7 +771,7 @@ public sealed class PubSubTests
     {
         var ep = new MemoryQueueEndPoint("AnyEp");
         var (broker, _) = BuildBroker();
-        broker.AddEndpoint(ep);
+        broker.AddEndpoint("AnyEp", ep);
 
         broker.AddTopic(new TopicContext
         {

@@ -15,17 +15,17 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
     private readonly PostgresSettings _settings;
     private readonly ILogger<PostgresEndPoint> _logger;
     private readonly SemaphoreSlim _schemaLock = new(1, 1);
+    private readonly string _name;
 
     private NpgsqlDataSource? _dataSource;
     private bool _schemaEnsured;
     private CancellationTokenSource? _listeningCts;
 
-    public string Name { get; }
     public EndpointMode Mode { get; }
 
     public PostgresEndPoint(string name, PostgresSettings settings, ILogger<PostgresEndPoint> logger, EndpointMode mode = EndpointMode.ReadWrite)
     {
-        Name = name;
+        _name = name;
         Mode = mode;
         _settings = settings;
         _logger = logger;
@@ -56,7 +56,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
                             catch (Exception ex) when (ex is not OperationCanceledException)
                             {
                                 await FinalizeClaimedMessageAsync(message, succeeded: false, error: ex.Message, token);
-                                _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", Name);
+                                _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
                             }
                             processed++;
                         }
@@ -67,7 +67,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Poll error on endpoint '{Name}'", Name);
+                        _logger.LogError(ex, "Poll error on endpoint '{Name}'", _name);
                     }
 
                     var delayMs = processed == 0
@@ -88,7 +88,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", Name);
+                _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", _name);
             }
         }, CancellationToken.None);
 
@@ -154,7 +154,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "PostgreSQL endpoint '{Name}' health check failed", Name);
+            _logger.LogError(ex, "PostgreSQL endpoint '{Name}' health check failed", _name);
             return HealthCheckResult.Unhealthy(ex.Message);
         }
     }
