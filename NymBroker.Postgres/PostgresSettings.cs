@@ -9,4 +9,5 @@ public sealed class PostgresSettings
     public TimeSpan PollInterval   { get; set; } = TimeSpan.FromMilliseconds(100);
     public TimeSpan LeaseTimeout   { get; set; } = TimeSpan.FromMinutes(5);
     public int MaxRetryCount       { get; set; } = 5;
+    public bool UseNotifications   { get; set; } = true;
 }

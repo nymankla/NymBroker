@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NymBroker.Core.DI;
+using NymBroker.Core.Endpoint;
 using NymBroker.Core.Impl;
 using NymBroker.Postgres;
 using NymBroker.ProducerSample.Messages;
@@ -8,6 +9,8 @@ using NymBroker.RabbitMq;
 using NymBroker.Sql;
 
 var transport = args.SkipWhile(a => a != "--transport").Skip(1).FirstOrDefault() ?? "sqlite";
+var countArg  = args.SkipWhile(a => a != "--count").Skip(1).FirstOrDefault();
+var count     = int.TryParse(countArg, out var n) && n > 0 ? n : 3;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((_, services) =>
@@ -22,7 +25,7 @@ var host = Host.CreateDefaultBuilder(args)
                     ConnectionString = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres",
                     TableName        = "consumer_sample",
                     AutoCreateTable  = true
-                });
+                }, EndpointMode.WriteOnly);
                 break;
 
             case "rabbitmq":
@@ -30,7 +33,7 @@ var host = Host.CreateDefaultBuilder(args)
                 {
                     HostName       = "localhost",
                     WriteQueueName = "consumer.sample"
-                });
+                }, EndpointMode.WriteOnly);
                 break;
 
             default: // sqlite
@@ -38,7 +41,7 @@ var host = Host.CreateDefaultBuilder(args)
                 {
                     ConnectionString = "Data Source=consumer-sample.db",
                     AutoCreateTable  = true
-                });
+                }, EndpointMode.WriteOnly);
                 break;
         }
 
@@ -50,12 +53,21 @@ var broker = host.Services.GetRequiredService<INymBroker>();
 
 await host.StartAsync();
 
-Console.WriteLine($"ProducerSample: posting 3 orders via {transport}...");
+Console.WriteLine($"ProducerSample: posting {count} orders via {transport}...");
 
-await broker.PostAsync("Queue", new OrderMessage("ORD-001", "Alice",  499.00m, "high"));
-await broker.PostAsync("Queue", new OrderMessage("ORD-002", "Bob",     29.99m, "normal"));
-await broker.PostAsync("Queue", new OrderMessage("ORD-003", "Carol", 1200.00m, "high"));
+var customers  = new[] { "Alice", "Bob", "Carol", "Dave", "Eve" };
+var priorities = new[] { "high", "normal", "low" };
+var rng        = new Random(42);
 
-Console.WriteLine("3 orders posted.");
+for (var i = 1; i <= count; i++)
+{
+    var id       = $"ORD-{i:D4}";
+    var customer = customers[rng.Next(customers.Length)];
+    var amount   = Math.Round(rng.NextDouble() * 1999 + 1, 2);
+    var priority = priorities[rng.Next(priorities.Length)];
+    await broker.PostAsync("Queue", new OrderMessage(id, customer, (decimal)amount, priority));
+}
+
+Console.WriteLine($"{count} orders posted.");
 
 await host.StopAsync();
