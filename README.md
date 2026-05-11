@@ -694,7 +694,7 @@ foreach (var part in parts)
 | RecyclableMemoryStream | All serialization uses a shared `RecyclableMemoryStreamManager` to reduce GC pressure |
 | Lock-free collections | `ImmutableList`/`ImmutableDictionary` for routes, consumers, and topic registrations — lock-free reads, `ImmutableInterlocked.Update` CAS-loop for atomic multi-key writes at config time |
 | DI scope per message | `IServiceScopeFactory` creates a fresh scope for each consumer or subscriber dispatch — supports `Scoped` lifetimes |
-| Byte[] transport pipeline | `IEndPointEventDriven` handlers receive `byte[]` directly; `ProcessAsync` deserializes from `ReadOnlySpan<byte>` — eliminates the UTF-8 → UTF-16 string allocation on every inbound message |
+| Byte[] transport pipeline | Both directions use `byte[]`: inbound handlers deliver `byte[]` to `ProcessAsync` (deserialized via `ReadOnlySpan<byte>`); outbound `IEndPoint.PostAsync` also accepts `byte[]` directly — eliminates stream allocation and copy on every posted message |
 | Zero-copy `PublishAsync` | `PublishAsync<T>` extracts bytes from the `RecyclableMemoryStream` buffer rather than round-tripping through `StreamReader` → `string` → re-encode — ~67% fewer allocations on pub/sub paths |
 | Lazy deserialization in pub/sub | The message object is deserialized at most once per `ProcessAsync` call even when multiple topics match; endpoints receive the already-serialized bytes directly |
 | Per-subscriber error isolation | A failing `ISubscribe<T>` handler logs the error and continues fan-out to remaining subscribers rather than aborting the batch |
@@ -722,7 +722,7 @@ dotnet run --project samples/NymBroker.PostgresSample
 # Terminal 1 — start the consumer first:
 dotnet run --project samples/NymBroker.ConsumerSample -- --transport sqlite
 # Terminal 2 — post messages:
-dotnet run --project samples/NymBroker.ProducerSample -- --transport sqlite
+dotnet run --project samples/NymBroker.ProducerSample -- --transport sqlite --count 5
 ```
 
 ### Producer / consumer pair
@@ -736,16 +736,16 @@ dotnet run --project samples/NymBroker.ConsumerSample -- --transport sqlite
 
 **Terminal 2 — producer (posts N messages and exits):**
 ```bash
-dotnet run --project samples/NymBroker.ProducerSample -- 5 --transport sqlite
+dotnet run --project samples/NymBroker.ProducerSample -- --transport sqlite --count 10
 ```
 
-Both default to `--transport sqlite`. The shared SQLite database is written to `~/nymbrokersample/nymbroker-queue.db` so the samples work from any directory.
+`--count` defaults to 3. The producer registers its endpoint as `WriteOnly` so no listener is started. Both samples default to `--transport sqlite` using `consumer-sample.db` in the working directory.
 
 | `--transport` | Prerequisite |
 |---|---|
 | `sqlite` (default) | none |
 | `postgres` | PostgreSQL on `localhost` — `./setup-postgres.ps1` |
-| `rabbit` | RabbitMQ on `localhost` — `./setup-rabbitmq.ps1` |
+| `rabbitmq` | RabbitMQ on `localhost` — `./setup-rabbitmq.ps1` |
 
 ## Benchmarks
 
@@ -814,15 +814,15 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 ```
 Scenario                        Msg/sec     Elapsed   Gen0   Gen1   Gen2     Alloc/msg
 ──────────────────────────────────────────────────────────────────────────────────────
-Memory – direct                  71 225      702 ms     14      0      0    3.5 KB/msg
-Memory – routed                  60 753      823 ms     25      0      0    6.1 KB/msg
-Memory – filtered               123 762      404 ms     14      0      0    3.5 KB/msg
-PubSub – 1 sub                   62 500      800 ms     10      0      0    2.6 KB/msg
-PubSub – 3 subs                  76 335      655 ms     10      0      0    2.7 KB/msg
-PubSub – endpoint               114 416      437 ms     20      0      0    5.0 KB/msg
-File   – direct                     300      333 ms      1      0      0  144.3 KB/msg
-SQL    – direct                     562    1 777 ms      1      0      0   15.6 KB/msg
-Postgres – direct                   690    1 449 ms      1      0      0   17.8 KB/msg
+Memory – direct                  97 087      515 ms     14      0      0    3.4 KB/msg
+Memory – routed                  77 041      649 ms     24      0      0    5.9 KB/msg
+Memory – filtered               152 439      328 ms     13      0      0    3.4 KB/msg
+PubSub – 1 sub                   99 206      504 ms     10      0      0    2.6 KB/msg
+PubSub – 3 subs                 108 695      460 ms     10      0      0    2.7 KB/msg
+PubSub – endpoint               176 678      283 ms     19      0      0    4.9 KB/msg
+File   – direct                     460      217 ms      0      0      0   92.8 KB/msg
+SQL    – direct                     980    1 020 ms      1      0      0   12.4 KB/msg
+Postgres – direct                 1 218      821 ms      1      0      0   14.2 KB/msg
 ```
 
 Run `dotnet run -c Release --project samples/NymBroker.Benchmarks` for numbers on your hardware.
@@ -831,12 +831,12 @@ Notes on the numbers:
 - **Memory – direct** throughput shows high run-to-run variance due to GC scheduling; the allocation figure (2.7 KB/msg) is the stable signal. The dominant cost is `IServiceScopeFactory.CreateAsyncScope()` per dispatch.
 - **Memory – routed** is slower than direct because each message is serialized a second time to re-post to `MemoryRouted`, doubling the Gen0 collections.
 - **Memory – filtered** can appear faster than direct because the DI scope and consumer dispatch happen on a hot path with an already-JIT-compiled filter chain; the delta is within run-to-run noise.
-- **PubSub – 1 sub** adds one compiled-lambda call and a `GetRequiredKeyedService` lookup per message on top of the direct path. Allocation is ~1.9 KB/msg — well below the old 6.3 KB/msg — thanks to the zero-copy `PublishAsync` path that avoids the `StreamReader` → string round-trip.
-- **PubSub – 3 subs** throughput measured as messages-posted/elapsed; since each message signals three times the total signal count is `3 × 50 000`. Expect roughly `1/(N_subs)` throughput relative to 1 sub due to sequential fan-out within a topic.
-- **PubSub – endpoint** exercises the endpoint-based fan-out path: the topic serializes the message context and posts it to `PubSubDest`, where the broker picks it up and dispatches to `BenchmarkConsumer`.
-- **File** allocation per message is high because `StreamReader.ReadToEndAsync` allocates a string for each file; this is inherent to file-based transport.
-- **SQL** runs against an in-memory SQLite database (`BatchSize=100`, `PollInterval=0`). Each message costs one INSERT plus a SELECT and UPDATE (optimistic claim) spread across a batch. Gen0 collections are zero because all allocations are short-lived; Dapper's parameter boxing contributes to the per-message allocation. ~800 msg/s is the ceiling for single-connection `:memory:` SQLite on this hardware; a file-backed database will be lower.
-- **Postgres** runs against a local PostgreSQL instance over TCP (`BatchSize=50`, `PollInterval=0`). Each message costs one INSERT (post) plus a CTE `FOR UPDATE SKIP LOCKED` claim UPDATE plus a finalize UPDATE — three round trips per message. The ~522 msg/s reflects TCP latency; throughput scales significantly with batch size and connection pooling in multi-instance deployments.
+- **PubSub – 1 sub** adds one compiled-lambda call and a `GetRequiredKeyedService` lookup per message on top of the direct path. ~2.6 KB/msg allocation; the zero-copy `PublishAsync` path avoids the `StreamReader` → string round-trip.
+- **PubSub – 3 subs** throughput measured as messages-posted/elapsed; since each message signals three times the total signal count is `3 × 50 000`. Expect roughly `1/N_subs` throughput relative to 1 sub due to sequential fan-out within a topic.
+- **PubSub – endpoint** exercises the endpoint-based fan-out path: the topic posts bytes directly to `PubSubDest` via `IEndPoint.PostAsync(byte[])`, where the broker picks it up and dispatches to `BenchmarkConsumer`. The byte[] outbound path removes the intermediate stream copy, which is why this scenario sees the largest throughput gain over older builds.
+- **File** allocation is ~93 KB/msg. The write side uses `File.WriteAllBytesAsync`; the read side deserializes via `File.ReadAllBytesAsync`. The dominant cost is file system round-trips and the `.processed` rename.
+- **SQL** runs against an in-memory SQLite database (`BatchSize=100`, `PollInterval=0`). Each message costs one INSERT plus a SELECT and UPDATE (optimistic claim). ~1 000 msg/s is the ceiling for single-connection `:memory:` SQLite; a file-backed database will be lower.
+- **Postgres** runs against a local PostgreSQL instance over TCP (`BatchSize=50`, `PollInterval=0`). Each message costs one INSERT (post) plus a CTE `FOR UPDATE SKIP LOCKED` claim plus a finalize UPDATE — three round trips. ~1 200 msg/s reflects TCP latency; throughput scales with batch size and connection pooling in multi-instance deployments.
 
 ## Running tests
 
