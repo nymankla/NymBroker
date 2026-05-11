@@ -148,11 +148,11 @@ public sealed class NymBrokerImpl : INymBroker
         };
 
         using var stream = _serializer.Serialize(context);
-        await PostToEndpointAsync(endpointName, stream, ct);
+        await PostToEndpointAsync(endpointName, StreamToBytes(stream), ct);
     }
 
     public async Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default)
-        => await PostToEndpointAsync(endpointName, messageStream, ct);
+        => await PostToEndpointAsync(endpointName, StreamToBytes(messageStream), ct);
 
     public Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
@@ -238,7 +238,7 @@ public sealed class NymBrokerImpl : INymBroker
             }
 
             using var stream = _serializer.Serialize(context);
-            await destEndpoint.PostAsync(stream, ct);
+            await destEndpoint.PostAsync(StreamToBytes(stream), ct);
             _logger.LogInformation(
                 "Routed message type {MessageType} from {Source} to {Destination}",
                 raw2.MessageType ?? messageType?.FullName ?? typeof(IAnyMessage).FullName,
@@ -397,7 +397,7 @@ public sealed class NymBrokerImpl : INymBroker
             try
             {
                 using var stream = _serializer.Serialize(context);
-                await endpoint.PostAsync(stream, ct);
+                await endpoint.PostAsync(StreamToBytes(stream), ct);
                 _logger.LogInformation("Topic '{Topic}' delivered to endpoint '{Endpoint}'", topic.TopicName, endpointName);
             }
             catch (Exception ex)
@@ -424,13 +424,13 @@ public sealed class NymBrokerImpl : INymBroker
         return copy.ToArray();
     }
 
-    private async Task PostToEndpointAsync(string name, Stream stream, CancellationToken ct)
+    private async Task PostToEndpointAsync(string name, byte[] message, CancellationToken ct)
     {
         if (!_endpoints.TryGetValue(name, out var endpoint))
             throw new InvalidOperationException($"No endpoint registered with name '{name}'.");
         if (endpoint.Mode == EndpointMode.ReadOnly)
             throw new InvalidOperationException($"Endpoint '{name}' is read-only and cannot receive posted messages.");
-        await endpoint.PostAsync(stream, ct);
+        await endpoint.PostAsync(message, ct);
     }
 
     private Task<ScheduledActionHandle> StartIntervalScheduledActionAsync(TimeSpan initialDelay, TimeSpan interval, Action action, CancellationToken ct)

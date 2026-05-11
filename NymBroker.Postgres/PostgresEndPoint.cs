@@ -125,10 +125,9 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
-    public async Task PostAsync(Stream message, CancellationToken ct = default)
+    public async Task PostAsync(byte[] message, CancellationToken ct = default)
     {
-        using var reader = new StreamReader(message, Encoding.UTF8, leaveOpen: true);
-        var payload = await reader.ReadToEndAsync(ct);
+        var payload = Encoding.UTF8.GetString(message);
 
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();

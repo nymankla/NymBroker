@@ -27,7 +27,7 @@ public sealed class EndpointModeTests
             Mode = mode;
         }
 
-        public Task PostAsync(Stream message, CancellationToken ct = default) => Task.CompletedTask;
+        public Task PostAsync(byte[] message, CancellationToken ct = default) => Task.CompletedTask;
         public IHealthCheckResult HealthCheck() => HealthCheckResult.Healthy();
 
         public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)

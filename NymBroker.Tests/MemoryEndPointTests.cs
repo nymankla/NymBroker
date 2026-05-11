@@ -20,7 +20,7 @@ public sealed class MemoryEndPointTests
         }, cts.Token);
 
         var payload = "{\"test\":true}";
-        await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes(payload)), cts.Token);
+        await ep.PostAsync(Encoding.UTF8.GetBytes(payload), cts.Token);
 
         await Task.Delay(200);
         Assert.Equal(payload, received);

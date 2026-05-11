@@ -34,7 +34,7 @@ public sealed class MemoryEndPointAdditionalTests
         var payloads = new[] { "{\"n\":1}", "{\"n\":2}", "{\"n\":3}" };
 
         foreach (var p in payloads)
-            await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes(p)));
+            await ep.PostAsync(Encoding.UTF8.GetBytes(p));
 
         var received = new List<string>();
         await foreach (var item in ep.ReadAsync()) received.Add(item);

@@ -18,7 +18,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
     public async Task PostAsync_InsertsRow()
     {
         var payload = """{"test":true}""";
-        await _ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes(payload)));
+        await _ep.PostAsync(Encoding.UTF8.GetBytes(payload));
 
         var items = new List<string>();
         await foreach (var item in _ep.ReadAsync())
@@ -81,7 +81,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
             NullLogger<SqliteEndPoint>.Instance);
 
         for (var i = 0; i < 5; i++)
-            await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes($$$"""{"i":{{{i}}}}""")));
+            await ep.PostAsync(Encoding.UTF8.GetBytes($$$"""{"i":{{{i}}}}"""));
 
         var items = new List<string>();
         await foreach (var item in ep.ReadAsync())
@@ -128,8 +128,8 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
             },
             NullLogger<SqliteEndPoint>.Instance);
 
-        await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"e":1}""")));
-        await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"e":2}""")));
+        await ep.PostAsync(Encoding.UTF8.GetBytes("""{"e":1}"""));
+        await ep.PostAsync(Encoding.UTF8.GetBytes("""{"e":2}"""));
 
         var received = new List<string>();
         var tcs = new TaskCompletionSource();
@@ -162,7 +162,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
             },
             NullLogger<SqliteEndPoint>.Instance);
 
-        await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"retry":true}""")));
+        await ep.PostAsync(Encoding.UTF8.GetBytes("""{"retry":true}"""));
 
         var attempts = 0;
         var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -209,7 +209,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
                 },
                 NullLogger<SqliteEndPoint>.Instance);
 
-            await ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes("""{"fail":true}""")));
+            await ep.PostAsync(Encoding.UTF8.GetBytes("""{"fail":true}"""));
 
             var attempts = 0;
             var exhausted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -259,5 +259,5 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
     }
 
     private Task Post(string payload) =>
-        _ep.PostAsync(new MemoryStream(Encoding.UTF8.GetBytes(payload)));
+        _ep.PostAsync(Encoding.UTF8.GetBytes(payload));
 }
