@@ -29,22 +29,8 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
         });
     }
 
-    public async Task PostAsync(Stream message, CancellationToken ct = default)
-    {
-        byte[] bytes;
-        if (message is MemoryStream ms && ms.TryGetBuffer(out var buf))
-        {
-            bytes = new byte[buf.Count];
-            buf.Array!.AsSpan(buf.Offset, buf.Count).CopyTo(bytes);
-        }
-        else
-        {
-            using var ms2 = new MemoryStream();
-            await message.CopyToAsync(ms2, ct);
-            bytes = ms2.ToArray();
-        }
-        await _channel.Writer.WriteAsync(bytes, ct);
-    }
+    public Task PostAsync(byte[] message, CancellationToken ct = default)
+        => _channel.Writer.WriteAsync(message, ct).AsTask();
 
     public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
     {

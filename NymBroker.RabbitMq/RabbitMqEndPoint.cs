@@ -46,18 +46,13 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
             .Build();
     }
 
-    public async Task PostAsync(Stream message, CancellationToken ct = default)
+    public async Task PostAsync(byte[] message, CancellationToken ct = default)
     {
         var channel = await EnsurePublishChannelAsync(ct);
-
-        using var ms = new MemoryStream();
-        await message.CopyToAsync(ms, ct);
-        var body = ms.ToArray();
-
         await channel.BasicPublishAsync(
             exchange: string.Empty,
             routingKey: _settings.WriteQueueName,
-            body: body,
+            body: message,
             cancellationToken: ct);
     }
 

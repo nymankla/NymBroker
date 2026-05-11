@@ -55,14 +55,11 @@ public sealed class FileEndPoint : IEndPointEventDriven
             .Build();
     }
 
-    public async Task PostAsync(Stream message, CancellationToken ct = default)
+    public Task PostAsync(byte[] message, CancellationToken ct = default)
     {
         var fileName = $"{DateTime.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}.json";
         var path = Path.Combine(_postDir.FullName, fileName);
-
-        await using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None,
-            bufferSize: 65536, useAsync: true);
-        await message.CopyToAsync(fs, ct);
+        return System.IO.File.WriteAllBytesAsync(path, message, ct);
     }
 
     public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)

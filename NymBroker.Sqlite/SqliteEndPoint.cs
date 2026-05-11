@@ -118,10 +118,9 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     // ── IEndPoint ───────────────────────────────────────────────────────────
 
-    public async Task PostAsync(Stream message, CancellationToken ct = default)
+    public async Task PostAsync(byte[] message, CancellationToken ct = default)
     {
-        using var reader = new StreamReader(message, Encoding.UTF8, leaveOpen: true);
-        var payload = await reader.ReadToEndAsync(ct);
+        var payload = Encoding.UTF8.GetString(message);
 
         await _dbLock.WaitAsync(ct);
         try

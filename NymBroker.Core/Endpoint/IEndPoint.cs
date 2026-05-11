@@ -5,6 +5,6 @@ namespace NymBroker.Core.Endpoint;
 public interface IEndPoint
 {
     EndpointMode Mode => EndpointMode.ReadWrite;
-    Task PostAsync(Stream message, CancellationToken ct = default);
+    Task PostAsync(byte[] message, CancellationToken ct = default);
     IHealthCheckResult HealthCheck();
 }

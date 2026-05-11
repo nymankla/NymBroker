@@ -95,7 +95,7 @@ public sealed class RoutingTests
     {
         public bool Disposed { get; private set; }
 
-        public Task PostAsync(Stream message, CancellationToken ct = default) => Task.CompletedTask;
+        public Task PostAsync(byte[] message, CancellationToken ct = default) => Task.CompletedTask;
 
         public IHealthCheckResult HealthCheck() => HealthCheckResult.Healthy();
 
@@ -111,7 +111,7 @@ public sealed class RoutingTests
         public int StartCalls { get; private set; }
         public int StopCalls { get; private set; }
 
-        public Task PostAsync(Stream message, CancellationToken ct = default) => Task.CompletedTask;
+        public Task PostAsync(byte[] message, CancellationToken ct = default) => Task.CompletedTask;
 
         public IHealthCheckResult HealthCheck() => HealthCheckResult.Healthy();
 
