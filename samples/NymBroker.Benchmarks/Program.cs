@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http.Headers;
 using NymBroker.Benchmarks;
 using NymBroker.Core.DI;
 using NymBroker.Core.Factory;
@@ -6,15 +7,19 @@ using NymBroker.Core.Impl;
 using NymBroker.Core.Route;
 using NymBroker.Sql;
 using NymBroker.Postgres;
+using NymBroker.RabbitMq;
 using Npgsql;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-const int MemoryCount = 50_000;
-const int FileCount   = 100;
-const int SqlCount    = 1_000;
-const int PgCount     = 1_000;
-const string PgConnStr = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
+const int    MemoryCount  = 50_000;
+const int    FileCount    = 100;
+const int    SqlCount     = 1_000;
+const int    PgCount      = 1_000;
+const int    RabbitCount  = 1_000;
+const string PgConnStr    = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
+const string RabbitQueue  = "nymbroker.bench";
+const string RabbitMgmt   = "http://localhost:15672";
 var Settings = Path.Combine(AppContext.BaseDirectory, "benchmarksettings.json");
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -24,6 +29,7 @@ Console.WriteLine($"  Memory scenarios : {MemoryCount:N0} messages");
 Console.WriteLine($"  File scenario    : {FileCount:N0} messages");
 Console.WriteLine($"  SQL scenario     : {SqlCount:N0} messages");
 Console.WriteLine($"  Postgres scenario: {PgCount:N0} messages");
+Console.WriteLine($"  RabbitMQ scenarios: {RabbitCount:N0} messages (direct + batch/100)");
 Console.WriteLine();
 
 Console.Write("Warming up... ");
@@ -103,6 +109,32 @@ else
     Console.WriteLine("  Postgres – direct        ... skipped (Postgres not available)");
 }
 
+if (await IsRabbitMqAvailableAsync())
+{
+    await PurgeRabbitQueueAsync();
+    results.Add(await RunAsync("RabbitMQ – direct",     "RabbitBench", RabbitCount,
+        configureBuilder: b => b.AddRabbitMqEndPoint("RabbitBench", new RabbitMqSettings
+        {
+            HostName       = "localhost",
+            ReadQueueName  = RabbitQueue,
+            WriteQueueName = RabbitQueue,
+            BatchAckSize   = 1,
+        })));
+    await PurgeRabbitQueueAsync();
+    results.Add(await RunAsync("RabbitMQ – batch/100", "RabbitBench", RabbitCount,
+        configureBuilder: b => b.AddRabbitMqEndPoint("RabbitBench", new RabbitMqSettings
+        {
+            HostName       = "localhost",
+            ReadQueueName  = RabbitQueue,
+            WriteQueueName = RabbitQueue,
+            BatchAckSize   = 100,
+        })));
+}
+else
+{
+    Console.WriteLine("  RabbitMQ – direct        ... skipped (RabbitMQ not available)");
+}
+
 PrintTable(results);
 
 // ─── postgres helpers ────────────────────────────────────────────────────────
@@ -126,6 +158,36 @@ async Task CleanPgTableAsync()
     await using var cmd  = conn.CreateCommand();
     cmd.CommandText = "DROP TABLE IF EXISTS nymbroker_bench";
     await cmd.ExecuteNonQueryAsync();
+}
+
+// ─── rabbitmq helpers ───────────────────────────────────────────────────────
+
+async Task<bool> IsRabbitMqAvailableAsync()
+{
+    try
+    {
+        using var cts  = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Basic",
+                Convert.ToBase64String("guest:guest"u8.ToArray()));
+        var resp = await http.GetAsync($"{RabbitMgmt}/api/overview", cts.Token);
+        return resp.IsSuccessStatusCode;
+    }
+    catch { return false; }
+}
+
+async Task PurgeRabbitQueueAsync()
+{
+    try
+    {
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Basic",
+                Convert.ToBase64String("guest:guest"u8.ToArray()));
+        await http.DeleteAsync($"{RabbitMgmt}/api/queues/%2F/{RabbitQueue}/contents");
+    }
+    catch { }
 }
 
 // ─── watcher sanity ──────────────────────────────────────────────────────────

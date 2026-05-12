@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Impl;
@@ -28,6 +29,7 @@ var host = Host.CreateDefaultBuilder(args)
                 }, EndpointMode.WriteOnly);
                 break;
 
+            case "rabbit":
             case "rabbitmq":
                 builder.AddRabbitMqEndPoint("Queue", new RabbitMqSettings
                 {
@@ -50,10 +52,11 @@ var host = Host.CreateDefaultBuilder(args)
     .Build();
 
 var broker = host.Services.GetRequiredService<INymBroker>();
+var logger = host.Services.GetRequiredService<ILogger<Program>>();
 
 await host.StartAsync();
 
-Console.WriteLine($"ProducerSample: posting {count} orders via {transport}...");
+Log.Starting(logger, transport, count);
 
 var customers  = new[] { "Alice", "Bob", "Carol", "Dave", "Eve" };
 var priorities = new[] { "high", "normal", "low" };
@@ -66,8 +69,21 @@ for (var i = 1; i <= count; i++)
     var amount   = Math.Round(rng.NextDouble() * 1999 + 1, 2);
     var priority = priorities[rng.Next(priorities.Length)];
     await broker.PostAsync("Queue", new OrderMessage(id, customer, (decimal)amount, priority));
+    Log.OrderPosted(logger, id, customer, amount, priority);
 }
 
-Console.WriteLine($"{count} orders posted.");
+Log.BatchComplete(logger, count, transport);
 
 await host.StopAsync();
+
+static partial class Log
+{
+    [LoggerMessage(Level = LogLevel.Information, Message = "ProducerSample starting — transport={Transport} count={Count}")]
+    public static partial void Starting(ILogger logger, string transport, int count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Posted {OrderId} {Customer} {Amount:F2} [{Priority}]")]
+    public static partial void OrderPosted(ILogger logger, string orderId, string customer, double amount, string priority);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Count} order(s) posted via {Transport}")]
+    public static partial void BatchComplete(ILogger logger, int count, string transport);
+}

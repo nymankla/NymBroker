@@ -21,6 +21,7 @@
   <Project Path="samples/NymBroker.ProducerSample/NymBroker.ProducerSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
+  <Project Path="samples/NymBroker.RabbitSample/NymBroker.RabbitSample.csproj" />
   <Project Path="samples/NymBroker.RoutingSample/NymBroker.RoutingSample.csproj" />
   <Project Path="samples/NymBroker.Sample/NymBroker.Sample.csproj" />
   <Project Path="samples/NymBroker.SqlSample/NymBroker.SqlSample.csproj">
