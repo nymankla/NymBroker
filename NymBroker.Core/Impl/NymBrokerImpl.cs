@@ -5,6 +5,7 @@ using NymBroker.Core.Aggregator;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Filter;
 using NymBroker.Core.Message;
+using NymBroker.Core.Transform;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Route;
 using NymBroker.Core.Serialize;
@@ -31,6 +32,9 @@ public sealed class NymBrokerImpl : INymBroker
     private ImmutableList<RouteContext> _routes = ImmutableList<RouteContext>.Empty;
     private ImmutableList<IMessageFilter> _filters = ImmutableList<IMessageFilter>.Empty;
     private ImmutableList<TopicContext> _topics = ImmutableList<TopicContext>.Empty;
+    private ImmutableDictionary<string, IInputTransformer> _endpointTransformers =
+        ImmutableDictionary.Create<string, IInputTransformer>(StringComparer.OrdinalIgnoreCase);
+    private IInputTransformer? _globalInputTransformer;
 
     // Endpoint registry — replaced immutably during configuration, then read-only during runtime.
     private ImmutableDictionary<string, IEndPoint> _endpoints = ImmutableDictionary.Create<string, IEndPoint>(StringComparer.OrdinalIgnoreCase);
@@ -72,6 +76,15 @@ public sealed class NymBrokerImpl : INymBroker
     public INymBroker AddFilter(IMessageFilter filter)
     {
         _filters = _filters.Add(filter);
+        return this;
+    }
+
+    public INymBroker AddInputTransformer(IInputTransformer transformer, string? endpoint = null)
+    {
+        if (endpoint == null)
+            _globalInputTransformer = transformer;
+        else
+            _endpointTransformers = _endpointTransformers.SetItem(endpoint, transformer);
         return this;
     }
 
@@ -183,11 +196,24 @@ public sealed class NymBrokerImpl : INymBroker
         if (_startInitiated && !_started) await _startGate.Task.WaitAsync(ct);
 
         IMessageContext context;
-        try { context = _serializer.Deserialize(raw.AsSpan()); }
-        catch (Exception ex)
+        var transformer = sourceEndpoint != null && _endpointTransformers.TryGetValue(sourceEndpoint, out var epT)
+            ? epT
+            : _globalInputTransformer;
+
+        if (transformer != null)
         {
-            _logger.LogError(ex, "Failed to deserialize message from {Source}", sourceEndpoint);
-            return;
+            var transformed = transformer.Transform(raw.AsSpan(), sourceEndpoint);
+            if (transformed == null) return;
+            context = transformed;
+        }
+        else
+        {
+            try { context = _serializer.Deserialize(raw.AsSpan()); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to deserialize message from {Source}", sourceEndpoint);
+                return;
+            }
         }
 
         if (context.Address == null) context.Address = new EndpointAddress();

@@ -1,6 +1,7 @@
 using NymBroker.Core.Filter;
 using NymBroker.Core.Message;
 using NymBroker.Core.Route;
+using NymBroker.Core.Transform;
 
 namespace NymBroker.Core.Impl;
 
@@ -30,6 +31,12 @@ public interface INymBroker
     INymBroker AddScheduledAction<T1>(string expression, Action<T1> action, T1 param1);
 
     INymBroker AddFilter(IMessageFilter filter);
+
+    /// <summary>
+    /// Register an input transformer for a specific endpoint, or globally when endpoint is null.
+    /// The transformer replaces the default JSON-envelope deserialization for matching messages.
+    /// </summary>
+    INymBroker AddInputTransformer(IInputTransformer transformer, string? endpoint = null);
 
     Task StartAsync(CancellationToken ct = default);
     Task StopAsync(CancellationToken ct = default);
