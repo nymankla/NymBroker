@@ -10,6 +10,7 @@ using NymBroker.Core.Impl;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Serialize;
 using NymBroker.Core.Splitter;
+using NymBroker.Core.Transform;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -24,6 +25,7 @@ public sealed class NymBrokerBuilder
     private readonly List<(Type ConsumerType, Type MessageType)> _consumers = [];
     private readonly List<TopicContext> _topicContexts = [];
     private readonly List<TopicConfiguration> _configTopics = [];
+    private readonly List<(Type TransformerType, string? Endpoint)> _transformers = [];
     private bool _built;
 
     /// <summary>Exposes the DI container for endpoint extension packages (e.g. NymBroker.RabbitMq).</summary>
@@ -87,6 +89,16 @@ public sealed class NymBrokerBuilder
         return this;
     }
 
+    // --- Input transformer registration ---
+
+    public NymBrokerBuilder AddInputTransformer<TTransformer>(string? endpoint = null)
+        where TTransformer : class, IInputTransformer
+    {
+        _services.TryAddTransient<TTransformer>();
+        _transformers.Add((typeof(TTransformer), endpoint));
+        return this;
+    }
+
     // --- Load from config file ---
 
     public NymBrokerBuilder LoadConfiguration(string filePath)
@@ -135,6 +147,7 @@ public sealed class NymBrokerBuilder
         var consumers = _consumers.ToList();
         var topicContexts = _topicContexts.ToList();
         var configTopics = _configTopics.ToList();
+        var transformers = _transformers.ToList();
 
         _services.AddSingleton<NymBrokerImpl>(sp =>
         {
@@ -154,6 +167,9 @@ public sealed class NymBrokerBuilder
 
             foreach (var topic in topicContexts)
                 broker.AddTopic(topic);
+
+            foreach (var (type, endpoint) in transformers)
+                broker.AddInputTransformer((IInputTransformer)sp.GetRequiredService(type), endpoint);
 
             // Config-based topics: resolve message type string → CLR type via registry.
             var registry = sp.GetRequiredService<MessageTypeRegistry>();

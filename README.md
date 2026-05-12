@@ -19,6 +19,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 - **High performance** — compiled Expression dispatch, RecyclableMemoryStream, lock-free ImmutableCollections
 - **Reliable delivery** — RabbitMQ uses manual ack/nack; no message is silently dropped on processing failure
 - **Scoped consumers** — each message dispatch gets its own DI scope
+- **Input transformers** — intercept raw bytes before envelope deserialization; convert any format (CSV, protobuf, plain text) into a `RawMessageContext` the broker can route and dispatch
 
 ## Solution layout
 
@@ -36,6 +37,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 | `samples/NymBroker.PostgresSample` | PostgreSQL endpoint demo — posts orders before start, broker reads from DB |
 | `samples/NymBroker.ConsumerSample` | Cross-process consumer — listens on a shared queue (SQLite / Postgres / RabbitMQ) |
 | `samples/NymBroker.ProducerSample` | Cross-process producer — posts orders to a shared queue then exits |
+| `samples/NymBroker.CsvSample` | Input transformer demo — posts raw CSV bytes, `CsvOrderTransformer` converts them to typed messages |
 | `samples/NymBroker.Benchmarks` | Throughput and allocation benchmark |
 
 ## Getting started
@@ -671,6 +673,85 @@ public sealed class AuditFilter : IMessageFilter
 broker.AddFilter(new AuditFilter());
 ```
 
+## Input transformers
+
+An `IInputTransformer` intercepts the raw bytes arriving at an endpoint **before** the default JSON-envelope deserialization runs. Use it when the producer sends data in a format that is not a NymBroker JSON envelope — CSV, plain-text, protobuf, fixed-width, etc.
+
+```csharp
+public interface IInputTransformer
+{
+    /// <summary>
+    /// Return null to drop the message silently.
+    /// </summary>
+    RawMessageContext? Transform(ReadOnlySpan<byte> input, string? sourceEndpoint);
+}
+```
+
+`RawMessageContext` is the internal form the broker uses after normal deserialization. Populate `MessageType` to match a registered `[MessageName]` and set `RawMessage` to a `JsonElement` that holds the typed payload:
+
+```csharp
+public sealed class CsvOrderTransformer : IInputTransformer
+{
+    public RawMessageContext? Transform(ReadOnlySpan<byte> input, string? sourceEndpoint)
+    {
+        var parts = Encoding.UTF8.GetString(input).Trim().Split(',');
+        if (parts.Length != 4) return null;   // drop malformed lines
+
+        if (!decimal.TryParse(parts[2].Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out var amount))
+            return null;
+
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            orderId  = parts[0].Trim(),
+            customer = parts[1].Trim(),
+            amount,
+            priority = parts[3].Trim()
+        });
+
+        return new RawMessageContext
+        {
+            Id            = Guid.NewGuid(),
+            CorrelationId = Guid.NewGuid(),
+            MessageType   = "order.created",
+            Created       = DateTime.UtcNow,
+            RawMessage    = payload
+        };
+    }
+}
+```
+
+### Registration
+
+Register a transformer for a specific endpoint, or globally (applied when no per-endpoint transformer matches):
+
+```csharp
+services.AddNymBroker()
+    .AddMemoryEndPoint("CsvInbox")
+    .AddInputTransformer<CsvOrderTransformer>("CsvInbox")   // per-endpoint
+    .AddConsumer<OrderConsumer>()
+    .Build();
+```
+
+```csharp
+services.AddNymBroker()
+    .AddMemoryEndPoint("CsvInbox")
+    .AddInputTransformer<CsvOrderTransformer>()             // global fallback
+    .AddConsumer<OrderConsumer>()
+    .Build();
+```
+
+### Posting raw bytes
+
+Use `broker.PostAsync(string, Stream)` to push non-envelope bytes into the endpoint. Cast to `Stream` explicitly — otherwise C# overload resolution picks the generic `PostAsync<T>` and tries to serialize the `MemoryStream` as a message:
+
+```csharp
+var csv   = "ORD-001,Alice,499.99,high";
+var bytes = Encoding.UTF8.GetBytes(csv);
+await broker.PostAsync("CsvInbox", (Stream)new MemoryStream(bytes));
+```
+
+The transformer runs inside `ProcessAsync`; returning `null` silently drops the message with no logging.
+
 ## Aggregator / Splitter
 
 Split a large payload into chunks and reassemble on the other side:
@@ -717,6 +798,10 @@ dotnet run --project samples/NymBroker.WebSample
 
 # PostgreSQL endpoint demo (start Postgres first with ./setup-postgres.ps1)
 dotnet run --project samples/NymBroker.PostgresSample
+
+# CSV input transformer demo — posts raw CSV lines, broker converts and dispatches as typed messages
+dotnet run --project samples/NymBroker.CsvSample
+dotnet run --project samples/NymBroker.CsvSample -- "ORD-99,Zara,12.50,low"   # single custom line
 
 # Cross-process producer/consumer pair (SQLite by default; pass --transport postgres or --transport rabbitmq)
 # Terminal 1 — start the consumer first:
