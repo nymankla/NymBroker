@@ -71,17 +71,31 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
                     await channel.QueueDeclareAsync(_settings.ReadQueueName, durable: true,
                         exclusive: false, autoDelete: false, cancellationToken: token);
 
+                    var batchSize    = _settings.BatchAckSize;
+                    var pendingCount = 0;
+                    var lastGoodTag  = 0UL;
+
                     var consumer = new AsyncEventingBasicConsumer(channel);
                     consumer.ReceivedAsync += async (_, ea) =>
                     {
                         try
                         {
                             await handler(ea.Body.ToArray(), token);
-                            await channel.BasicAckAsync(ea.DeliveryTag, multiple: false, cancellationToken: token);
+                            lastGoodTag = ea.DeliveryTag;
+                            if (++pendingCount >= batchSize)
+                            {
+                                await channel.BasicAckAsync(lastGoodTag, multiple: true, cancellationToken: token);
+                                pendingCount = 0;
+                            }
                         }
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Error processing message from {Queue}", _settings.ReadQueueName);
+                            if (pendingCount > 0)
+                            {
+                                await channel.BasicAckAsync(lastGoodTag, multiple: true, cancellationToken: token);
+                                pendingCount = 0;
+                            }
                             await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, cancellationToken: token);
                         }
                     };

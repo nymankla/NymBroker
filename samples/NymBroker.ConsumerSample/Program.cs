@@ -24,6 +24,7 @@ var host = Host.CreateDefaultBuilder(args)
                 });
                 break;
 
+            case "rabbit":
             case "rabbitmq":
                 builder.AddRabbitMqEndPoint("Queue", new RabbitMqSettings
                 {
