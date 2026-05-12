@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading.Channels;
 using NymBroker.Core.Endpoint.HealthCheck;
 using Microsoft.Extensions.Logging;
 using Polly;
@@ -15,7 +16,11 @@ public sealed class FileEndPoint : IEndPointEventDriven
     private readonly ResiliencePipeline<string?> _fileReadyPolicy;
     private FileSystemWatcher? _watcher;
     private Func<byte[], CancellationToken, Task>? _handler;
-    private CancellationToken _listenerCt;
+
+    // All file events (watcher + poll + startup scan) feed into this channel.
+    // Single reader ensures only one Task processes a given file at a time,
+    // eliminating the concurrent-rename race that caused lost signals.
+    private Channel<FileInfo>? _fileChannel;
 
     public EndpointMode Mode { get; }
 
@@ -65,26 +70,51 @@ public sealed class FileEndPoint : IEndPointEventDriven
     public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
     {
         _handler = handler;
-        _listenerCt = ct;
+
+        _fileChannel = Channel.CreateUnbounded<FileInfo>(
+            new UnboundedChannelOptions { SingleReader = true, AllowSynchronousContinuations = false });
+
+        // Single reader loop — only this task reads from the channel, so files are processed one at
+        // a time. Duplicate entries (from watcher + poll scan racing for the same file) are harmless:
+        // ReadAndArchiveAsync returns null on the second attempt and no handler call is made.
+        _ = Task.Run(() => ProcessChannelAsync(ct), ct);
 
         _watcher = new FileSystemWatcher(_readDir.FullName, _settings.SearchPattern)
         {
-            NotifyFilter        = NotifyFilters.FileName,
-            InternalBufferSize  = 65536,   // 64 KB — default 8 KB overflows under burst writes
+            NotifyFilter       = NotifyFilters.FileName,
+            InternalBufferSize = 65536,
             EnableRaisingEvents = true
         };
         _watcher.Created += OnFileCreated;
         _watcher.Error   += OnWatcherError;
 
-        // Also process any files already present.
-        _ = Task.Run(async () =>
-        {
-            try { await ProcessExistingFilesAsync(ct); }
-            catch (OperationCanceledException) { }
-            catch (Exception ex) { _logger.LogError(ex, "Error scanning existing files in '{Dir}'", _readDir.FullName); }
-        }, ct);
+        // Queue any files already present when listening starts.
+        foreach (var file in _readDir.GetFiles(_settings.SearchPattern))
+            _fileChannel.Writer.TryWrite(file);
 
-        ct.Register(() => _watcher.EnableRaisingEvents = false);
+        // Periodic poll — catches files whose watcher events were dropped under burst load.
+        if (_settings.PollInterval > TimeSpan.Zero)
+        {
+            _ = Task.Run(async () =>
+            {
+                using var timer = new PeriodicTimer(_settings.PollInterval);
+                try
+                {
+                    while (await timer.WaitForNextTickAsync(ct))
+                        foreach (var file in _readDir.GetFiles(_settings.SearchPattern))
+                            _fileChannel.Writer.TryWrite(file);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) { _logger.LogError(ex, "Error in poll loop for '{Dir}'", _readDir.FullName); }
+            }, ct);
+        }
+
+        ct.Register(() =>
+        {
+            if (_watcher != null) _watcher.EnableRaisingEvents = false;
+            _fileChannel.Writer.TryComplete();
+        });
+
         return Task.CompletedTask;
     }
 
@@ -96,6 +126,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
             _watcher.Dispose();
             _watcher = null;
         }
+        _fileChannel?.Writer.TryComplete();
         return Task.CompletedTask;
     }
 
@@ -126,47 +157,35 @@ public sealed class FileEndPoint : IEndPointEventDriven
     private void OnWatcherError(object sender, ErrorEventArgs e)
     {
         _logger.LogError(e.GetException(), "FileSystemWatcher error on '{Dir}' — some file events may have been lost", _readDir.FullName);
-        // Re-scan the directory so any files whose events were dropped are still processed.
-        _ = Task.Run(async () =>
-        {
-            try { await ProcessExistingFilesAsync(_listenerCt); }
-            catch (OperationCanceledException) { }
-            catch (Exception ex) { _logger.LogError(ex, "Error re-scanning '{Dir}' after watcher overflow", _readDir.FullName); }
-        }, _listenerCt);
+        // Re-scan so any files whose events were dropped are still queued.
+        if (_fileChannel != null)
+            foreach (var file in _readDir.GetFiles(_settings.SearchPattern))
+                _fileChannel.Writer.TryWrite(file);
     }
 
     private void OnFileCreated(object sender, FileSystemEventArgs e)
     {
-        if (_handler == null) return;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var file = new FileInfo(e.FullPath);
-                var content = await ReadAndArchiveAsync(file, _listenerCt);
-                if (content != null)
-                    await _handler(Encoding.UTF8.GetBytes(content), _listenerCt);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Unhandled error processing file '{File}'", e.Name);
-            }
-        }, _listenerCt);
+        _fileChannel?.Writer.TryWrite(new FileInfo(e.FullPath));
     }
 
-    private async Task ProcessExistingFilesAsync(CancellationToken ct)
+    private async Task ProcessChannelAsync(CancellationToken ct)
     {
-        foreach (var file in _readDir.GetFiles(_settings.SearchPattern))
+        try
         {
-            if (ct.IsCancellationRequested) return;
-            var content = await ReadAndArchiveAsync(file, ct);
-            if (content != null && _handler != null)
+            await foreach (var file in _fileChannel!.Reader.ReadAllAsync(ct))
             {
-                try { await _handler(Encoding.UTF8.GetBytes(content), ct); }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                { _logger.LogError(ex, "Unhandled error processing existing file '{File}'", file.Name); }
+                if (ct.IsCancellationRequested) return;
+                var content = await ReadAndArchiveAsync(file, ct);
+                if (content != null && _handler != null)
+                {
+                    try { await _handler(Encoding.UTF8.GetBytes(content), ct); }
+                    catch (OperationCanceledException) { return; }
+                    catch (Exception ex) { _logger.LogError(ex, "Unhandled error processing file '{File}'", file.Name); }
+                }
             }
         }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _logger.LogCritical(ex, "File processing loop terminated unexpectedly for '{Dir}'", _readDir.FullName); }
     }
 
     private async Task<string?> ReadAndArchiveAsync(FileInfo file, CancellationToken ct)
@@ -179,6 +198,10 @@ public sealed class FileEndPoint : IEndPointEventDriven
                     FileShare.ReadWrite | FileShare.Delete, bufferSize: 65536, useAsync: false);
                 using var reader = new StreamReader(fs);
                 var content = await reader.ReadToEndAsync(token);
+                // Guard: writer may not have flushed yet when the Created event fires early.
+                // Throw so Polly retries; the file is NOT renamed and stays available for re-read.
+                if (content.Length == 0)
+                    throw new IOException("File has no content yet.");
                 // Rename to .processed so it is not picked up again.
                 var processed = Path.ChangeExtension(file.FullName, ".processed");
                 System.IO.File.Move(file.FullName, processed, overwrite: true);

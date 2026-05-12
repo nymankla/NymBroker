@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    Single source of truth for NuGet package version.
+    Update with:  .\pack.ps1 -Version 1.2.3
+    Or bump with: .\pack.ps1 -BumpPatch | -BumpMinor | -BumpMajor
+  -->
+  <PropertyGroup>
+    <Version>0.0.1</Version>
+    <Authors>nymankla@gmail.com</Authors>
+    <RepositoryUrl>https://github.com/nymankla/NymBroker</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+</Project>
