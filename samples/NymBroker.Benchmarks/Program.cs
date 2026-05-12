@@ -286,7 +286,10 @@ async Task<BenchmarkResult> RunAsync(
     }
 
     try { await completion.WaitAsync(TimeSpan.FromSeconds(30)); }
-    catch (TimeoutException) { Console.WriteLine($"\n  [TIMEOUT] processed {tracker.Processed}/{count * signalsPerMessage}"); }
+    catch (TimeoutException)
+    {
+        Console.WriteLine($"\n  [TIMEOUT] processed {tracker.Processed}/{count * signalsPerMessage}");
+    }
     sw.Stop();
 
     var gen0      = GC.CollectionCount(0) - gen0Before;
