@@ -32,6 +32,9 @@ public sealed partial class NymBrokerImpl : INymBroker
     private ImmutableDictionary<string, IInputTransformer> _endpointTransformers =
         ImmutableDictionary.Create<string, IInputTransformer>(StringComparer.OrdinalIgnoreCase);
     private IInputTransformer? _globalInputTransformer;
+    private ImmutableList<string> _wireTapEndpoints = ImmutableList<string>.Empty;
+    private string? _deadLetterEndpoint;
+    private TimeSpan? _maxMessageAge;
 
     // Endpoint registry — replaced immutably during configuration, then read-only during runtime.
     private ImmutableDictionary<string, IEndPoint> _endpoints = ImmutableDictionary.Create<string, IEndPoint>(StringComparer.OrdinalIgnoreCase);
@@ -80,6 +83,24 @@ public sealed partial class NymBrokerImpl : INymBroker
             _globalInputTransformer = transformer;
         else
             _endpointTransformers = _endpointTransformers.SetItem(endpoint, transformer);
+        return this;
+    }
+
+    public INymBroker SetDeadLetterEndpoint(string endpointName)
+    {
+        _deadLetterEndpoint = endpointName;
+        return this;
+    }
+
+    public INymBroker AddWireTap(string endpointName)
+    {
+        _wireTapEndpoints = _wireTapEndpoints.Add(endpointName);
+        return this;
+    }
+
+    public INymBroker SetMaxMessageAge(TimeSpan maxAge)
+    {
+        _maxMessageAge = maxAge;
         return this;
     }
 }

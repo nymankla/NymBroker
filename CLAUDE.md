@@ -28,9 +28,9 @@ dotnet run --project samples/NymBroker.SqlSample         # SQLite endpoint demo
 dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 
 # RabbitMQ (Docker Desktop required)
-./setup-rabbitmq.ps1          # start + wait for healthy
-./setup-rabbitmq.ps1 -Stop    # stop
-./setup-rabbitmq.ps1 -Logs    # tail logs
+./scripts/setup-rabbitmq.ps1          # start + wait for healthy
+./scripts/setup-rabbitmq.ps1 -Stop    # stop
+./scripts/setup-rabbitmq.ps1 -Logs    # tail logs
 ```
 
 ## Architecture

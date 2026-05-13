@@ -6,11 +6,12 @@ param(
     [switch]$Logs
 )
 
-$container = "messagebroker-rabbitmq"
+$container   = "messagebroker-rabbitmq"
+$ComposeFile = Join-Path $PSScriptRoot "docker-compose.yml"
 
 if ($Stop) {
     Write-Host "Stopping RabbitMQ..." -ForegroundColor Yellow
-    docker compose down
+    docker compose -f $ComposeFile down
     exit 0
 }
 
@@ -20,7 +21,7 @@ if ($Logs) {
 }
 
 Write-Host "Starting RabbitMQ..." -ForegroundColor Cyan
-docker compose up -d rabbitmq
+docker compose -f $ComposeFile up -d rabbitmq
 
 Write-Host "Waiting for RabbitMQ to become healthy..." -ForegroundColor Yellow
 $attempts = 0

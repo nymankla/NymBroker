@@ -42,7 +42,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Root      = $PSScriptRoot
+$Root      = Split-Path $PSScriptRoot -Parent
 $PropsFile = Join-Path $Root "Directory.Build.props"
 
 # ── read current version ────────────────────────────────────────────────────

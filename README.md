@@ -3,9 +3,11 @@
 A .NET 10 enterprise message processing framework following [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). Messages flow as JSON envelopes through a configurable pipeline of endpoints, filters, routers, and consumers.
 
 ```
-Source Endpoint → Deserialize → Filter → Router → Consumer / Destination Endpoint
-                                              ↕
-                                    Aggregator / Splitter
+Source Endpoint → [Wire Tap] → Deserialize → [TTL Check] → Filter → Router → Consumer / Destination Endpoint
+                                                                                        ↓ on failure
+                                                                              Dead Letter Channel
+                                                                     ↕
+                                                           Aggregator / Splitter
 ```
 
 ## Features
@@ -14,6 +16,10 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
 - **Fluent routing API** — type-safe, composable route conditions
 - **Typed consumers** — implement `IConsume<T>`, optionally handle multiple message types in one class
 - **Publish-Subscribe Channel** — EIP pub/sub; declare topics with typed `ISubscribe<T>` subscribers or endpoint fan-out
+- **Dead Letter Channel** — failed and expired messages are automatically forwarded to a configured dead-letter endpoint
+- **Wire Tap** — copy every raw message to a secondary endpoint before processing; zero impact on normal flow
+- **Idempotent Receiver** — deduplicate messages by ID using a TTL-based in-memory store; duplicate messages are silently dropped
+- **Message Expiration (TTL)** — discard messages older than a configured age; optionally forward them to the dead-letter endpoint
 - **Scheduled actions** — interval-based or Cron expression (via [Cronos](https://github.com/HangfireIO/Cronos))
 - **JSON config file** — declare endpoint topology in `queuesettings.json`; consumers and routes stay in code
 - **High performance** — compiled Expression dispatch, RecyclableMemoryStream, lock-free ImmutableCollections
@@ -355,9 +361,9 @@ Messages are consumed with `autoAck: false`. A message is acked after successful
 Start RabbitMQ with the provided Docker Compose file:
 
 ```bash
-./setup-rabbitmq.ps1          # start and wait for healthy
-./setup-rabbitmq.ps1 -Stop    # stop
-./setup-rabbitmq.ps1 -Logs    # tail logs
+./scripts/setup-rabbitmq.ps1          # start and wait for healthy
+./scripts/setup-rabbitmq.ps1 -Stop    # stop
+./scripts/setup-rabbitmq.ps1 -Logs    # tail logs
 ```
 
 ## Endpoint modes
@@ -752,6 +758,93 @@ await broker.PostAsync("CsvInbox", (Stream)new MemoryStream(bytes));
 
 The transformer runs inside `ProcessAsync`; returning `null` silently drops the message with no logging.
 
+## Reliability patterns
+
+### Dead Letter Channel
+
+Forward failed messages to a separate endpoint so they can be inspected or reprocessed without blocking the main flow. Any message that causes a consumer to throw (other than `OperationCanceledException`) is sent to the dead-letter endpoint. TTL-expired messages (see below) are also forwarded there.
+
+```csharp
+services.AddNymBroker()
+    .AddMemoryEndPoint("Main")
+    .AddMemoryEndPoint("DeadLetters")
+    .AddConsumer<OrderConsumer>()
+    .WithDeadLetterEndpoint("DeadLetters")
+    .Build();
+```
+
+`StartAsync` throws `InvalidOperationException` if the dead-letter endpoint is `ReadOnly`.
+
+### Wire Tap
+
+Copy every raw message to one or more secondary endpoints before any processing occurs. The tap sees all messages — including those that will later be filtered, expired, or dead-lettered. Tap failures are logged and do not affect normal message flow.
+
+```csharp
+services.AddNymBroker()
+    .AddMemoryEndPoint("Main")
+    .AddMemoryEndPoint("AuditLog")
+    .AddConsumer<OrderConsumer>()
+    .AddWireTap("AuditLog")
+    .Build();
+```
+
+Multiple taps are supported — call `.AddWireTap()` once per endpoint. `StartAsync` throws if a tap endpoint is `ReadOnly`.
+
+### Idempotent Receiver
+
+Drop duplicate messages using an in-memory TTL store keyed on the message `id` field. A duplicate within the TTL window is silently discarded; an entry whose TTL has expired allows the same ID to be processed again.
+
+```csharp
+services.AddNymBroker()
+    .AddMemoryEndPoint("Main")
+    .AddConsumer<OrderConsumer>()
+    .AddIdempotentReceiver(TimeSpan.FromHours(1))   // omit TimeSpan to use the default 24-hour TTL
+    .Build();
+```
+
+The store is registered as `IIdempotencyStore` in the DI container and applied as a pipeline filter before routing and consumer dispatch.
+
+### Message Expiration (TTL)
+
+Discard messages older than a configured age. Expiry is checked after deserialization (so `created` is available) but before filters and routing. Expired messages are forwarded to the dead-letter endpoint when one is configured.
+
+```csharp
+services.AddNymBroker()
+    .AddMemoryEndPoint("Main")
+    .AddMemoryEndPoint("DeadLetters")
+    .AddConsumer<OrderConsumer>()
+    .WithDeadLetterEndpoint("DeadLetters")
+    .DiscardMessagesOlderThan(TimeSpan.FromMinutes(30))
+    .Build();
+```
+
+The age is calculated from the `created` field in the message envelope using `DateTime.UtcNow`. Messages without an explicit `created` timestamp default to the current time and will never expire.
+
+### Combining patterns
+
+All four patterns compose cleanly:
+
+```csharp
+services.AddNymBroker()
+    .AddMemoryEndPoint("Main")
+    .AddMemoryEndPoint("AuditLog")
+    .AddMemoryEndPoint("DeadLetters")
+    .AddConsumer<OrderConsumer>()
+    .AddWireTap("AuditLog")                                 // copy every message
+    .AddIdempotentReceiver(TimeSpan.FromHours(2))           // drop duplicates
+    .DiscardMessagesOlderThan(TimeSpan.FromMinutes(15))     // discard stale messages
+    .WithDeadLetterEndpoint("DeadLetters")                  // catch failures + expired
+    .Build();
+```
+
+**Pipeline order:**
+
+1. Wire tap — raw bytes forwarded before any other processing
+2. Transformer / deserialization
+3. TTL check — expired → dead letter + discard
+4. Filter loop — idempotency filter runs here
+5. Routing, topic fan-out, consumer dispatch — consumer failure → dead letter
+
 ## Aggregator / Splitter
 
 Split a large payload into chunks and reassemble on the other side:
@@ -759,7 +852,7 @@ Split a large payload into chunks and reassemble on the other side:
 ```csharp
 // Splitting
 var splitter = host.Services.GetRequiredService<ISplitter>();
-var parts = splitter.Split(largeBytes, new SizeBasedSplitCondition(maxBytes: 64_000));
+var parts = splitter.Split(largeBytes, new DefaultSplitCondition(maxChunkSizeBytes: 64_000));
 foreach (var part in parts)
     await broker.PostAsync("MemQueue", part);
 
@@ -796,7 +889,7 @@ dotnet run --project samples/NymBroker.SqlSample
 dotnet run --project samples/NymBroker.WebSample
 # then open http://localhost:5000 for the Scalar API explorer
 
-# PostgreSQL endpoint demo (start Postgres first with ./setup-postgres.ps1)
+# PostgreSQL endpoint demo (start Postgres first with ./scripts/setup-postgres.ps1)
 dotnet run --project samples/NymBroker.PostgresSample
 
 # CSV input transformer demo — posts raw CSV lines, broker converts and dispatches as typed messages
@@ -829,8 +922,8 @@ dotnet run --project samples/NymBroker.ProducerSample -- --transport sqlite --co
 | `--transport` | Prerequisite |
 |---|---|
 | `sqlite` (default) | none |
-| `postgres` | PostgreSQL on `localhost` — `./setup-postgres.ps1` |
-| `rabbitmq` | RabbitMQ on `localhost` — `./setup-rabbitmq.ps1` |
+| `postgres` | PostgreSQL on `localhost` — `./scripts/setup-postgres.ps1` |
+| `rabbitmq` | RabbitMQ on `localhost` — `./scripts/setup-rabbitmq.ps1` |
 
 ## Benchmarks
 
