@@ -38,6 +38,18 @@ public interface INymBroker
     /// </summary>
     INymBroker AddInputTransformer(IInputTransformer transformer, string? endpoint = null);
 
+    /// <summary>
+    /// Forward messages to this endpoint when a consumer throws.
+    /// Also receives messages that exceed the configured max message age.
+    /// </summary>
+    INymBroker SetDeadLetterEndpoint(string endpointName);
+
+    /// <summary>Copy every incoming raw message to this endpoint before processing.</summary>
+    INymBroker AddWireTap(string endpointName);
+
+    /// <summary>Discard (and dead-letter if configured) messages older than maxAge.</summary>
+    INymBroker SetMaxMessageAge(TimeSpan maxAge);
+
     Task StartAsync(CancellationToken ct = default);
     Task StopAsync(CancellationToken ct = default);
 

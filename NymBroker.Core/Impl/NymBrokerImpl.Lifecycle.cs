@@ -38,6 +38,17 @@ public sealed partial class NymBrokerImpl
                 }
             }
 
+            if (_deadLetterEndpoint != null
+                && _endpoints.TryGetValue(_deadLetterEndpoint, out var dlqDest)
+                && dlqDest.Mode == EndpointMode.ReadOnly)
+                throw new InvalidOperationException(
+                    $"Dead letter endpoint '{_deadLetterEndpoint}' is read-only and cannot receive messages.");
+
+            foreach (var tapName in _wireTapEndpoints)
+                if (_endpoints.TryGetValue(tapName, out var tapDest) && tapDest.Mode == EndpointMode.ReadOnly)
+                    throw new InvalidOperationException(
+                        $"Wire tap endpoint '{tapName}' is read-only and cannot receive messages.");
+
             var startedScheduledActions = ImmutableList<ScheduledActionHandle>.Empty;
             try
             {

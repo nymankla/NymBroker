@@ -6,6 +6,8 @@ using NymBroker.Core.Endpoint.File;
 using NymBroker.Core.Endpoint.Memory;
 using NymBroker.Core.Factory.Configuration;
 using NymBroker.Core.DI;
+using NymBroker.Core.Filter;
+using NymBroker.Core.Idempotency;
 using NymBroker.Core.Impl;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Serialize;
@@ -26,6 +28,10 @@ public sealed class NymBrokerBuilder
     private readonly List<TopicContext> _topicContexts = [];
     private readonly List<TopicConfiguration> _configTopics = [];
     private readonly List<(Type TransformerType, string? Endpoint)> _transformers = [];
+    private readonly List<Type> _builderFilterTypes = [];
+    private readonly List<string> _wireTapEndpoints = [];
+    private string? _deadLetterEndpoint;
+    private TimeSpan? _maxMessageAge;
     private bool _built;
 
     /// <summary>Exposes the DI container for endpoint extension packages (e.g. NymBroker.RabbitMq).</summary>
@@ -99,6 +105,38 @@ public sealed class NymBrokerBuilder
         return this;
     }
 
+    // --- Dead letter, wire tap, TTL, idempotency ---
+
+    /// <summary>Forward failed and expired messages to this endpoint.</summary>
+    public NymBrokerBuilder WithDeadLetterEndpoint(string endpointName)
+    {
+        _deadLetterEndpoint = endpointName;
+        return this;
+    }
+
+    /// <summary>Copy every incoming raw message to this endpoint before processing.</summary>
+    public NymBrokerBuilder AddWireTap(string endpointName)
+    {
+        _wireTapEndpoints.Add(endpointName);
+        return this;
+    }
+
+    /// <summary>Discard (and dead-letter if configured) messages older than maxAge.</summary>
+    public NymBrokerBuilder DiscardMessagesOlderThan(TimeSpan maxAge)
+    {
+        _maxMessageAge = maxAge;
+        return this;
+    }
+
+    /// <summary>Register an idempotent receiver that drops duplicate message IDs within the TTL window.</summary>
+    public NymBrokerBuilder AddIdempotentReceiver(TimeSpan? ttl = null)
+    {
+        _services.AddSingleton<IIdempotencyStore>(new InMemoryIdempotencyStore(ttl ?? TimeSpan.FromHours(24)));
+        _services.AddSingleton<IdempotentFilter>();
+        _builderFilterTypes.Add(typeof(IdempotentFilter));
+        return this;
+    }
+
     // --- Load from config file ---
 
     public NymBrokerBuilder LoadConfiguration(string filePath)
@@ -143,11 +181,15 @@ public sealed class NymBrokerBuilder
         _services.AddSingleton<SubscriberDispatcher>();
 
         // Capture lists for closure.
-        var endpoints = _endpoints.ToList();
-        var consumers = _consumers.ToList();
-        var topicContexts = _topicContexts.ToList();
-        var configTopics = _configTopics.ToList();
-        var transformers = _transformers.ToList();
+        var endpoints        = _endpoints.ToList();
+        var consumers        = _consumers.ToList();
+        var topicContexts    = _topicContexts.ToList();
+        var configTopics     = _configTopics.ToList();
+        var transformers     = _transformers.ToList();
+        var builderFilters   = _builderFilterTypes.ToList();
+        var wireTapEndpoints = _wireTapEndpoints.ToList();
+        var deadLetter       = _deadLetterEndpoint;
+        var maxMessageAge    = _maxMessageAge;
 
         _services.AddSingleton<NymBrokerImpl>(sp =>
         {
@@ -170,6 +212,18 @@ public sealed class NymBrokerBuilder
 
             foreach (var (type, endpoint) in transformers)
                 broker.AddInputTransformer((IInputTransformer)sp.GetRequiredService(type), endpoint);
+
+            foreach (var filterType in builderFilters)
+                broker.AddFilter((IMessageFilter)sp.GetRequiredService(filterType));
+
+            foreach (var tap in wireTapEndpoints)
+                broker.AddWireTap(tap);
+
+            if (deadLetter != null)
+                broker.SetDeadLetterEndpoint(deadLetter);
+
+            if (maxMessageAge.HasValue)
+                broker.SetMaxMessageAge(maxMessageAge.Value);
 
             // Config-based topics: resolve message type string → CLR type via registry.
             var registry = sp.GetRequiredService<MessageTypeRegistry>();

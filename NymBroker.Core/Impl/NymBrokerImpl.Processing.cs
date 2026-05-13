@@ -53,6 +53,21 @@ public sealed partial class NymBrokerImpl
     {
         if (_startInitiated && !_started) await _startGate.Task.WaitAsync(ct);
 
+        // ── Wire Tap ─────────────────────────────────────────────────────────
+        // Copies raw bytes to every tap endpoint before processing. Tap endpoints see
+        // all messages including those that will be filtered, expired, or dead-lettered.
+        foreach (var tapName in _wireTapEndpoints)
+        {
+            if (_endpoints.TryGetValue(tapName, out var tapEndpoint))
+            {
+                try { await tapEndpoint.PostAsync(raw, ct); }
+                catch (Exception ex) { _logger.LogError(ex, "Wire tap failed for endpoint '{Endpoint}'", tapName); }
+            }
+            else
+                _logger.LogWarning("Wire tap references unknown endpoint '{Endpoint}'", tapName);
+        }
+
+        // ── Deserialize ───────────────────────────────────────────────────────
         IMessageContext context;
         var transformer = sourceEndpoint != null && _endpointTransformers.TryGetValue(sourceEndpoint, out var epT)
             ? epT
@@ -77,7 +92,23 @@ public sealed partial class NymBrokerImpl
         if (context.Address == null) context.Address = new EndpointAddress();
         context.Address.From = sourceEndpoint;
 
-        // Apply filters.
+        // ── TTL check ─────────────────────────────────────────────────────────
+        // Expired messages are forwarded to the dead letter endpoint (if configured)
+        // and then discarded before reaching filters, routing, or consumer dispatch.
+        if (_maxMessageAge.HasValue)
+        {
+            var age = DateTime.UtcNow - context.Created;
+            if (age > _maxMessageAge.Value)
+            {
+                _logger.LogWarning(
+                    "Discarding expired message {MessageId} (type={MessageType}, age={Age:F1}s, ttl={Ttl:F1}s)",
+                    context.Id, context.MessageType, age.TotalSeconds, _maxMessageAge.Value.TotalSeconds);
+                await TryPostToDeadLetterAsync(raw, ct);
+                return;
+            }
+        }
+
+        // ── Filters ───────────────────────────────────────────────────────────
         foreach (var filter in _filters)
         {
             context = filter.Filter(context)!;
@@ -90,10 +121,10 @@ public sealed partial class NymBrokerImpl
             return;
         }
 
-        // Resolve CLR type.
+        // ── Resolve CLR type ──────────────────────────────────────────────────
         var messageType = _messageTypeRegistry.Resolve(raw2.MessageType);
 
-        // Aggregator: collect SplitMessage parts before further processing.
+        // ── Aggregator ────────────────────────────────────────────────────────
         if (messageType == typeof(SplitMessage))
         {
             var split = MessageSerializerJson.DeserializeMessage<SplitMessage>(raw2);
@@ -109,7 +140,7 @@ public sealed partial class NymBrokerImpl
 
         var msgElement = raw2.RawMessage;
 
-        // Route to destination endpoints.
+        // ── Route to destination endpoints ────────────────────────────────────
         var wasRouted = false;
         foreach (var route in _routes)
         {
@@ -131,7 +162,7 @@ public sealed partial class NymBrokerImpl
             wasRouted = true;
         }
 
-        // Topic fan-out (pub/sub) — evaluated regardless of whether a route also matched.
+        // ── Topic fan-out (pub/sub) ────────────────────────────────────────────
         var wasTopicFanOut = false;
         object? deserializedMessage = null;
         foreach (var topic in _topics)
@@ -139,7 +170,6 @@ public sealed partial class NymBrokerImpl
             if (!topic.Evaluate(messageType ?? typeof(IAnyMessage), context, msgElement)) continue;
             wasTopicFanOut = true;
 
-            // Lazily deserialize once — reused across multiple matching topics.
             if (topic.SubscriberDispatchers.Count > 0 && messageType != null && deserializedMessage == null)
                 deserializedMessage = MessageSerializerJson.DeserializeMessageObject(raw2, messageType);
 
@@ -155,9 +185,32 @@ public sealed partial class NymBrokerImpl
             return;
         }
 
+        // ── Consumer dispatch — failures go to dead letter ────────────────────
         var message = MessageSerializerJson.DeserializeMessageObject(raw2, messageType);
         if (message != null)
-            await _consumerDispatcher.DispatchAsync(messageType, message, context, ct);
+        {
+            try
+            {
+                await _consumerDispatcher.DispatchAsync(messageType, message, context, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "Consumer failed for message type {MessageType} — routing to dead letter", messageType.Name);
+                await TryPostToDeadLetterAsync(raw, ct);
+            }
+        }
+    }
+
+    private async Task TryPostToDeadLetterAsync(byte[] raw, CancellationToken ct)
+    {
+        if (_deadLetterEndpoint == null) return;
+        if (!_endpoints.TryGetValue(_deadLetterEndpoint, out var dlq))
+        {
+            _logger.LogError("Dead letter endpoint '{Endpoint}' not found", _deadLetterEndpoint);
+            return;
+        }
+        try { await dlq.PostAsync(raw, ct); }
+        catch (Exception ex) { _logger.LogError(ex, "Failed to post message to dead letter endpoint '{Endpoint}'", _deadLetterEndpoint); }
     }
 
     private async Task FanOutTopicAsync(TopicContext topic, object? message, IMessageContext context, CancellationToken ct)
