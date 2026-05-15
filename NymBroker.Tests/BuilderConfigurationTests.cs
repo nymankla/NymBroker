@@ -58,7 +58,7 @@ public sealed class BuilderConfigurationTests
         var broker = sp.GetRequiredService<INymBroker>();
 
         // PostAsync should succeed — endpoint is registered.
-        await broker.PostAsync("Mem", new { Value = 42 });
+        await broker.PostAsync("Mem", new { Value = 42 }, TestContext.Current.CancellationToken);
     }
 
     // --- ApplyConfiguration for Memory and File types ---
@@ -83,7 +83,7 @@ public sealed class BuilderConfigurationTests
         await using var sp = services.BuildServiceProvider();
         var broker = sp.GetRequiredService<INymBroker>();
 
-        await broker.PostAsync("CfgMem", new { Ok = true });
+        await broker.PostAsync("CfgMem", new { Ok = true }, TestContext.Current.CancellationToken);
     }
 
     // --- BrokerConfigurationReader from file ---

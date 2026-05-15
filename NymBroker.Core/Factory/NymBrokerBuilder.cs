@@ -128,6 +128,14 @@ public sealed class NymBrokerBuilder
         return this;
     }
 
+    /// <summary>Log every incoming message at Debug level before routing and consumer dispatch.</summary>
+    public NymBrokerBuilder AddMessageLoggingFilter()
+    {
+        _services.AddSingleton<LoggingFilter>();
+        _builderFilterTypes.Add(typeof(LoggingFilter));
+        return this;
+    }
+
     /// <summary>Register an idempotent receiver that drops duplicate message IDs within the TTL window.</summary>
     public NymBrokerBuilder AddIdempotentReceiver(TimeSpan? ttl = null)
     {

@@ -94,7 +94,7 @@ public sealed class PubSubTests
     private static async Task<List<string>> DrainAsync(MemoryQueueEndPoint endpoint)
     {
         var items = new List<string>();
-        await foreach (var msg in endpoint.ReadAsync()) items.Add(msg);
+        await foreach (var msg in endpoint.ReadAsync(TestContext.Current.CancellationToken)) items.Add(msg);
         return items;
     }
 
@@ -141,7 +141,7 @@ public sealed class PubSubTests
             SubscriberEndpoints = ImmutableList.Create("Sub1", "Sub2")
         });
 
-        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "O1" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "O1" }), null, TestContext.Current.CancellationToken);
 
         var items1 = await DrainAsync(ep1);
         var items2 = await DrainAsync(ep2);
@@ -170,7 +170,7 @@ public sealed class PubSubTests
         });
 
         var order = new OrderMessage { OrderId = "O42", Total = 99.99m };
-        await broker.ProcessAsync(await SerializeAsync(order), null);
+        await broker.ProcessAsync(await SerializeAsync(order), null, TestContext.Current.CancellationToken);
 
         Assert.Single(subscriber.Received);
         Assert.Equal("O42", subscriber.Received[0].Message.OrderId);
@@ -203,7 +203,7 @@ public sealed class PubSubTests
                 (typeof(SecondOrderSubscriber), nameof(SecondOrderSubscriber)))
         });
 
-        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "O99" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "O99" }), null, TestContext.Current.CancellationToken);
 
         Assert.Single(sub1.Received);
         Assert.Single(sub2.Received);
@@ -237,7 +237,7 @@ public sealed class PubSubTests
         });
 
         // Should not throw — errors are isolated per subscriber
-        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "O1" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "O1" }), null, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, throwing.CallCount);
         Assert.Single(surviving.Received);
@@ -264,9 +264,9 @@ public sealed class PubSubTests
         });
 
         // Low value — should NOT fire
-        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "Low", Total = 50m }), null);
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "Low", Total = 50m }), null, TestContext.Current.CancellationToken);
         // High value — should fire
-        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "High", Total = 200m }), null);
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "High", Total = 200m }), null, TestContext.Current.CancellationToken);
 
         var items = await DrainAsync(ep);
 
@@ -297,7 +297,7 @@ public sealed class PubSubTests
         var invoiceCtx = new MessageContext<InvoiceMessage> { Message = new InvoiceMessage { InvoiceId = "I1" } };
         using var invoiceStream = serializer.Serialize(invoiceCtx);
         using var reader = new StreamReader(invoiceStream);
-        await broker.ProcessAsync(await reader.ReadToEndAsync(), null);
+        await broker.ProcessAsync(await reader.ReadToEndAsync(TestContext.Current.CancellationToken), null, TestContext.Current.CancellationToken);
 
         var items = await DrainAsync(ep);
         Assert.Empty(items);
@@ -321,7 +321,7 @@ public sealed class PubSubTests
             SubscriberEndpoints = ImmutableList.Create("PubEp")
         });
 
-        await broker.PublishAsync(new OrderMessage { OrderId = "Pub1" });
+        await broker.PublishAsync(new OrderMessage { OrderId = "Pub1" }, TestContext.Current.CancellationToken);
 
         var items = await DrainAsync(ep);
         Assert.Single(items);
@@ -346,7 +346,7 @@ public sealed class PubSubTests
             SubscriberEndpoints = ImmutableList.Create("NamedEp")
         });
 
-        await broker.PublishAsync("special-orders", new OrderMessage { OrderId = "Named1" });
+        await broker.PublishAsync("special-orders", new OrderMessage { OrderId = "Named1" }, TestContext.Current.CancellationToken);
 
         var items = await DrainAsync(ep);
         Assert.Single(items);
@@ -375,7 +375,7 @@ public sealed class PubSubTests
             SubscriberEndpoints = ImmutableList.Create("Ep2")
         });
 
-        await broker.PublishAsync("topic-a", new OrderMessage { OrderId = "A1" });
+        await broker.PublishAsync("topic-a", new OrderMessage { OrderId = "A1" }, TestContext.Current.CancellationToken);
 
         var items1 = await DrainAsync(ep1);
         var items2 = await DrainAsync(ep2);
@@ -413,7 +413,7 @@ public sealed class PubSubTests
             SubscriberEndpoints = ImmutableList.Create("TopicEp")
         });
 
-        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "Both1" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "Both1" }), null, TestContext.Current.CancellationToken);
 
         var routeItems = await DrainAsync(routeEp);
         var topicItems = await DrainAsync(topicEp);
@@ -447,7 +447,7 @@ public sealed class PubSubTests
             SubscriberEndpoints = ImmutableList.Create("TopicOnly")
         });
 
-        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "TopicOnly1" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "TopicOnly1" }), null, TestContext.Current.CancellationToken);
 
         var topicItems = await DrainAsync(topicEp);
         Assert.Single(topicItems);
@@ -464,7 +464,7 @@ public sealed class PubSubTests
         var (broker, _) = BuildBroker();
 
         // Should log a warning but not throw
-        await broker.PublishAsync("no-such-topic", new OrderMessage { OrderId = "X" });
+        await broker.PublishAsync("no-such-topic", new OrderMessage { OrderId = "X" }, TestContext.Current.CancellationToken);
     }
 
     // =========================================================================
@@ -501,7 +501,7 @@ public sealed class PubSubTests
         await using var sp = services.BuildServiceProvider();
         var broker = sp.GetRequiredService<INymBroker>();
 
-        await broker.PublishAsync(new OrderMessage { OrderId = "Cfg1" });
+        await broker.PublishAsync(new OrderMessage { OrderId = "Cfg1" }, TestContext.Current.CancellationToken);
 
         // Retrieve the underlying MemoryQueueEndPoint to verify delivery
         var ep = (MemoryQueueEndPoint)sp.GetRequiredKeyedService<IEndPoint>("CfgSub");
@@ -541,8 +541,8 @@ public sealed class PubSubTests
         await using var sp = services.BuildServiceProvider();
         var broker = sp.GetRequiredService<INymBroker>();
 
-        await broker.PublishAsync(new OrderMessage { OrderId = "O1" });
-        await broker.PublishAsync(new InvoiceMessage { InvoiceId = "I1" });
+        await broker.PublishAsync(new OrderMessage { OrderId = "O1" }, TestContext.Current.CancellationToken);
+        await broker.PublishAsync(new InvoiceMessage { InvoiceId = "I1" }, TestContext.Current.CancellationToken);
 
         var ep = (MemoryQueueEndPoint)sp.GetRequiredKeyedService<IEndPoint>("WildcardSub");
         var items = await DrainAsync(ep);
@@ -569,7 +569,7 @@ public sealed class PubSubTests
         await using var sp = services.BuildServiceProvider();
         var broker = sp.GetRequiredService<INymBroker>();
 
-        await broker.PublishAsync(new OrderMessage { OrderId = "Fluent1" });
+        await broker.PublishAsync(new OrderMessage { OrderId = "Fluent1" }, TestContext.Current.CancellationToken);
 
         var ep = (MemoryQueueEndPoint)sp.GetRequiredKeyedService<IEndPoint>("FluentSub");
         var items = await DrainAsync(ep);
@@ -593,7 +593,7 @@ public sealed class PubSubTests
         await using var sp = services.BuildServiceProvider();
         var broker = sp.GetRequiredService<INymBroker>();
 
-        await broker.PublishAsync(new OrderMessage { OrderId = "Wired1" });
+        await broker.PublishAsync(new OrderMessage { OrderId = "Wired1" }, TestContext.Current.CancellationToken);
 
         // Subscriber is resolved from DI per dispatch; we verify no exception was thrown
         // and the broker processed the message. Keyed service is Transient so we can't
@@ -616,8 +616,8 @@ public sealed class PubSubTests
         await using var sp = services.BuildServiceProvider();
         var broker = sp.GetRequiredService<INymBroker>();
 
-        await broker.PublishAsync(new OrderMessage { OrderId = "Small", Total = 50m });
-        await broker.PublishAsync(new OrderMessage { OrderId = "Large", Total = 600m });
+        await broker.PublishAsync(new OrderMessage { OrderId = "Small", Total = 50m }, TestContext.Current.CancellationToken);
+        await broker.PublishAsync(new OrderMessage { OrderId = "Large", Total = 600m }, TestContext.Current.CancellationToken);
 
         var ep = (MemoryQueueEndPoint)sp.GetRequiredKeyedService<IEndPoint>("ConditionalSub");
         var items = await DrainAsync(ep);
@@ -724,7 +724,7 @@ public sealed class PubSubTests
         });
 
         // Should log a warning but not throw
-        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "X" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "X" }), null, TestContext.Current.CancellationToken);
     }
 
     // =========================================================================
@@ -753,7 +753,7 @@ public sealed class PubSubTests
             SubscriberEndpoints = ImmutableList.Create("Multi2")
         });
 
-        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "Multi" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "Multi" }), null, TestContext.Current.CancellationToken);
 
         var items1 = await DrainAsync(ep1);
         var items2 = await DrainAsync(ep2);
@@ -780,7 +780,7 @@ public sealed class PubSubTests
             SubscriberEndpoints = ImmutableList.Create("AnyEp")
         });
 
-        await broker.PublishAsync("any-topic", new OrderMessage { OrderId = "Any1" });
+        await broker.PublishAsync("any-topic", new OrderMessage { OrderId = "Any1" }, TestContext.Current.CancellationToken);
 
         var items = await DrainAsync(ep);
         Assert.Single(items);

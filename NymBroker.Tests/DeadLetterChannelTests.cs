@@ -72,10 +72,10 @@ public sealed class DeadLetterChannelTests
         var (broker, dlq, serializer) = BuildBroker(nameof(ThrowingConsumer), new ThrowingConsumer());
 
         var json = await SerializeAsync(serializer, new Order { Id = 7 });
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in dlq.ReadAsync()) items.Add(item);
+        await foreach (var item in dlq.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
 
         Assert.Single(items);
     }
@@ -87,12 +87,12 @@ public sealed class DeadLetterChannelTests
         var (broker, dlq, serializer) = BuildBroker(nameof(OrderConsumer), consumer);
 
         var json = await SerializeAsync(serializer, new Order { Id = 1 });
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         Assert.Single(consumer.Received);
 
         var items = new List<string>();
-        await foreach (var item in dlq.ReadAsync()) items.Add(item);
+        await foreach (var item in dlq.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
         Assert.Empty(items);
     }
 
@@ -102,10 +102,10 @@ public sealed class DeadLetterChannelTests
         var (broker, dlq, serializer) = BuildBroker(nameof(ThrowingConsumer), new ThrowingConsumer());
 
         var json = await SerializeAsync(serializer, new Order { Id = 42 });
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in dlq.ReadAsync()) items.Add(item);
+        await foreach (var item in dlq.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
 
         Assert.Contains("42", items[0]);
     }
@@ -133,6 +133,6 @@ public sealed class DeadLetterChannelTests
         var json = await SerializeAsync(serializer, new Order { Id = 1 });
 
         // Should not throw — failure is logged and swallowed.
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
     }
 }

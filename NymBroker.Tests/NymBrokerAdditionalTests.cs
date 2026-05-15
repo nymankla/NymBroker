@@ -62,10 +62,10 @@ public sealed class NymBrokerAdditionalTests
     public async Task PostAsync_Typed_SendsSerializedMessageToEndpoint()
     {
         var (broker, dest) = BuildBroker();
-        await broker.PostAsync("Dest", new StockMessage { Symbol = "AAPL" });
+        await broker.PostAsync("Dest", new StockMessage { Symbol = "AAPL" }, TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in dest.ReadAsync()) items.Add(item);
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
 
         Assert.Single(items);
         Assert.Contains("AAPL", items[0]);
@@ -76,7 +76,7 @@ public sealed class NymBrokerAdditionalTests
     {
         var (broker, _) = BuildBroker();
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => broker.PostAsync("Unknown", new StockMessage()));
+            () => broker.PostAsync("Unknown", new StockMessage(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class NymBrokerAdditionalTests
         var (broker, _) = BuildBroker();
         using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("{}"));
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => broker.PostAsync("Unknown", ms));
+            () => broker.PostAsync("Unknown", ms, TestContext.Current.CancellationToken));
     }
 
     // --- ProcessAsync with invalid JSON ---
@@ -95,10 +95,10 @@ public sealed class NymBrokerAdditionalTests
     {
         var (broker, dest) = BuildBroker();
         // Should log the error and return gracefully rather than throw.
-        await broker.ProcessAsync("not-valid-json", "Source");
+        await broker.ProcessAsync("not-valid-json", "Source", TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in dest.ReadAsync()) items.Add(item);
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
         Assert.Empty(items);
     }
 
@@ -122,10 +122,10 @@ public sealed class NymBrokerAdditionalTests
         broker.AddFilter(new DiscardFilter());
         broker.Route<StockMessage>().To("Dest").Build();
 
-        await broker.ProcessAsync(await SerializeAsync(new StockMessage { Symbol = "GOOG" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new StockMessage { Symbol = "GOOG" }), null, TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in dest.ReadAsync()) items.Add(item);
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
         Assert.Empty(items);
     }
 
@@ -136,7 +136,7 @@ public sealed class NymBrokerAdditionalTests
         var filter = new PassThroughFilter();
         broker.AddFilter(filter);
 
-        await broker.ProcessAsync(await SerializeAsync(new StockMessage { Symbol = "X" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new StockMessage { Symbol = "X" }), null, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, filter.Calls);
     }
@@ -158,7 +158,7 @@ public sealed class NymBrokerAdditionalTests
         broker.Route<StockMessage>().To("NonExistent").Build();
 
         // Should log a warning but not throw
-        await broker.ProcessAsync(await SerializeAsync(new StockMessage { Symbol = "IBM" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new StockMessage { Symbol = "IBM" }), null, TestContext.Current.CancellationToken);
     }
 
     // --- Message with no consumer and no matching route ---
@@ -168,7 +168,7 @@ public sealed class NymBrokerAdditionalTests
     {
         var (broker, _) = BuildBroker();
         // No route, no consumer registered — should complete without throwing.
-        await broker.ProcessAsync(await SerializeAsync(new StockMessage { Symbol = "AMZN" }), null);
+        await broker.ProcessAsync(await SerializeAsync(new StockMessage { Symbol = "AMZN" }), null, TestContext.Current.CancellationToken);
     }
 
     // --- AddScheduledAction overloads ---
@@ -191,8 +191,8 @@ public sealed class NymBrokerAdditionalTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await broker.StartAsync(cts.Token);
 
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(3)));
-        await broker.StopAsync();
+        Assert.True(ready.Wait(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+        await broker.StopAsync(TestContext.Current.CancellationToken);
         Assert.True(state.Invoked);
     }
 
@@ -212,8 +212,8 @@ public sealed class NymBrokerAdditionalTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await broker.StartAsync(cts.Token);
 
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(3)));
-        await broker.StopAsync();
+        Assert.True(ready.Wait(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+        await broker.StopAsync(TestContext.Current.CancellationToken);
         Assert.Equal(7, sum);
     }
 
@@ -285,7 +285,7 @@ public sealed class NymBrokerAdditionalTests
             var partCtx = new MessageContext<SplitMessage> { Message = part };
             using var partStream = serializer.Serialize(partCtx);
             using var partReader = new StreamReader(partStream);
-            await broker.ProcessAsync(await partReader.ReadToEndAsync(), null);
+            await broker.ProcessAsync(await partReader.ReadToEndAsync(TestContext.Current.CancellationToken), null, TestContext.Current.CancellationToken);
         }
 
         Assert.Single(consumer.Received);

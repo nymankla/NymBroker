@@ -20,11 +20,11 @@ public sealed class AggregatorTests
 
         byte[]? result = null;
         for (var i = 0; i < parts.Count - 1; i++)
-            result = await agg.AddAsync(parts[i], ctx);
+            result = await agg.AddAsync(parts[i], ctx, TestContext.Current.CancellationToken);
 
         Assert.Null(result);
 
-        result = await agg.AddAsync(parts[^1], ctx);
+        result = await agg.AddAsync(parts[^1], ctx, TestContext.Current.CancellationToken);
         Assert.NotNull(result);
         Assert.Equal(payload, result);
     }

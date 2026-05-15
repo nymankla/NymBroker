@@ -18,10 +18,10 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
     public async Task PostAsync_InsertsRow()
     {
         var payload = """{"test":true}""";
-        await _ep.PostAsync(Encoding.UTF8.GetBytes(payload));
+        await _ep.PostAsync(Encoding.UTF8.GetBytes(payload), TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in _ep.ReadAsync())
+        await foreach (var item in _ep.ReadAsync(TestContext.Current.CancellationToken))
             items.Add(item);
 
         Assert.Single(items);
@@ -36,7 +36,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
         await Post("""{"n":3}""");
 
         var items = new List<string>();
-        await foreach (var item in _ep.ReadAsync())
+        await foreach (var item in _ep.ReadAsync(TestContext.Current.CancellationToken))
             items.Add(item);
 
         Assert.Equal(3, items.Count);
@@ -47,10 +47,10 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
     {
         await Post("""{"x":1}""");
 
-        await foreach (var _ in _ep.ReadAsync()) { }
+        await foreach (var _ in _ep.ReadAsync(TestContext.Current.CancellationToken)) { }
 
         var items = new List<string>();
-        await foreach (var item in _ep.ReadAsync())
+        await foreach (var item in _ep.ReadAsync(TestContext.Current.CancellationToken))
             items.Add(item);
 
         Assert.Empty(items);
@@ -62,12 +62,12 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
         await Post("""{"a":1}""");
         await Post("""{"a":2}""");
 
-        await foreach (var _ in _ep.ReadAsync()) { }
+        await foreach (var _ in _ep.ReadAsync(TestContext.Current.CancellationToken)) { }
 
         await Post("""{"a":3}""");
 
         var items = new List<string>();
-        await foreach (var item in _ep.ReadAsync())
+        await foreach (var item in _ep.ReadAsync(TestContext.Current.CancellationToken))
             items.Add(item);
 
         Assert.Single(items);
@@ -81,10 +81,10 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
             NullLogger<SqliteEndPoint>.Instance);
 
         for (var i = 0; i < 5; i++)
-            await ep.PostAsync(Encoding.UTF8.GetBytes($$$"""{"i":{{{i}}}}"""));
+            await ep.PostAsync(Encoding.UTF8.GetBytes($$$"""{"i":{{{i}}}}"""), TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in ep.ReadAsync())
+        await foreach (var item in ep.ReadAsync(TestContext.Current.CancellationToken))
             items.Add(item);
 
         Assert.Equal(2, items.Count);
@@ -97,11 +97,11 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
         await Post("""{"seq":2}""");
 
         var first = new List<string>();
-        await foreach (var item in _ep.ReadAsync())
+        await foreach (var item in _ep.ReadAsync(TestContext.Current.CancellationToken))
             first.Add(item);
 
         var second = new List<string>();
-        await foreach (var item in _ep.ReadAsync())
+        await foreach (var item in _ep.ReadAsync(TestContext.Current.CancellationToken))
             second.Add(item);
 
         Assert.Equal(2, first.Count);
@@ -128,8 +128,8 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
             },
             NullLogger<SqliteEndPoint>.Instance);
 
-        await ep.PostAsync(Encoding.UTF8.GetBytes("""{"e":1}"""));
-        await ep.PostAsync(Encoding.UTF8.GetBytes("""{"e":2}"""));
+        await ep.PostAsync(Encoding.UTF8.GetBytes("""{"e":1}"""), TestContext.Current.CancellationToken);
+        await ep.PostAsync(Encoding.UTF8.GetBytes("""{"e":2}"""), TestContext.Current.CancellationToken);
 
         var received = new List<string>();
         var tcs = new TaskCompletionSource();
@@ -162,7 +162,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
             },
             NullLogger<SqliteEndPoint>.Instance);
 
-        await ep.PostAsync(Encoding.UTF8.GetBytes("""{"retry":true}"""));
+        await ep.PostAsync(Encoding.UTF8.GetBytes("""{"retry":true}"""), TestContext.Current.CancellationToken);
 
         var attempts = 0;
         var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -184,7 +184,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
         Assert.Equal(2, attempts);
 
         var items = new List<string>();
-        await foreach (var item in ep.ReadAsync())
+        await foreach (var item in ep.ReadAsync(TestContext.Current.CancellationToken))
             items.Add(item);
 
         Assert.Empty(items);
@@ -209,7 +209,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
                 },
                 NullLogger<SqliteEndPoint>.Instance);
 
-            await ep.PostAsync(Encoding.UTF8.GetBytes("""{"fail":true}"""));
+            await ep.PostAsync(Encoding.UTF8.GetBytes("""{"fail":true}"""), TestContext.Current.CancellationToken);
 
             var attempts = 0;
             var exhausted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -226,7 +226,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
             await ep.StopListeningAsync();
 
             await using var conn = new SqliteConnection(connectionString);
-            await conn.OpenAsync();
+            await conn.OpenAsync(TestContext.Current.CancellationToken);
 
             var failedCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(1) FROM NymBrokerMessages WHERE Status = 3");
             var pendingCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(1) FROM NymBrokerMessages WHERE Status = 0");

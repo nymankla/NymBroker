@@ -195,16 +195,16 @@ public sealed class RoutingTests
     public async Task Consumer_ReceivesMessage_WhenNoRoutes()
     {
         var (broker, _, consumer) = BuildBroker();
-        await broker.PostAsync("Dest", new PriceMessage { Price = 42m });
+        await broker.PostAsync("Dest", new PriceMessage { Price = 42m }, TestContext.Current.CancellationToken);
 
         // MemQueue forwards to ProcessAsync via listener — use direct ProcessAsync here.
         var ctx = new MessageContext<PriceMessage> { Message = new PriceMessage { Price = 42m } };
         var serializer = new MessageSerializerJson();
         using var stream = serializer.Serialize(ctx);
         using var reader = new System.IO.StreamReader(stream);
-        var json = await reader.ReadToEndAsync();
+        var json = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
 
-        await broker.ProcessAsync(json, "Dest");
+        await broker.ProcessAsync(json, "Dest", TestContext.Current.CancellationToken);
         Assert.Single(consumer.Received);
         Assert.Equal(42m, consumer.Received[0].Price);
     }
@@ -225,14 +225,14 @@ public sealed class RoutingTests
             var ctx = new MessageContext<PriceMessage> { Message = new PriceMessage { Price = price } };
             using var s = serializer.Serialize(ctx);
             using var r = new System.IO.StreamReader(s);
-            await broker.ProcessAsync(await r.ReadToEndAsync(), null);
+            await broker.ProcessAsync(await r.ReadToEndAsync(TestContext.Current.CancellationToken), null, TestContext.Current.CancellationToken);
         }
 
         await Send(50m);   // should NOT route
         await Send(150m);  // should route to Dest
 
         var items = new List<string>();
-        await foreach (var i in dest.ReadAsync()) items.Add(i);
+        await foreach (var i in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(i);
         Assert.Single(items); // only the 150 message
     }
 
@@ -249,7 +249,7 @@ public sealed class RoutingTests
         using var stream = serializer.Serialize(ctx);
         using var reader = new StreamReader(stream);
 
-        await broker.ProcessAsync(await reader.ReadToEndAsync(), null);
+        await broker.ProcessAsync(await reader.ReadToEndAsync(TestContext.Current.CancellationToken), null, TestContext.Current.CancellationToken);
 
         Assert.Empty(consumer.Received);
     }
@@ -265,7 +265,7 @@ public sealed class RoutingTests
             var ctx = new MessageContext<PriceMessage> { Message = new PriceMessage { Price = price } };
             using var s = serializer.Serialize(ctx);
             using var r = new System.IO.StreamReader(s);
-            await broker.ProcessAsync(await r.ReadToEndAsync(), null);
+            await broker.ProcessAsync(await r.ReadToEndAsync(TestContext.Current.CancellationToken), null, TestContext.Current.CancellationToken);
         }
 
         await Send(1m);
@@ -329,8 +329,8 @@ public sealed class RoutingTests
         var hostedServices = sp.GetServices<IHostedService>().ToList();
         var hostedService = Assert.Single(hostedServices);
 
-        await hostedService.StartAsync(CancellationToken.None);
-        await hostedService.StopAsync(CancellationToken.None);
+        await hostedService.StartAsync(TestContext.Current.CancellationToken);
+        await hostedService.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, trackingEndPoint.StartCalls);
         Assert.Equal(1, trackingEndPoint.StopCalls);
@@ -356,7 +356,7 @@ public sealed class RoutingTests
             var context = new MessageContext<T> { Message = message };
             using var stream = serializer.Serialize(context);
             using var reader = new StreamReader(stream);
-            await broker.ProcessAsync(await reader.ReadToEndAsync(), null);
+            await broker.ProcessAsync(await reader.ReadToEndAsync(), null, TestContext.Current.CancellationToken);
         }
 
         await Send(new PriceMessage { Price = 10m });
@@ -385,9 +385,9 @@ public sealed class RoutingTests
 
         using var stream = serializer.Serialize(context);
         using var reader = new StreamReader(stream);
-        var json = await reader.ReadToEndAsync();
+        var json = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
 
-        await broker.ProcessAsync(json, null);
+        await broker.ProcessAsync(json, null, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, NamedPriceConsumer.ReceivedCount);
     }
@@ -406,10 +406,10 @@ public sealed class RoutingTests
         using var stream = serializer.Serialize(context);
         using var reader = new StreamReader(stream);
 
-        await broker.ProcessAsync(await reader.ReadToEndAsync(), "AnySource");
+        await broker.ProcessAsync(await reader.ReadToEndAsync(TestContext.Current.CancellationToken), "AnySource", TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in dest.ReadAsync()) items.Add(item);
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
         Assert.Single(items);
     }
 
@@ -442,14 +442,14 @@ public sealed class RoutingTests
             var context = new MessageContext<PriceMessage> { Message = new PriceMessage { Price = 11m } };
             using var stream = serializer.Serialize(context);
             using var reader = new StreamReader(stream);
-            await broker.ProcessAsync(await reader.ReadToEndAsync(), source);
+            await broker.ProcessAsync(await reader.ReadToEndAsync(TestContext.Current.CancellationToken), source, TestContext.Current.CancellationToken);
         }
 
         await Send("Blocked");
         await Send("Allowed");
 
         var items = new List<string>();
-        await foreach (var item in dest.ReadAsync()) items.Add(item);
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
         Assert.Single(items);
     }
 
@@ -471,10 +471,10 @@ public sealed class RoutingTests
 
         using var stream = serializer.Serialize(context);
         using var reader = new StreamReader(stream);
-        await broker.ProcessAsync(await reader.ReadToEndAsync(), null);
+        await broker.ProcessAsync(await reader.ReadToEndAsync(TestContext.Current.CancellationToken), null, TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in dest.ReadAsync()) items.Add(item);
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
         Assert.Single(items);
     }
 
@@ -503,14 +503,14 @@ public sealed class RoutingTests
             var context = new MessageContext<PriceMessage> { Message = new PriceMessage { Price = price } };
             using var stream = serializer.Serialize(context);
             using var reader = new StreamReader(stream);
-            await broker.ProcessAsync(await reader.ReadToEndAsync(), source);
+            await broker.ProcessAsync(await reader.ReadToEndAsync(TestContext.Current.CancellationToken), source, TestContext.Current.CancellationToken);
         }
 
         await Send(150m, "Alpha");
         await Send(250m, "Gamma");
 
         var items = new List<string>();
-        await foreach (var item in dest.ReadAsync()) items.Add(item);
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
         Assert.Equal(2, items.Count);
     }
 
@@ -540,10 +540,10 @@ public sealed class RoutingTests
         using var stream = serializer.Serialize(context);
         using var reader = new StreamReader(stream);
 
-        await broker.ProcessAsync(await reader.ReadToEndAsync(), "FactorySource");
+        await broker.ProcessAsync(await reader.ReadToEndAsync(TestContext.Current.CancellationToken), "FactorySource", TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in dest.ReadAsync()) items.Add(item);
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
         Assert.Single(items);
     }
 
@@ -563,9 +563,9 @@ public sealed class RoutingTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await broker.StartAsync(cts.Token);
 
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(3)));
+        Assert.True(ready.Wait(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
 
-        await broker.StopAsync();
+        await broker.StopAsync(TestContext.Current.CancellationToken);
         Assert.True(count >= 1);
     }
 
@@ -584,11 +584,11 @@ public sealed class RoutingTests
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await broker.StartAsync(cts.Token);
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(3)));
+        Assert.True(ready.Wait(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
 
-        await broker.StopAsync();
+        await broker.StopAsync(TestContext.Current.CancellationToken);
         var beforeWait = count;
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
 
         Assert.Equal(beforeWait, count);
     }
@@ -610,12 +610,12 @@ public sealed class RoutingTests
         await broker.StartAsync(cts.Token);
         await broker.StartAsync(cts.Token);
 
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(3)));
+        Assert.True(ready.Wait(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
         var beforeWait = count;
-        await Task.Delay(150);
+        await Task.Delay(150, TestContext.Current.CancellationToken);
         var afterWait = count;
 
-        await broker.StopAsync();
+        await broker.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.InRange(afterWait - beforeWait, 1, 4);
     }
@@ -626,9 +626,9 @@ public sealed class RoutingTests
         var (broker, _, _) = BuildBroker();
         broker.AddScheduledAction(TimeSpan.FromMilliseconds(50), () => { });
 
-        await broker.StartAsync();
-        await broker.StopAsync();
-        await broker.StopAsync();
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -646,12 +646,11 @@ public sealed class RoutingTests
     public async Task AddScheduledAction_CronExpression_IsAccepted()
     {
         var (broker, _, _) = BuildBroker();
-        var invoked = false;
 
         broker.AddScheduledAction("* * * * *", value => value.Invoked = true, new CronInvocationState());
 
-        await broker.StartAsync();
-        await broker.StopAsync();
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
     }
 
     private sealed class CronInvocationState
