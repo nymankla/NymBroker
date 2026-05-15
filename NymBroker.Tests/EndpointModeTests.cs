@@ -84,8 +84,8 @@ public sealed class EndpointModeTests
         var ep = new TrackingEndPoint(EndpointMode.ReadWrite);
         broker.AddEndpoint("rw", ep);
 
-        await broker.StartAsync();
-        await broker.StopAsync();
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, ep.StartCalls);
     }
@@ -97,8 +97,8 @@ public sealed class EndpointModeTests
         var ep = new TrackingEndPoint(EndpointMode.ReadOnly);
         broker.AddEndpoint("ro", ep);
 
-        await broker.StartAsync();
-        await broker.StopAsync();
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1, ep.StartCalls);
     }
@@ -110,8 +110,8 @@ public sealed class EndpointModeTests
         var ep = new TrackingEndPoint(EndpointMode.WriteOnly);
         broker.AddEndpoint("wo", ep);
 
-        await broker.StartAsync();
-        await broker.StopAsync();
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(0, ep.StartCalls);
     }
@@ -125,7 +125,7 @@ public sealed class EndpointModeTests
         broker.AddEndpoint("ro", new MemoryQueueEndPoint("ro", mode: EndpointMode.ReadOnly));
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => broker.PostAsync("ro", new OrderMessage { Id = "1" }));
+            () => broker.PostAsync("ro", new OrderMessage { Id = "1" }, TestContext.Current.CancellationToken));
 
         Assert.Contains("ro", ex.Message);
         Assert.Contains("read-only", ex.Message);
@@ -138,7 +138,7 @@ public sealed class EndpointModeTests
         broker.AddEndpoint("wo", new MemoryQueueEndPoint("wo", mode: EndpointMode.WriteOnly));
 
         // WriteOnly suppresses the listener; PostAsync must still work.
-        await broker.PostAsync("wo", new OrderMessage { Id = "1" });
+        await broker.PostAsync("wo", new OrderMessage { Id = "1" }, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public sealed class EndpointModeTests
         var broker = CreateBroker();
         broker.AddEndpoint("rw", new MemoryQueueEndPoint("rw"));
 
-        await broker.PostAsync("rw", new OrderMessage { Id = "1" });
+        await broker.PostAsync("rw", new OrderMessage { Id = "1" }, TestContext.Current.CancellationToken);
     }
 
     // --- Route validation at StartAsync ---
@@ -160,7 +160,7 @@ public sealed class EndpointModeTests
 
         broker.Route<OrderMessage>().To("ro").Build();
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.StartAsync());
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.StartAsync(TestContext.Current.CancellationToken));
         Assert.Contains("ro", ex.Message);
         Assert.Contains("read-only", ex.Message);
     }
@@ -174,8 +174,8 @@ public sealed class EndpointModeTests
         broker.Route<OrderMessage>().To("wo").Build();
 
         // WriteOnly endpoints are valid route destinations.
-        await broker.StartAsync();
-        await broker.StopAsync();
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
     }
 
     // --- Topic fan-out validation at StartAsync ---
@@ -193,7 +193,7 @@ public sealed class EndpointModeTests
             SubscriberEndpoints = ImmutableList.Create("ro")
         });
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.StartAsync());
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.StartAsync(TestContext.Current.CancellationToken));
         Assert.Contains("ro", ex.Message);
         Assert.Contains("read-only", ex.Message);
     }
@@ -212,7 +212,7 @@ public sealed class EndpointModeTests
         });
 
         // WriteOnly endpoints are valid fan-out destinations.
-        await broker.StartAsync();
-        await broker.StopAsync();
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
     }
 }

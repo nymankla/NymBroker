@@ -70,8 +70,8 @@ public sealed class IdempotentReceiverTests
 
         var json = await SerializeAsync(serializer, new Ping { Id = 1 });
 
-        await broker.ProcessAsync(json, "In");
-        await broker.ProcessAsync(json, "In"); // exact same JSON, same message Id
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken); // exact same JSON, same message Id
 
         Assert.Single(consumer.Received);
     }
@@ -81,8 +81,8 @@ public sealed class IdempotentReceiverTests
     {
         var (broker, consumer, serializer) = BuildBroker();
 
-        await broker.ProcessAsync(await SerializeAsync(serializer, new Ping { Id = 1 }), "In");
-        await broker.ProcessAsync(await SerializeAsync(serializer, new Ping { Id = 2 }), "In");
+        await broker.ProcessAsync(await SerializeAsync(serializer, new Ping { Id = 1 }), "In", TestContext.Current.CancellationToken);
+        await broker.ProcessAsync(await SerializeAsync(serializer, new Ping { Id = 2 }), "In", TestContext.Current.CancellationToken);
 
         Assert.Equal(2, consumer.Received.Count);
     }
@@ -95,12 +95,12 @@ public sealed class IdempotentReceiverTests
 
         var json = await SerializeAsync(serializer, new Ping { Id = 99 });
 
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         // Wait for the TTL to expire.
-        await Task.Delay(20);
+        await Task.Delay(20, TestContext.Current.CancellationToken);
 
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         Assert.Equal(2, consumer.Received.Count);
     }

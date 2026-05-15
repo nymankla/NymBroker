@@ -22,7 +22,7 @@ public sealed class MemoryEndPointTests
         var payload = "{\"test\":true}";
         await ep.PostAsync(Encoding.UTF8.GetBytes(payload), cts.Token);
 
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
         Assert.Equal(payload, received);
     }
 
@@ -30,11 +30,11 @@ public sealed class MemoryEndPointTests
     public async Task ReadAsync_ReturnsQueuedItems()
     {
         var ep = new MemoryQueueEndPoint("test2");
-        await ep.EnqueueAsync("{\"n\":1}");
-        await ep.EnqueueAsync("{\"n\":2}");
+        await ep.EnqueueAsync("{\"n\":1}", TestContext.Current.CancellationToken);
+        await ep.EnqueueAsync("{\"n\":2}", TestContext.Current.CancellationToken);
 
         var items = new List<string>();
-        await foreach (var item in ep.ReadAsync())
+        await foreach (var item in ep.ReadAsync(TestContext.Current.CancellationToken))
             items.Add(item);
 
         Assert.Equal(2, items.Count);

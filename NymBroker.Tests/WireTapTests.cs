@@ -67,12 +67,12 @@ public sealed class WireTapTests
         var (broker, consumer, tap, serializer) = BuildBroker();
 
         var json = await SerializeAsync(serializer, new Event { Name = "test" });
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         Assert.Single(consumer.Received);
 
         var tapItems = new List<string>();
-        await foreach (var item in tap.ReadAsync()) tapItems.Add(item);
+        await foreach (var item in tap.ReadAsync(TestContext.Current.CancellationToken)) tapItems.Add(item);
         Assert.Single(tapItems);
     }
 
@@ -105,14 +105,14 @@ public sealed class WireTapTests
         broker.AddWireTap("Tap2");
 
         var json = await SerializeAsync(sp.GetRequiredService<MessageSerializerJson>(), new Event { Name = "x" });
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         var items1 = new List<string>();
-        await foreach (var item in tap1.ReadAsync()) items1.Add(item);
+        await foreach (var item in tap1.ReadAsync(TestContext.Current.CancellationToken)) items1.Add(item);
         Assert.Single(items1);
 
         var items2 = new List<string>();
-        await foreach (var item in tap2.ReadAsync()) items2.Add(item);
+        await foreach (var item in tap2.ReadAsync(TestContext.Current.CancellationToken)) items2.Add(item);
         Assert.Single(items2);
     }
 
@@ -122,10 +122,10 @@ public sealed class WireTapTests
         var (broker, _, tap, serializer) = BuildBroker();
 
         var json = await SerializeAsync(serializer, new Event { Name = "hello" });
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         var tapItems = new List<string>();
-        await foreach (var item in tap.ReadAsync()) tapItems.Add(item);
+        await foreach (var item in tap.ReadAsync(TestContext.Current.CancellationToken)) tapItems.Add(item);
 
         Assert.Contains("hello", tapItems[0]);
     }

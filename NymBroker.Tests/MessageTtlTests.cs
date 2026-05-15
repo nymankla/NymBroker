@@ -78,7 +78,7 @@ public sealed class MessageTtlTests
         var json = await SerializeAsync(sp.GetRequiredService<MessageSerializerJson>(),
             new Report { Id = 1 }, oldCreated);
 
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         Assert.Empty(consumer.Received);
     }
@@ -93,7 +93,7 @@ public sealed class MessageTtlTests
         var json = await SerializeAsync(sp.GetRequiredService<MessageSerializerJson>(),
             new Report { Id = 2 }, DateTime.UtcNow);
 
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         Assert.Single(consumer.Received);
     }
@@ -110,12 +110,12 @@ public sealed class MessageTtlTests
         var json = await SerializeAsync(sp.GetRequiredService<MessageSerializerJson>(),
             new Report { Id = 3 }, oldCreated);
 
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
 
         Assert.Empty(consumer.Received);
 
         var dlqItems = new List<string>();
-        await foreach (var item in dlq.ReadAsync()) dlqItems.Add(item);
+        await foreach (var item in dlq.ReadAsync(TestContext.Current.CancellationToken)) dlqItems.Add(item);
         Assert.Single(dlqItems);
     }
 
@@ -131,7 +131,7 @@ public sealed class MessageTtlTests
             new Report { Id = 4 }, oldCreated);
 
         // Should not throw — expiry is silently discarded when no DLQ is configured.
-        await broker.ProcessAsync(json, "In");
+        await broker.ProcessAsync(json, "In", TestContext.Current.CancellationToken);
         Assert.Empty(consumer.Received);
     }
 }

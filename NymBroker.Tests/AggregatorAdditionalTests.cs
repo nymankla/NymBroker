@@ -23,7 +23,7 @@ public sealed class AggregatorAdditionalTests
         var payload = "single"u8.ToArray();
         var part = MakePart(Guid.NewGuid(), 0, 1, payload);
 
-        var result = await agg.AddAsync(part, ctx);
+        var result = await agg.AddAsync(part, ctx, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(payload, result);
@@ -46,11 +46,11 @@ public sealed class AggregatorAdditionalTests
         var part2b = MakePart(corrId2, 1, 2, payload2[7..]);
 
         // Interleave the parts from both aggregates
-        Assert.Null(await agg.AddAsync(part1a, ctx));
-        Assert.Null(await agg.AddAsync(part2a, ctx));
+        Assert.Null(await agg.AddAsync(part1a, ctx, TestContext.Current.CancellationToken));
+        Assert.Null(await agg.AddAsync(part2a, ctx, TestContext.Current.CancellationToken));
 
-        var result1 = await agg.AddAsync(part1b, ctx);
-        var result2 = await agg.AddAsync(part2b, ctx);
+        var result1 = await agg.AddAsync(part1b, ctx, TestContext.Current.CancellationToken);
+        var result2 = await agg.AddAsync(part2b, ctx, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result1);
         Assert.NotNull(result2);
@@ -69,9 +69,9 @@ public sealed class AggregatorAdditionalTests
         var chunk2 = "CCC"u8.ToArray();
 
         // Send in reverse order: parts 2, 1, 0
-        Assert.Null(await agg.AddAsync(MakePart(corrId, 2, 3, chunk2), ctx));
-        Assert.Null(await agg.AddAsync(MakePart(corrId, 1, 3, chunk1), ctx));
-        var result = await agg.AddAsync(MakePart(corrId, 0, 3, chunk0), ctx);
+        Assert.Null(await agg.AddAsync(MakePart(corrId, 2, 3, chunk2), ctx, TestContext.Current.CancellationToken));
+        Assert.Null(await agg.AddAsync(MakePart(corrId, 1, 3, chunk1), ctx, TestContext.Current.CancellationToken));
+        var result = await agg.AddAsync(MakePart(corrId, 0, 3, chunk0), ctx, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal([.. chunk0, .. chunk1, .. chunk2], result);
@@ -87,9 +87,9 @@ public sealed class AggregatorAdditionalTests
         var corrId = Guid.NewGuid();
 
         // GroupSize claims 2 but condition requires 3.
-        Assert.Null(await agg.AddAsync(MakePart(corrId, 0, 2, "A"u8.ToArray()), ctx));
-        Assert.Null(await agg.AddAsync(MakePart(corrId, 1, 2, "B"u8.ToArray()), ctx));
-        var result = await agg.AddAsync(MakePart(corrId, 2, 2, "C"u8.ToArray()), ctx);
+        Assert.Null(await agg.AddAsync(MakePart(corrId, 0, 2, "A"u8.ToArray()), ctx, TestContext.Current.CancellationToken));
+        Assert.Null(await agg.AddAsync(MakePart(corrId, 1, 2, "B"u8.ToArray()), ctx, TestContext.Current.CancellationToken));
+        var result = await agg.AddAsync(MakePart(corrId, 2, 2, "C"u8.ToArray()), ctx, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
     }

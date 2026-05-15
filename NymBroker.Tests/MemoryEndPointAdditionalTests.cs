@@ -17,13 +17,13 @@ public sealed class MemoryEndPointAdditionalTests
     public async Task StopListeningAsync_CompletesTheChannel()
     {
         var ep = new MemoryQueueEndPoint("stop-test");
-        await ep.StartListeningAsync((_, _) => Task.CompletedTask, CancellationToken.None);
+        await ep.StartListeningAsync((_, _) => Task.CompletedTask, TestContext.Current.CancellationToken);
 
         await ep.StopListeningAsync();
 
         // After stopping, the channel writer is completed; no items should be readable.
         var items = new List<string>();
-        await foreach (var item in ep.ReadAsync()) items.Add(item);
+        await foreach (var item in ep.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
         Assert.Empty(items);
     }
 
@@ -34,10 +34,10 @@ public sealed class MemoryEndPointAdditionalTests
         var payloads = new[] { "{\"n\":1}", "{\"n\":2}", "{\"n\":3}" };
 
         foreach (var p in payloads)
-            await ep.PostAsync(Encoding.UTF8.GetBytes(p));
+            await ep.PostAsync(Encoding.UTF8.GetBytes(p), TestContext.Current.CancellationToken);
 
         var received = new List<string>();
-        await foreach (var item in ep.ReadAsync()) received.Add(item);
+        await foreach (var item in ep.ReadAsync(TestContext.Current.CancellationToken)) received.Add(item);
 
         Assert.Equal(payloads, received);
     }
@@ -62,11 +62,11 @@ public sealed class MemoryEndPointAdditionalTests
             await Task.CompletedTask;
         }, cts.Token);
 
-        await ep.EnqueueAsync("{\"n\":1}");
-        await ep.EnqueueAsync("{\"n\":2}");
-        await ep.EnqueueAsync("{\"n\":3}");
+        await ep.EnqueueAsync("{\"n\":1}", TestContext.Current.CancellationToken);
+        await ep.EnqueueAsync("{\"n\":2}", TestContext.Current.CancellationToken);
+        await ep.EnqueueAsync("{\"n\":3}", TestContext.Current.CancellationToken);
 
-        await Task.WhenAny(allReceived.Task, Task.Delay(TimeSpan.FromSeconds(3)));
+        await Task.WhenAny(allReceived.Task, Task.Delay(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
 
         Assert.Equal(3, received.Count);
     }
@@ -75,7 +75,7 @@ public sealed class MemoryEndPointAdditionalTests
     public async Task ReadAsync_RespectsGivenCancellationToken()
     {
         var ep = new MemoryQueueEndPoint("cancel-test");
-        await ep.EnqueueAsync("{\"a\":1}");
+        await ep.EnqueueAsync("{\"a\":1}", TestContext.Current.CancellationToken);
 
         using var cts = new CancellationTokenSource();
         cts.Cancel();
