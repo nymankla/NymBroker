@@ -1,3 +1,4 @@
+using System.Text;
 using NymBroker.Core.Aggregator;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Endpoint.Memory;
@@ -6,6 +7,7 @@ using NymBroker.Core.Impl;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Message;
 using NymBroker.Core.Serialize;
+using NymBroker.Core.Splitter;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -296,13 +298,25 @@ public sealed class NymBrokerAdditionalTests
 
     private sealed class BigMessage { public string Payload { get; set; } = ""; }
 
+    private sealed class BigMessageConsumer : IConsume<BigMessage>
+    {
+        public List<BigMessage> Received { get; } = [];
+
+        public Task ConsumeAsync(BigMessage message, IMessageContext context, CancellationToken ct = default)
+        {
+            Received.Add(message);
+            return Task.CompletedTask;
+        }
+    }
+
     [Fact]
     public async Task PostAsync_Typed_SplitsIntoMultipleParts_WhenSplitThresholdExceeded()
     {
         var (broker, dest) = BuildBroker();
         var big = new BigMessage { Payload = new string('x', 500) };
 
-        await broker.PostAsync("Dest", big, TestContext.Current.CancellationToken, splitThresholdBytes: 64);
+        // compress: false — this test exercises the raw splitting mechanic, independent of compression.
+        await broker.PostAsync("Dest", big, TestContext.Current.CancellationToken, splitThresholdBytes: 64, compress: false);
 
         var items = new List<string>();
         await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
@@ -310,6 +324,115 @@ public sealed class NymBrokerAdditionalTests
         Assert.True(items.Count > 1, "Expected the oversized message to be split into multiple parts.");
         Assert.All(items, item => Assert.Contains("correlationId", item));
         Assert.DoesNotContain(items, item => item.Contains("BigMessage") || item.Contains(nameof(NymBrokerAdditionalTests)));
+    }
+
+    // --- PostAsync auto-split + compression ---
+
+    [Fact]
+    public async Task PostAsync_Typed_CompressibleSplitParts_AreSmallerThanUncompressed()
+    {
+        var repeatedText = string.Concat(Enumerable.Repeat("The quick brown fox jumps over the lazy dog. ", 200));
+
+        var (broker1, dest1) = BuildBroker();
+        await broker1.PostAsync("Dest", new BigMessage { Payload = repeatedText }, TestContext.Current.CancellationToken, splitThresholdBytes: 1000, compress: true);
+        var compressedItems = new List<string>();
+        await foreach (var item in dest1.ReadAsync(TestContext.Current.CancellationToken)) compressedItems.Add(item);
+
+        var (broker2, dest2) = BuildBroker();
+        await broker2.PostAsync("Dest", new BigMessage { Payload = repeatedText }, TestContext.Current.CancellationToken, splitThresholdBytes: 1000, compress: false);
+        var uncompressedItems = new List<string>();
+        await foreach (var item in dest2.ReadAsync(TestContext.Current.CancellationToken)) uncompressedItems.Add(item);
+
+        // Note: highly repetitive text like this can compress well enough that even the
+        // compressed form collapses to a single part — the meaningful assertion is total wire
+        // size, not part count.
+        Assert.Contains(compressedItems, item => item.Contains("\"compression\":\"brotli\""));
+
+        var compressedTotalBytes = compressedItems.Sum(i => Encoding.UTF8.GetByteCount(i));
+        var uncompressedTotalBytes = uncompressedItems.Sum(i => Encoding.UTF8.GetByteCount(i));
+        Assert.True(compressedTotalBytes < uncompressedTotalBytes,
+            $"Expected compression to reduce total wire size: compressed={compressedTotalBytes}, uncompressed={uncompressedTotalBytes}");
+    }
+
+    // Compressor stub whose output is always at least as large as the input — exercises the
+    // "compression didn't help" fallback deterministically (real codecs can shrink even
+    // superficially "random" text, like Base64, since it isn't full-entropy per byte).
+    private sealed class NoBenefitCompressor : ICompressor
+    {
+        public string Name => "no-benefit";
+        public byte[] Compress(byte[] data) => [.. data, 0];
+        public byte[] Decompress(byte[] data) => data[..^1];
+    }
+
+    [Fact]
+    public async Task PostAsync_Typed_SkipsCompression_WhenItDoesNotReduceSize()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<MessageSerializerJson>();
+        services.AddSingleton<IAggregator, AggregatorImpl>();
+        var sp = services.BuildServiceProvider();
+
+        var broker = new NymBrokerImpl(
+            sp.GetRequiredService<MessageSerializerJson>(),
+            sp.GetRequiredService<IAggregator>(),
+            new MessageTypeRegistry(),
+            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
+            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
+            NullLogger<NymBrokerImpl>.Instance,
+            splitter: null,
+            compressor: new NoBenefitCompressor());
+
+        var dest = new MemoryQueueEndPoint("Dest");
+        broker.AddEndpoint("Dest", dest);
+
+        await broker.PostAsync("Dest", new BigMessage { Payload = new string('x', 500) }, TestContext.Current.CancellationToken, splitThresholdBytes: 64, compress: true);
+
+        var items = new List<string>();
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
+
+        Assert.True(items.Count > 1, "Expected the oversized message to still be split into multiple parts.");
+        Assert.All(items, item => Assert.DoesNotContain("no-benefit", item));
+    }
+
+    [Fact]
+    public async Task PostAsync_Typed_CompressionAloneUnderThreshold_ProducesSinglePartGroup_AndReassembles()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var consumer = new BigMessageConsumer();
+        services.AddKeyedSingleton<IMessageConsumer>(nameof(BigMessageConsumer), consumer);
+        services.AddSingleton<MessageSerializerJson>();
+        services.AddSingleton<IAggregator, AggregatorImpl>();
+        var sp = services.BuildServiceProvider();
+
+        var broker = new NymBrokerImpl(
+            sp.GetRequiredService<MessageSerializerJson>(),
+            sp.GetRequiredService<IAggregator>(),
+            new MessageTypeRegistry(),
+            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
+            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
+            NullLogger<NymBrokerImpl>.Instance);
+
+        broker.RegisterConsumer(typeof(BigMessage), nameof(BigMessageConsumer));
+        var dest = new MemoryQueueEndPoint("Dest");
+        broker.AddEndpoint("Dest", dest);
+
+        // Highly compressible payload: raw envelope exceeds the threshold, but compresses to well under it —
+        // must still collapse to a single-part SplitMessage group (compressed bytes aren't valid JSON on their own).
+        var payload = new string('x', 5000);
+        await broker.PostAsync("Dest", new BigMessage { Payload = payload }, TestContext.Current.CancellationToken, splitThresholdBytes: 2000, compress: true);
+
+        var items = new List<string>();
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
+
+        Assert.Single(items);
+        Assert.Contains("\"groupSize\":1", items[0]);
+        Assert.Contains("\"compression\":\"brotli\"", items[0]);
+
+        await broker.ProcessAsync(items[0], null, TestContext.Current.CancellationToken);
+
+        Assert.Single(consumer.Received);
     }
 
     [Fact]

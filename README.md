@@ -873,6 +873,21 @@ await broker.PostAsync("MemQueue", largeOrder, ct: default, splitThresholdBytes:
 The receiving side needs no special handling — `ProcessAsync` reassembles the parts and dispatches
 the original message once all of them have arrived, exactly as with manual splitting above.
 
+Splitting Base64-encodes each chunk, which inflates the data by ~33% before it's even chunked.
+By default `PostAsync` offsets that: it compresses the envelope (`ICompressor`, Brotli by default)
+before splitting, whenever compression actually shrinks it — for typical JSON/text payloads this
+more than cancels out the Base64 overhead. Pass `compress: false` to disable it (e.g. for payloads
+that are already compressed or binary, where compressing again wastes CPU for no benefit — the
+framework also detects and skips this case automatically). Compressed parts carry
+`SplitMessage.Compression` (e.g. `"brotli"`) so the receiving side knows to decompress after
+reassembly; if compression alone brings the payload under the threshold, it still travels as a
+single-part `SplitMessage` group, since compressed bytes aren't valid envelope JSON on their own.
+
+```csharp
+// Disable compression (e.g. payload is already compressed/binary):
+await broker.PostAsync("MemQueue", largeImage, ct: default, splitThresholdBytes: 64_000, compress: false);
+```
+
 ## Performance notes
 
 | Technique | Detail |

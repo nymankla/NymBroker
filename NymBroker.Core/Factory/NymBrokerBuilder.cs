@@ -184,6 +184,7 @@ public sealed class NymBrokerBuilder
         _services.AddSingleton<IMessageSerializer>(sp => sp.GetRequiredService<MessageSerializerJson>());
         _services.AddSingleton<IAggregator, AggregatorImpl>();
         _services.AddSingleton<ISplitter, SplitterImpl>();
+        _services.AddSingleton<ICompressor, BrotliCompressor>();
         _services.AddSingleton<MessageTypeRegistry>();
         _services.AddSingleton<ConsumerDispatcher>();
         _services.AddSingleton<SubscriberDispatcher>();
@@ -208,7 +209,8 @@ public sealed class NymBrokerBuilder
                 sp.GetRequiredService<ConsumerDispatcher>(),
                 sp.GetRequiredService<SubscriberDispatcher>(),
                 sp.GetRequiredService<ILogger<NymBrokerImpl>>(),
-                sp.GetRequiredService<ISplitter>());
+                sp.GetRequiredService<ISplitter>(),
+                sp.GetRequiredService<ICompressor>());
 
             foreach (var endpointName in endpoints)
                 broker.AddEndpoint(endpointName, sp.GetRequiredKeyedService<IEndPoint>(endpointName));

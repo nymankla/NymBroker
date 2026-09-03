@@ -11,7 +11,7 @@ namespace NymBroker.Core.Impl;
 
 public sealed partial class NymBrokerImpl
 {
-    public async Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null) where T : class
+    public async Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true) where T : class
     {
         var context = new MessageContext<T>
         {
@@ -20,11 +20,11 @@ public sealed partial class NymBrokerImpl
         };
 
         using var stream = _serializer.Serialize(context);
-        await PostToEndpointAsync(endpointName, StreamToBytes(stream), splitThresholdBytes, ct);
+        await PostToEndpointAsync(endpointName, StreamToBytes(stream), splitThresholdBytes, compress, ct);
     }
 
-    public async Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default, int? splitThresholdBytes = null)
-        => await PostToEndpointAsync(endpointName, StreamToBytes(messageStream), splitThresholdBytes, ct);
+    public async Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true)
+        => await PostToEndpointAsync(endpointName, StreamToBytes(messageStream), splitThresholdBytes, compress, ct);
 
     public Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
@@ -133,6 +133,16 @@ public sealed partial class NymBrokerImpl
 
             var reassembled = await _aggregator.AddAsync(split, context, ct);
             if (reassembled == null) return;
+
+            if (!string.IsNullOrEmpty(split.Compression))
+            {
+                if (!string.Equals(split.Compression, _compressor.Name, StringComparison.Ordinal))
+                {
+                    _logger.LogError("Reassembled message uses unknown compression '{Compression}' — cannot decode; dropping.", split.Compression);
+                    return;
+                }
+                reassembled = _compressor.Decompress(reassembled);
+            }
 
             var reassembledJson = Encoding.UTF8.GetString(reassembled);
             await ProcessAsync(reassembledJson, sourceEndpoint, ct);
@@ -244,15 +254,50 @@ public sealed partial class NymBrokerImpl
             await _subscriberDispatcher.DispatchAsync(topic.SubscriberDispatchers, message, context, ct);
     }
 
-    private async Task PostToEndpointAsync(string name, byte[] message, int? splitThresholdBytes, CancellationToken ct)
+    private async Task PostToEndpointAsync(string name, byte[] message, int? splitThresholdBytes, bool compress, CancellationToken ct)
     {
         if (splitThresholdBytes.HasValue && message.Length > splitThresholdBytes.Value)
         {
+            var payload = message;
+            string? compressionName = null;
+
+            if (compress)
+            {
+                var compressed = _compressor.Compress(message);
+                if (compressed.Length < message.Length)
+                {
+                    payload = compressed;
+                    compressionName = _compressor.Name;
+                }
+                // else: compression didn't help (e.g. already-compressed/binary payload) — keep the original bytes.
+            }
+
             var condition = new DefaultSplitCondition(splitThresholdBytes.Value);
-            var parts = _splitter.Split(message, condition);
+            var parts = _splitter.Split(payload, condition);
+
+            if (parts.Count == 0)
+            {
+                // Compression alone brought the payload under the threshold, so the splitter saw
+                // nothing to do — it still has to travel as a SplitMessage carrier (compressed
+                // bytes aren't valid JSON on their own), so wrap it as a single-part group.
+                parts =
+                [
+                    new SplitMessage
+                    {
+                        CorrelationId = Guid.NewGuid(),
+                        CorrelationSequence = 0,
+                        GroupSize = 1,
+                        Body = Convert.ToBase64String(payload)
+                    }
+                ];
+            }
+
+            if (compressionName != null)
+                foreach (var part in parts) part.Compression = compressionName;
+
             _logger.LogInformation(
-                "Splitting message of {Size} bytes into {Count} parts for endpoint '{Endpoint}' (threshold={Threshold} bytes)",
-                message.Length, parts.Count, name, splitThresholdBytes.Value);
+                "Splitting message of {Size} bytes ({PayloadSize} bytes after compression) into {Count} part(s) for endpoint '{Endpoint}' (threshold={Threshold} bytes, compression={Compression})",
+                message.Length, payload.Length, parts.Count, name, splitThresholdBytes.Value, compressionName ?? "none");
 
             foreach (var part in parts)
             {
@@ -262,7 +307,7 @@ public sealed partial class NymBrokerImpl
                     Address = EndpointAddress.Create(name)
                 };
                 using var partStream = _serializer.Serialize(partContext);
-                await PostToEndpointAsync(name, StreamToBytes(partStream), null, ct);
+                await PostToEndpointAsync(name, StreamToBytes(partStream), null, false, ct);
             }
             return;
         }

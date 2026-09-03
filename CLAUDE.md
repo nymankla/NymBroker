@@ -87,9 +87,12 @@ IRouteCondition           ← composable predicate evaluated on (IMessageContext
 ```csharp
 broker.PostAsync<T>(endpoint, message)              // serialize + send
 broker.PostAsync(endpoint, stream)                  // send pre-serialized
-// Both overloads take a trailing `int? splitThresholdBytes = null`: when set and the
-// serialized envelope exceeds it, the message is transparently split into SplitMessage
-// parts (via ISplitter) and posted individually; ProcessAsync reassembles them on arrival.
+// Both overloads take a trailing `int? splitThresholdBytes = null` and `bool compress = true`:
+// when a threshold is set and the serialized envelope exceeds it, the message is transparently
+// split into SplitMessage parts (via ISplitter) and posted individually; ProcessAsync reassembles
+// them on arrival. When compress is also true, the envelope is compressed (ICompressor, Brotli by
+// default) before splitting whenever that actually shrinks it — offsets Base64's ~33% overhead for
+// compressible (text/JSON) payloads. See "Aggregator / Splitter" below.
 
 // Routing (all return IRouteBuilder<T> or RouteContext)
 broker.Route<Order>()...Build()                     // typed route
@@ -158,6 +161,8 @@ Interval-based actions fire on a timer. Cron-based actions use **Cronos** (`Cron
 `SplitterImpl.Split(byte[], ISplitCondition)` partitions large payloads into `SplitMessage` parts (Base64 chunks, shared `CorrelationId`). `AggregatorImpl` collects parts by correlation ID and returns reassembled bytes when `GroupSize` is met. Incomplete aggregates expire after 2 hours.
 
 `PostAsync<T>`/`PostAsync(Stream)` can drive this automatically: pass `splitThresholdBytes` and `NymBrokerImpl` calls `ISplitter` internally (via `DefaultSplitCondition(splitThresholdBytes)`) when the serialized envelope exceeds it, posting each part to the same endpoint instead of manually calling `ISplitter.Split` yourself.
+
+**Compression**: since Base64 inflates each chunk ~33%, `PostAsync` also compresses the envelope via `ICompressor` (`BrotliCompressor` by default, built on `System.IO.Compression.BrotliStream`) before splitting, whenever `compress` is true (the default) *and* compression actually reduces the size — this typically more than cancels out the Base64 overhead for compressible text/JSON payloads, and the size check means already-compressed/binary payloads fall back to uncompressed splitting automatically rather than paying compression cost for no benefit. Compressed parts carry `SplitMessage.Compression` (the `ICompressor.Name`, e.g. `"brotli"`); `ProcessAsync`'s aggregator branch decompresses using the same `ICompressor` before treating the reassembled bytes as envelope JSON, and drops the message with a logged error if the codec name doesn't match. If compression alone brings the payload under `splitThresholdBytes`, it still ships as a single-part `SplitMessage` group (`GroupSize = 1`) — compressed bytes aren't valid JSON on their own, so they still need the `SplitMessage` carrier even when they'd otherwise fit.
 
 Thread-safety: each `Aggregate` instance is lock-guarded and carries an `IsCompleted` flag. The flag prevents a second concurrent caller that obtained the same `ConcurrentDictionary` slot from reassembling or re-removing an already-completed aggregate (TOCTOU guard).
 

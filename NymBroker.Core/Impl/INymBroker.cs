@@ -13,15 +13,20 @@ public interface INymBroker
     /// the message is transparently split into <see cref="Aggregator.SplitMessage"/> parts (via
     /// <see cref="Splitter.ISplitter"/>) and each part is posted individually; the receiving side
     /// reassembles them automatically inside <c>ProcessAsync</c> once all parts arrive.
+    /// When <paramref name="compress"/> is also true (the default), the payload is compressed
+    /// (<see cref="Splitter.ICompressor"/>) before splitting whenever that actually reduces its
+    /// size — this typically more than offsets the ~33% Base64 overhead of splitting for
+    /// compressible (text/JSON) payloads. Ignored when <paramref name="splitThresholdBytes"/> is null.
     /// </summary>
-    Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null) where T : class;
+    Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true) where T : class;
 
     /// <summary>
     /// Post a pre-serialized stream to a named endpoint.
     /// When <paramref name="splitThresholdBytes"/> is set and the stream exceeds it, the payload
     /// is transparently split into <see cref="Aggregator.SplitMessage"/> parts and posted individually.
+    /// See <see cref="PostAsync{T}"/> for the <paramref name="compress"/> behavior.
     /// </summary>
-    Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default, int? splitThresholdBytes = null);
+    Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true);
 
     /// <summary>Start a fluent route definition for message type T.</summary>
     IRouteBuilder<T> Route<T>() where T : class;
