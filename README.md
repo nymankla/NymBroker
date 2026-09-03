@@ -860,6 +860,19 @@ foreach (var part in parts)
 // The reassembled message is dispatched as a normal message once GroupSize is met.
 ```
 
+### Auto-split on post
+
+`PostAsync` can split large messages for you — pass `splitThresholdBytes` and any serialized
+envelope larger than that gets transparently broken into `SplitMessage` parts before being posted;
+messages under the threshold are posted unchanged:
+
+```csharp
+await broker.PostAsync("MemQueue", largeOrder, ct: default, splitThresholdBytes: 64_000);
+```
+
+The receiving side needs no special handling — `ProcessAsync` reassembles the parts and dispatches
+the original message once all of them have arrived, exactly as with manual splitting above.
+
 ## Performance notes
 
 | Technique | Detail |

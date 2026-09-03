@@ -5,12 +5,13 @@ using NymBroker.Core.Endpoint;
 using NymBroker.Core.Message;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Serialize;
+using NymBroker.Core.Splitter;
 
 namespace NymBroker.Core.Impl;
 
 public sealed partial class NymBrokerImpl
 {
-    public async Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default) where T : class
+    public async Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null) where T : class
     {
         var context = new MessageContext<T>
         {
@@ -19,11 +20,11 @@ public sealed partial class NymBrokerImpl
         };
 
         using var stream = _serializer.Serialize(context);
-        await PostToEndpointAsync(endpointName, StreamToBytes(stream), ct);
+        await PostToEndpointAsync(endpointName, StreamToBytes(stream), splitThresholdBytes, ct);
     }
 
-    public async Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default)
-        => await PostToEndpointAsync(endpointName, StreamToBytes(messageStream), ct);
+    public async Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default, int? splitThresholdBytes = null)
+        => await PostToEndpointAsync(endpointName, StreamToBytes(messageStream), splitThresholdBytes, ct);
 
     public Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
@@ -241,6 +242,32 @@ public sealed partial class NymBrokerImpl
 
         if (message != null && topic.SubscriberDispatchers.Count > 0)
             await _subscriberDispatcher.DispatchAsync(topic.SubscriberDispatchers, message, context, ct);
+    }
+
+    private async Task PostToEndpointAsync(string name, byte[] message, int? splitThresholdBytes, CancellationToken ct)
+    {
+        if (splitThresholdBytes.HasValue && message.Length > splitThresholdBytes.Value)
+        {
+            var condition = new DefaultSplitCondition(splitThresholdBytes.Value);
+            var parts = _splitter.Split(message, condition);
+            _logger.LogInformation(
+                "Splitting message of {Size} bytes into {Count} parts for endpoint '{Endpoint}' (threshold={Threshold} bytes)",
+                message.Length, parts.Count, name, splitThresholdBytes.Value);
+
+            foreach (var part in parts)
+            {
+                var partContext = new MessageContext<SplitMessage>
+                {
+                    Message = part,
+                    Address = EndpointAddress.Create(name)
+                };
+                using var partStream = _serializer.Serialize(partContext);
+                await PostToEndpointAsync(name, StreamToBytes(partStream), null, ct);
+            }
+            return;
+        }
+
+        await PostToEndpointAsync(name, message, ct);
     }
 
     private async Task PostToEndpointAsync(string name, byte[] message, CancellationToken ct)

@@ -291,4 +291,73 @@ public sealed class NymBrokerAdditionalTests
         Assert.Single(consumer.Received);
         Assert.Equal("TEST", consumer.Received[0].Symbol);
     }
+
+    // --- PostAsync auto-split ---
+
+    private sealed class BigMessage { public string Payload { get; set; } = ""; }
+
+    [Fact]
+    public async Task PostAsync_Typed_SplitsIntoMultipleParts_WhenSplitThresholdExceeded()
+    {
+        var (broker, dest) = BuildBroker();
+        var big = new BigMessage { Payload = new string('x', 500) };
+
+        await broker.PostAsync("Dest", big, TestContext.Current.CancellationToken, splitThresholdBytes: 64);
+
+        var items = new List<string>();
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
+
+        Assert.True(items.Count > 1, "Expected the oversized message to be split into multiple parts.");
+        Assert.All(items, item => Assert.Contains("correlationId", item));
+        Assert.DoesNotContain(items, item => item.Contains("BigMessage") || item.Contains(nameof(NymBrokerAdditionalTests)));
+    }
+
+    [Fact]
+    public async Task PostAsync_Typed_DoesNotSplit_WhenUnderThreshold()
+    {
+        var (broker, dest) = BuildBroker();
+        await broker.PostAsync("Dest", new StockMessage { Symbol = "AAPL" }, TestContext.Current.CancellationToken, splitThresholdBytes: 1024 * 1024);
+
+        var items = new List<string>();
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) items.Add(item);
+
+        Assert.Single(items);
+        Assert.Contains("AAPL", items[0]);
+    }
+
+    [Fact]
+    public async Task PostAsync_Typed_SplitParts_ReassembleToOriginalMessage()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var consumer = new StockConsumer();
+        services.AddKeyedSingleton<IMessageConsumer>(nameof(StockConsumer), consumer);
+        services.AddSingleton<MessageSerializerJson>();
+        services.AddSingleton<IAggregator, AggregatorImpl>();
+        var sp = services.BuildServiceProvider();
+
+        var broker = new NymBrokerImpl(
+            sp.GetRequiredService<MessageSerializerJson>(),
+            sp.GetRequiredService<IAggregator>(),
+            new MessageTypeRegistry(),
+            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
+            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
+            NullLogger<NymBrokerImpl>.Instance);
+
+        broker.RegisterConsumer(typeof(StockMessage), nameof(StockConsumer));
+        var dest = new MemoryQueueEndPoint("Dest");
+        broker.AddEndpoint("Dest", dest);
+
+        await broker.PostAsync("Dest", new StockMessage { Symbol = "TEST" }, TestContext.Current.CancellationToken, splitThresholdBytes: 10);
+
+        var parts = new List<string>();
+        await foreach (var item in dest.ReadAsync(TestContext.Current.CancellationToken)) parts.Add(item);
+        Assert.True(parts.Count > 1, "Payload must be split into multiple parts for this test to be meaningful.");
+
+        foreach (var part in parts)
+            await broker.ProcessAsync(part, null, TestContext.Current.CancellationToken);
+
+        Assert.Single(consumer.Received);
+        Assert.Equal("TEST", consumer.Received[0].Symbol);
+    }
 }

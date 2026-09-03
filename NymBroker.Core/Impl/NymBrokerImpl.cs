@@ -6,6 +6,7 @@ using NymBroker.Core.Transform;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Route;
 using NymBroker.Core.Serialize;
+using NymBroker.Core.Splitter;
 using Microsoft.Extensions.Logging;
 
 namespace NymBroker.Core.Impl;
@@ -14,6 +15,7 @@ public sealed partial class NymBrokerImpl : INymBroker
 {
     private readonly MessageSerializerJson _serializer;
     private readonly IAggregator _aggregator;
+    private readonly ISplitter _splitter;
     private readonly MessageTypeRegistry _messageTypeRegistry;
     private readonly ConsumerDispatcher _consumerDispatcher;
     private readonly SubscriberDispatcher _subscriberDispatcher;
@@ -45,7 +47,8 @@ public sealed partial class NymBrokerImpl : INymBroker
         MessageTypeRegistry messageTypeRegistry,
         ConsumerDispatcher consumerDispatcher,
         SubscriberDispatcher subscriberDispatcher,
-        ILogger<NymBrokerImpl> logger)
+        ILogger<NymBrokerImpl> logger,
+        ISplitter? splitter = null)
     {
         _serializer = serializer;
         _aggregator = aggregator;
@@ -53,6 +56,9 @@ public sealed partial class NymBrokerImpl : INymBroker
         _consumerDispatcher = consumerDispatcher;
         _subscriberDispatcher = subscriberDispatcher;
         _logger = logger;
+        // Optional, trailing parameter: keeps existing positional constructor call sites
+        // (tests that new-up NymBrokerImpl directly) source-compatible.
+        _splitter = splitter ?? new SplitterImpl();
     }
 
     // --- Configuration (called during startup before StartAsync) ---

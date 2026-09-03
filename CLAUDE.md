@@ -87,6 +87,9 @@ IRouteCondition           ← composable predicate evaluated on (IMessageContext
 ```csharp
 broker.PostAsync<T>(endpoint, message)              // serialize + send
 broker.PostAsync(endpoint, stream)                  // send pre-serialized
+// Both overloads take a trailing `int? splitThresholdBytes = null`: when set and the
+// serialized envelope exceeds it, the message is transparently split into SplitMessage
+// parts (via ISplitter) and posted individually; ProcessAsync reassembles them on arrival.
 
 // Routing (all return IRouteBuilder<T> or RouteContext)
 broker.Route<Order>()...Build()                     // typed route
@@ -153,6 +156,8 @@ Interval-based actions fire on a timer. Cron-based actions use **Cronos** (`Cron
 ### Aggregator / Splitter
 
 `SplitterImpl.Split(byte[], ISplitCondition)` partitions large payloads into `SplitMessage` parts (Base64 chunks, shared `CorrelationId`). `AggregatorImpl` collects parts by correlation ID and returns reassembled bytes when `GroupSize` is met. Incomplete aggregates expire after 2 hours.
+
+`PostAsync<T>`/`PostAsync(Stream)` can drive this automatically: pass `splitThresholdBytes` and `NymBrokerImpl` calls `ISplitter` internally (via `DefaultSplitCondition(splitThresholdBytes)`) when the serialized envelope exceeds it, posting each part to the same endpoint instead of manually calling `ISplitter.Split` yourself.
 
 Thread-safety: each `Aggregate` instance is lock-guarded and carries an `IsCompleted` flag. The flag prevents a second concurrent caller that obtained the same `ConcurrentDictionary` slot from reassembling or re-removing an already-completed aggregate (TOCTOU guard).
 

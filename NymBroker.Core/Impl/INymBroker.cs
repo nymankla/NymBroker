@@ -7,11 +7,21 @@ namespace NymBroker.Core.Impl;
 
 public interface INymBroker
 {
-    /// <summary>Serialize and post a typed message to a named endpoint.</summary>
-    Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default) where T : class;
+    /// <summary>
+    /// Serialize and post a typed message to a named endpoint.
+    /// When <paramref name="splitThresholdBytes"/> is set and the serialized envelope exceeds it,
+    /// the message is transparently split into <see cref="Aggregator.SplitMessage"/> parts (via
+    /// <see cref="Splitter.ISplitter"/>) and each part is posted individually; the receiving side
+    /// reassembles them automatically inside <c>ProcessAsync</c> once all parts arrive.
+    /// </summary>
+    Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null) where T : class;
 
-    /// <summary>Post a pre-serialized stream to a named endpoint.</summary>
-    Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default);
+    /// <summary>
+    /// Post a pre-serialized stream to a named endpoint.
+    /// When <paramref name="splitThresholdBytes"/> is set and the stream exceeds it, the payload
+    /// is transparently split into <see cref="Aggregator.SplitMessage"/> parts and posted individually.
+    /// </summary>
+    Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default, int? splitThresholdBytes = null);
 
     /// <summary>Start a fluent route definition for message type T.</summary>
     IRouteBuilder<T> Route<T>() where T : class;

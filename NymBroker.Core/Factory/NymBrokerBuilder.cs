@@ -207,7 +207,8 @@ public sealed class NymBrokerBuilder
                 sp.GetRequiredService<MessageTypeRegistry>(),
                 sp.GetRequiredService<ConsumerDispatcher>(),
                 sp.GetRequiredService<SubscriberDispatcher>(),
-                sp.GetRequiredService<ILogger<NymBrokerImpl>>());
+                sp.GetRequiredService<ILogger<NymBrokerImpl>>(),
+                sp.GetRequiredService<ISplitter>());
 
             foreach (var endpointName in endpoints)
                 broker.AddEndpoint(endpointName, sp.GetRequiredKeyedService<IEndPoint>(endpointName));
