@@ -986,6 +986,8 @@ A warmup pass runs first to JIT the hot paths before measurements begin. GC is f
 | **PubSub – endpoint** | `Memory` → `PubSubDest` | 50 000 | Topic fans out to a second `PubSubDest` memory endpoint; the consumer on that endpoint signals. `NotFromRouteCondition` prevents the copy from re-triggering the topic. Exercises the endpoint-based fan-out path. |
 | **File – direct** | `FileLoop` | 100 | Messages are written as JSON files to `bench-in/`, picked up by `FileSystemWatcher`, deserialized, and dispatched. Exercises the full file I/O path including Polly retry and `.processed` rename. Lower count because disk I/O dominates. |
 | **SQL – direct** | `SqlBench` | 1 000 | Messages are inserted into an in-memory SQLite database via Dapper, then claimed and dispatched by the endpoint's internal poll loop (`BatchSize=100`, `PollInterval=0`). Measures the overhead of the optimistic UPDATE claim and async Dapper round trips. |
+| **Split+Compress – direct** | `Memory` | 200 | Each message carries a ~276 KB highly compressible payload and is posted with `splitThresholdBytes: 16 384` and `compress: true`. `PostAsync` compresses the envelope with `BrotliCompressor` before handing it to `ISplitter`, so fewer/smaller `SplitMessage` parts are posted; `AggregatorImpl` reassembles and decompresses them on arrival. Measures the split+compress+reassemble round trip end to end. |
+| **Split – no compress** | `Memory` | 200 | Same payload and threshold as above but `compress: false`, so the envelope is split into Base64-chunked `SplitMessage` parts without compression. Isolates the cost/benefit of compression by comparing directly against **Split+Compress – direct**. |
 | **Postgres – direct** | `PgBench` | 1 000 | Messages are inserted into a real PostgreSQL table, then claimed using `FOR UPDATE SKIP LOCKED` and dispatched (`BatchSize=50`, `PollInterval=0`). Skipped automatically when PostgreSQL is not reachable. Measures the overhead of TCP round trips and the CTE-based atomic claim. |
 
 ### Configuration
@@ -1028,6 +1030,8 @@ PubSub – 3 subs                 108 695      460 ms     10      0      0    2.
 PubSub – endpoint               176 678      283 ms     19      0      0    4.9 KB/msg
 File   – direct                     460      217 ms      0      0      0   92.8 KB/msg
 SQL    – direct                     980    1 020 ms      1      0      0   12.4 KB/msg
+Split+Compress – direct             359      557 ms     57     57     57    3.2 MB/msg
+Split – no compress                 259      772 ms     93     59     41    5.3 MB/msg
 Postgres – direct                 1 218      821 ms      1      0      0   14.2 KB/msg
 ```
 
@@ -1042,6 +1046,7 @@ Notes on the numbers:
 - **PubSub – endpoint** exercises the endpoint-based fan-out path: the topic posts bytes directly to `PubSubDest` via `IEndPoint.PostAsync(byte[])`, where the broker picks it up and dispatches to `BenchmarkConsumer`. The byte[] outbound path removes the intermediate stream copy, which is why this scenario sees the largest throughput gain over older builds.
 - **File** allocation is ~93 KB/msg. The write side uses `File.WriteAllBytesAsync`; the read side deserializes via `File.ReadAllBytesAsync`. The dominant cost is file system round-trips and the `.processed` rename.
 - **SQL** runs against an in-memory SQLite database (`BatchSize=100`, `PollInterval=0`). Each message costs one INSERT plus a SELECT and UPDATE (optimistic claim). ~1 000 msg/s is the ceiling for single-connection `:memory:` SQLite; a file-backed database will be lower.
+- **Split+Compress vs Split – no compress** isolate the compression step: with the same 16 KB threshold and ~276 KB compressible payload, compression cuts the part count roughly in half (fewer `SplitMessage` posts and reassembly steps), which is why the compressed variant is both faster and allocates less despite paying the Brotli compress/decompress cost. Allocation is dominated by the Base64-encoded chunk strings, not the framework dispatch path — this is the one scenario where megabyte-scale allocations are expected. For incompressible payloads (already-compressed binary, encrypted blobs), expect the two scenarios to converge since `PostAsync` skips compression whenever it doesn't shrink the payload.
 - **Postgres** runs against a local PostgreSQL instance over TCP (`BatchSize=50`, `PollInterval=0`). Each message costs one INSERT (post) plus a CTE `FOR UPDATE SKIP LOCKED` claim plus a finalize UPDATE — three round trips. ~1 200 msg/s reflects TCP latency; throughput scales with batch size and connection pooling in multi-instance deployments.
 
 ## Running tests

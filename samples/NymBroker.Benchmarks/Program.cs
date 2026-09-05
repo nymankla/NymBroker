@@ -17,6 +17,8 @@ const int    FileCount    = 100;
 const int    SqlCount     = 1_000;
 const int    PgCount      = 1_000;
 const int    RabbitCount  = 1_000;
+const int    SplitCount   = 200;
+const int    SplitThresholdBytes = 16 * 1024;
 const string PgConnStr    = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
 const string RabbitQueue  = "nymbroker.bench";
 const string RabbitMgmt   = "http://localhost:15672";
@@ -30,7 +32,12 @@ Console.WriteLine($"  File scenario    : {FileCount:N0} messages");
 Console.WriteLine($"  SQL scenario     : {SqlCount:N0} messages");
 Console.WriteLine($"  Postgres scenario: {PgCount:N0} messages");
 Console.WriteLine($"  RabbitMQ scenarios: {RabbitCount:N0} messages (direct + batch/100)");
+Console.WriteLine($"  Split scenarios  : {SplitCount:N0} messages (threshold={SplitThresholdBytes / 1024} KB)");
 Console.WriteLine();
+
+// Large, highly compressible payload — big enough to require several split parts at
+// SplitThresholdBytes, and repetitive enough that Brotli compression noticeably shrinks it.
+var splitPayload = string.Concat(Enumerable.Repeat("The quick brown fox jumps over the lazy dog. ", 6_000));
 
 Console.Write("Warming up... ");
 await RunAsync("_warmup", "Memory", 1_000);
@@ -89,6 +96,14 @@ var results = new List<BenchmarkResult>
             BatchSize        = 100,
             PollInterval     = TimeSpan.Zero
         })),
+
+    await RunAsync("Split+Compress – direct", "Memory", SplitCount,
+        messageFactory: i => new BenchmarkMessage(i, splitPayload),
+        splitThresholdBytes: SplitThresholdBytes, compress: true),
+
+    await RunAsync("Split – no compress",     "Memory", SplitCount,
+        messageFactory: i => new BenchmarkMessage(i, splitPayload),
+        splitThresholdBytes: SplitThresholdBytes, compress: false),
 };
 
 if (await IsPostgresAvailableAsync())
@@ -233,7 +248,10 @@ async Task<BenchmarkResult> RunAsync(
     bool addFilter = false,
     bool usePubSub = false,
     int signalsPerMessage = 1,
-    string? fileDir = null)
+    string? fileDir = null,
+    Func<int, BenchmarkMessage>? messageFactory = null,
+    int? splitThresholdBytes = null,
+    bool compress = true)
 {
     var isWarmup = name.StartsWith('_');
     if (!isWarmup) Console.Write($"  {name,-24} ... ");
@@ -278,11 +296,11 @@ async Task<BenchmarkResult> RunAsync(
     var payload = new string('X', 32);
     for (var i = 0; i < count; i++)
     {
-        var msg = new BenchmarkMessage(i, payload);
+        var msg = messageFactory != null ? messageFactory(i) : new BenchmarkMessage(i, payload);
         if (usePubSub)
             await broker.PublishAsync(msg);
         else
-            await broker.PostAsync(endpoint, msg);
+            await broker.PostAsync(endpoint, msg, splitThresholdBytes: splitThresholdBytes, compress: compress);
     }
 
     try { await completion.WaitAsync(TimeSpan.FromSeconds(30)); }
