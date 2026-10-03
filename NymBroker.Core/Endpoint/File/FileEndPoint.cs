@@ -2,8 +2,7 @@ using System.Text;
 using System.Threading.Channels;
 using NymBroker.Core.Endpoint.HealthCheck;
 using Microsoft.Extensions.Logging;
-using Polly;
-using Polly.Retry;
+using NymBroker.Resilience;
 
 namespace NymBroker.Core.Endpoint.File;
 
@@ -13,7 +12,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
     private readonly ILogger<FileEndPoint> _logger;
     private readonly DirectoryInfo _readDir;
     private readonly DirectoryInfo _postDir;
-    private readonly ResiliencePipeline<string?> _fileReadyPolicy;
+    private readonly RetryPolicy _fileReadyPolicy;
     private FileSystemWatcher? _watcher;
     private Func<byte[], CancellationToken, Task>? _handler;
 
@@ -40,24 +39,22 @@ public sealed class FileEndPoint : IEndPointEventDriven
         _readDir.Create();
         _postDir.Create();
 
-        _fileReadyPolicy = new ResiliencePipelineBuilder<string?>()
-            .AddRetry(new RetryStrategyOptions<string?>
+        _fileReadyPolicy = new RetryPolicy(new RetryOptions
+        {
+            MaxRetryAttempts = 4,
+            Delay = TimeSpan.FromMilliseconds(25),
+            BackoffType = RetryBackoffType.Exponential,
+            UseJitter = true,
+            ShouldHandle = static ex => ex is IOException,
+            OnRetry = args =>
             {
-                MaxRetryAttempts = 4,
-                Delay = TimeSpan.FromMilliseconds(25),
-                BackoffType = DelayBackoffType.Exponential,
-                UseJitter = true,
-                ShouldHandle = static args => ValueTask.FromResult(args.Outcome.Exception is IOException),
-                OnRetry = args =>
-                {
-                    _logger.LogDebug(
-                        "Retrying file read after transient file access failure on attempt {Attempt}: {Error}",
-                        args.AttemptNumber + 1,
-                        args.Outcome.Exception?.Message);
-                    return ValueTask.CompletedTask;
-                }
-            })
-            .Build();
+                _logger.LogDebug(
+                    "Retrying file read after transient file access failure on attempt {Attempt}: {Error}",
+                    args.AttemptNumber + 1,
+                    args.Exception.Message);
+                return ValueTask.CompletedTask;
+            }
+        });
     }
 
     public Task PostAsync(byte[] message, CancellationToken ct = default)
@@ -199,7 +196,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
                 using var reader = new StreamReader(fs);
                 var content = await reader.ReadToEndAsync(token);
                 // Guard: writer may not have flushed yet when the Created event fires early.
-                // Throw so Polly retries; the file is NOT renamed and stays available for re-read.
+                // Throw so the retry policy retries; the file is NOT renamed and stays available for re-read.
                 if (content.Length == 0)
                     throw new IOException("File has no content yet.");
                 // Rename to .processed so it is not picked up again.

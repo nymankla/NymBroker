@@ -1,8 +1,7 @@
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
 using Microsoft.Extensions.Logging;
-using Polly;
-using Polly.Retry;
+using NymBroker.Resilience;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
@@ -12,7 +11,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
 {
     private readonly RabbitMqSettings _settings;
     private readonly ILogger<RabbitMqEndPoint> _logger;
-    private readonly ResiliencePipeline _reconnectPolicy;
+    private readonly RetryPolicy _reconnectPolicy;
     private readonly string _name;
 
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
@@ -31,19 +30,17 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         _settings = settings;
         _logger = logger;
 
-        _reconnectPolicy = new ResiliencePipelineBuilder()
-            .AddRetry(new RetryStrategyOptions
+        _reconnectPolicy = new RetryPolicy(new RetryOptions
+        {
+            MaxRetryAttempts = int.MaxValue,
+            Delay = TimeSpan.FromSeconds(settings.ReconnectDelaySeconds),
+            OnRetry = args =>
             {
-                MaxRetryAttempts = int.MaxValue,
-                Delay = TimeSpan.FromSeconds(settings.ReconnectDelaySeconds),
-                OnRetry = args =>
-                {
-                    _logger.LogWarning("RabbitMQ [{Name}] reconnecting (attempt {Attempt}): {Error}",
-                        _name, args.AttemptNumber + 1, args.Outcome.Exception?.Message);
-                    return ValueTask.CompletedTask;
-                }
-            })
-            .Build();
+                _logger.LogWarning("RabbitMQ [{Name}] reconnecting (attempt {Attempt}): {Error}",
+                    _name, args.AttemptNumber + 1, args.Exception.Message);
+                return ValueTask.CompletedTask;
+            }
+        });
     }
 
     public async Task PostAsync(byte[] message, CancellationToken ct = default)

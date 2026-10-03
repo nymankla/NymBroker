@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
   <Project Path="NymBroker.RabbitMq/NymBroker.RabbitMq.csproj" />
+  <Project Path="NymBroker.Resilience/NymBroker.Resilience.csproj" />
   <Project Path="NymBroker.Sqlite/NymBroker.Sqlite.csproj" />
   <Project Path="NymBroker.Postgres/NymBroker.Postgres.csproj" />
   <Project Path="NymBroker.Tests/NymBroker.Tests.csproj" />

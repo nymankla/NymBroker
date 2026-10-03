@@ -33,6 +33,7 @@ Source Endpoint → [Wire Tap] → Deserialize → [TTL Check] → Filter → Ro
 |---|---|
 | `NymBroker.Core` | Framework core — no external transport dependency |
 | `NymBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
+| `NymBroker.Resilience` | Dependency-free retry policy (`RetryPolicy`) used by the File and RabbitMQ endpoints |
 | `NymBroker.Sqlite` | Optional SQLite transport via Dapper (add when needed) |
 | `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
 | `NymBroker.Tests` | xUnit tests |
@@ -356,7 +357,7 @@ services.AddNymBroker()
     .Build();
 ```
 
-Messages are consumed with `autoAck: false`. A message is acked after successful processing or nacked with `requeue: true` on failure, so no message is lost if the handler throws. The endpoint reconnects automatically on connection loss using Polly.
+Messages are consumed with `autoAck: false`. A message is acked after successful processing or nacked with `requeue: true` on failure, so no message is lost if the handler throws. The endpoint reconnects automatically on connection loss using the built-in `NymBroker.Resilience` retry policy.
 
 Start RabbitMQ with the provided Docker Compose file:
 
@@ -984,7 +985,7 @@ A warmup pass runs first to JIT the hot paths before measurements begin. GC is f
 | **PubSub – 1 sub** | `Memory` | 50 000 | A single `ISubscribe<T>` subscriber registered on a topic. Baseline pub/sub cost: one compiled-lambda dispatch per message inside a DI scope, no endpoint fan-out. |
 | **PubSub – 3 subs** | `Memory` | 50 000 × 3 | Three subscribers on the same topic. Fan-out is sequential within the topic; each message must signal three times before it counts as complete. Measures per-subscriber overhead and shows how throughput scales with subscriber count. |
 | **PubSub – endpoint** | `Memory` → `PubSubDest` | 50 000 | Topic fans out to a second `PubSubDest` memory endpoint; the consumer on that endpoint signals. `NotFromRouteCondition` prevents the copy from re-triggering the topic. Exercises the endpoint-based fan-out path. |
-| **File – direct** | `FileLoop` | 100 | Messages are written as JSON files to `bench-in/`, picked up by `FileSystemWatcher`, deserialized, and dispatched. Exercises the full file I/O path including Polly retry and `.processed` rename. Lower count because disk I/O dominates. |
+| **File – direct** | `FileLoop` | 100 | Messages are written as JSON files to `bench-in/`, picked up by `FileSystemWatcher`, deserialized, and dispatched. Exercises the full file I/O path including the IOException retry policy and `.processed` rename. Lower count because disk I/O dominates. |
 | **SQL – direct** | `SqlBench` | 1 000 | Messages are inserted into an in-memory SQLite database via Dapper, then claimed and dispatched by the endpoint's internal poll loop (`BatchSize=100`, `PollInterval=0`). Measures the overhead of the optimistic UPDATE claim and async Dapper round trips. |
 | **Split+Compress – direct** | `Memory` | 200 | Each message carries a ~276 KB highly compressible payload and is posted with `splitThresholdBytes: 16 384` and `compress: true`. `PostAsync` compresses the envelope with `BrotliCompressor` before handing it to `ISplitter`, so fewer/smaller `SplitMessage` parts are posted; `AggregatorImpl` reassembles and decompresses them on arrival. Measures the split+compress+reassemble round trip end to end. |
 | **Split – no compress** | `Memory` | 200 | Same payload and threshold as above but `compress: false`, so the envelope is split into Base64-chunked `SplitMessage` parts without compression. Isolates the cost/benefit of compression by comparing directly against **Split+Compress – direct**. |
