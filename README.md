@@ -1054,7 +1054,7 @@ Notes on the numbers:
 
 ```bash
 dotnet test
-dotnet test --filter "FullyQualifiedName~SerializerTests"   # single class
+dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"   # single class
 ```
 
 ## Design constraints

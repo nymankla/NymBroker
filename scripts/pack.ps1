@@ -78,37 +78,72 @@ if ($Version) {
 }
 
 # ── projects to pack ────────────────────────────────────────────────────────
-$Projects = @(
-    "NymBroker.Core/NymBroker.Core.csproj",
-    "NymBroker.Sqlite/NymBroker.Sqlite.csproj",
-    "NymBroker.Postgres/NymBroker.Postgres.csproj",
-    "NymBroker.RabbitMq/NymBroker.RabbitMq.csproj"
-)
+# Every top-level NymBroker.* project whose IsPackable is true (test projects set it false).
+# Discovered rather than hard-coded so a new library project (e.g. NymBroker.Resilience,
+# which NymBroker depends on) can't be left out and publish a package nobody can restore.
+$Projects = Get-ChildItem $Root -Directory -Filter "NymBroker.*" |
+    ForEach-Object { Get-ChildItem $_.FullName -Filter "*.csproj" } |
+    Where-Object {
+        $packable = dotnet msbuild $_.FullName -getProperty:IsPackable
+        if ($LASTEXITCODE -ne 0) { throw "Could not evaluate $($_.Name)." }
+        "$packable".Trim() -eq "true"
+    } |
+    Sort-Object Name
 
-$Out = Join-Path $Root $OutputDir
+if (-not $Projects) { throw "No packable NymBroker.* projects found under $Root." }
+
+# Path.Combine keeps an absolute -OutputDir (e.g. C:\feed) as-is instead of nesting it under $Root.
+$Out = [System.IO.Path]::Combine($Root, $OutputDir)
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 
-# ── build once, then pack ───────────────────────────────────────────────────
+# ── build, then pack ────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "Building..."
-dotnet build (Join-Path $Root "NymBroker.Core/NymBroker.Core.csproj") `
-    --configuration $Configuration -v q
-if ($LASTEXITCODE -ne 0) { throw "Build failed." }
+foreach ($proj in $Projects) {
+    Write-Host "Building $($proj.Name)..."
+    dotnet build $proj.FullName --configuration $Configuration -v q
+    if ($LASTEXITCODE -ne 0) { throw "Build failed for $($proj.Name)." }
+}
 
 foreach ($proj in $Projects) {
-    $projPath = Join-Path $Root $proj
-    Write-Host "Packing $proj..."
-    dotnet pack $projPath `
+    Write-Host "Packing $($proj.Name)..."
+    dotnet pack $proj.FullName `
         --configuration $Configuration `
         --no-build `
         --output $Out `
         -v q
-    if ($LASTEXITCODE -ne 0) { throw "dotnet pack failed for $proj" }
+    if ($LASTEXITCODE -ne 0) { throw "dotnet pack failed for $($proj.Name)" }
 }
+
+# ── verify NymBroker.* dependencies were packed too ─────────────────────────
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$missing = @()
+foreach ($proj in $Projects) {
+    $id      = dotnet msbuild $proj.FullName -getProperty:PackageId
+    $nupkg   = Join-Path $Out "$("$id".Trim()).$Version.nupkg"
+    if (-not (Test-Path $nupkg)) { $missing += "$nupkg (expected from $($proj.Name))"; continue }
+
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($nupkg)
+    try {
+        $entry  = $zip.Entries | Where-Object { $_.FullName -like "*.nuspec" } | Select-Object -First 1
+        $reader = New-Object System.IO.StreamReader($entry.Open())
+        [xml]$nuspec = $reader.ReadToEnd()
+        $reader.Dispose()
+    } finally { $zip.Dispose() }
+
+    $deps = $nuspec.SelectNodes("//*[local-name()='dependency']") |
+        Where-Object { $_.id -like "NymBroker*" } |
+        Select-Object -ExpandProperty id -Unique
+    foreach ($dep in $deps) {
+        if (-not (Test-Path (Join-Path $Out "$dep.$Version.nupkg"))) {
+            $missing += "$dep.$Version.nupkg (dependency of $("$id".Trim()))"
+        }
+    }
+}
+if ($missing) { throw "Missing packages:`n  $($missing -join "`n  ")" }
 
 # ── summary ─────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "Packages written to: $Out"
-Get-ChildItem $Out -Filter "*.nupkg" | Sort-Object Name | ForEach-Object {
+Get-ChildItem $Out -Filter "*.$Version.nupkg" | Sort-Object Name | ForEach-Object {
     Write-Host "  $($_.Name)"
 }

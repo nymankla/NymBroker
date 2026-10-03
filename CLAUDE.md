@@ -21,7 +21,7 @@ Run from the solution root (`e:\utv\POC\NymBroker`):
 ```bash
 dotnet build
 dotnet test
-dotnet test --filter "FullyQualifiedName~SerializerTests"   # single test class
+dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"   # single test class (MTP runner, see global.json)
 dotnet run --project samples/NymBroker.Sample            # fluent API demo
 dotnet run --project samples/NymBroker.ConfigSample      # JSON config demo
 dotnet run --project samples/NymBroker.SqlSample         # SQLite endpoint demo
