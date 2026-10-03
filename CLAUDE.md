@@ -285,6 +285,7 @@ Transient-failure retries use `RetryPolicy` from the dependency-free `NymBroker.
 ## Key Design Rules
 
 - **Ask before architectural decisions** — built incrementally with explicit sign-off on each structural choice.
+- **Bump the patch version on every push to `master`** (the main branch). Run `.\scripts\pack.ps1 -BumpPatch` — it updates `<Version>` in `Directory.Build.props` (e.g. `0.1.0` → `0.1.1`) and packs — then commit the bump together with the change before pushing. Minor/major bumps (`-BumpMinor` / `-BumpMajor`) are the user's call.
 - Routes use `IRouteCondition` / `Func<JsonElement, bool>` predicates; no XML/XSLT.
 - No Windows-specific endpoints (MSMQ, Event Log, etc.) — .NET Core only.
 - DI: `Microsoft.Extensions.DI` only (no Autofac).
