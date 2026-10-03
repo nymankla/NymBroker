@@ -41,7 +41,7 @@ dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 |---|---|
 | `NymBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No transport dependency. |
 | `NymBroker.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, `AddRabbitMqEndPoint`/`WithRabbitMq`. |
-| `NymBroker.Resilience` | Dependency-free retry policy (`RetryPolicy`, `RetryOptions`) — constant/exponential backoff with optional jitter. Referenced by Core; used by `FileEndPoint` (IOException retry) and `RabbitMqEndPoint` (reconnect). Replaces Polly. |
+| `NymBroker.Resilience` | Dependency-free retry policy (`RetryPolicy`, `RetryOptions`) — constant/exponential backoff with optional jitter. Referenced by Core; used by `FileEndPoint` (IOException retry) and `RabbitMqEndPoint` (reconnect). Replaces Polly. Options documented in [NymBroker.Resilience/README.md](NymBroker.Resilience/README.md). |
 | `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses Dapper + `Microsoft.Data.Sqlite`. |
 | `NymBroker.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
 | `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. |
@@ -273,6 +273,10 @@ No exception is silently swallowed. The policy per layer:
 ### RabbitMQ Reliability
 
 `RabbitMqEndPoint` uses `autoAck: false`. Every message is manually acked on success or nacked with `requeue: true` on failure. Connection and publish-channel setup use `SemaphoreSlim(1,1)` with a double-check pattern to prevent concurrent initialisation races.
+
+### Retry Policy (NymBroker.Resilience)
+
+Transient-failure retries use `RetryPolicy` from the dependency-free `NymBroker.Resilience` project (it replaced Polly — do not re-add Polly). Build one `RetryPolicy(new RetryOptions { ... })` per endpoint and reuse it; call `ExecuteAsync(token => ..., ct)`. Default `ShouldHandle` retries everything except `OperationCanceledException`; `OnRetry` should log (no silent retries). All options, defaults, backoff/jitter formulas and execution rules are documented in [NymBroker.Resilience/README.md](NymBroker.Resilience/README.md).
 
 ### MemoryQueueEndPoint Logger
 
