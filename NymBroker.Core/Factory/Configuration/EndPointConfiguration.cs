@@ -7,8 +7,15 @@ namespace NymBroker.Core.Factory.Configuration;
 public sealed class EndPointConfiguration
 {
     public string Name { get; set; } = string.Empty;
-    public EndPointType Type { get; set; }
+    /// <summary>
+    /// Endpoint type name — one of <see cref="EndPointType"/> or a name defined by an extension package.
+    /// Unknown types are loaded as-is and left for the matching <c>With*()</c> extension to process.
+    /// </summary>
+    public string Type { get; set; } = string.Empty;
     public EndpointMode Mode { get; set; } = EndpointMode.ReadWrite;
+
+    /// <summary>Case-insensitive check of <see cref="Type"/> against an endpoint type name.</summary>
+    public bool IsType(string type) => string.Equals(Type, type, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Raw JSON config object — deserialized to the concrete settings type per <see cref="Type"/>.</summary>
     public JsonElement? Config { get; set; }

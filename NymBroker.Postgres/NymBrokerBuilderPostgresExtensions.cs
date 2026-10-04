@@ -32,7 +32,7 @@ public static class NymBrokerBuilderPostgresExtensions
 
         foreach (var ep in builder.LoadedConfiguration.Endpoints)
         {
-            if (ep.Type == EndPointType.Postgres)
+            if (ep.IsType(EndPointType.Postgres))
                 builder.AddPostgresEndPoint(ep.Name, ToSettings(ep), ep.Mode);
         }
 

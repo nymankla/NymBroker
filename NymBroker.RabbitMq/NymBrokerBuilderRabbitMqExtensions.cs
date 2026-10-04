@@ -42,7 +42,7 @@ public static class NymBrokerBuilderRabbitMqExtensions
 
         foreach (var ep in builder.LoadedConfiguration.Endpoints)
         {
-            if (ep.Type == EndPointType.RabbitMq)
+            if (ep.IsType(EndPointType.RabbitMq))
                 builder.AddRabbitMqEndPoint(ep.Name, ToSettings(ep), ep.Mode);
         }
 

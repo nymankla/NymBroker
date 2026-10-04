@@ -36,7 +36,7 @@ public static class NymBrokerBuilderSqliteExtensions
 
         foreach (var ep in builder.LoadedConfiguration.Endpoints)
         {
-            if (ep.Type == EndPointType.Sql)
+            if (ep.IsType(EndPointType.Sql))
                 builder.AddSqliteEndPoint(ep.Name, ToSettings(ep), ep.Mode);
         }
 

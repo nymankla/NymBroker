@@ -157,12 +157,9 @@ public sealed class NymBrokerBuilder
     {
         foreach (var ep in config.Endpoints)
         {
-            switch (ep.Type)
-            {
-                case EndPointType.File: AddFileEndPoint(ep.Name, ep.ToFileSettings(), ep.Mode); break;
-                case EndPointType.Memory: AddMemoryEndPoint(ep.Name, mode: ep.Mode); break;
-                // EndPointType.RabbitMq is handled by NymBroker.RabbitMq via WithRabbitMq()
-            }
+            if (ep.IsType(EndPointType.File)) AddFileEndPoint(ep.Name, ep.ToFileSettings(), ep.Mode);
+            else if (ep.IsType(EndPointType.Memory)) AddMemoryEndPoint(ep.Name, mode: ep.Mode);
+            // Every other type (RabbitMq, Sql, Postgres, custom) is handled by its package's With*() extension.
         }
 
         foreach (var topic in config.Topics)

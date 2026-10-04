@@ -487,16 +487,23 @@ The hosted service starts the broker, and the broker starts your listener. You d
 
 ## 7. Loading from `queuesettings.json`
 
-Config-driven endpoints follow a `With<Transport>()` pattern. It reads the matching entries from `builder.LoadedConfiguration` and calls your `Add…EndPoint`:
+Config-driven endpoints follow a `With<Transport>()` pattern. It reads the matching entries from `builder.LoadedConfiguration` and calls your `Add…EndPoint`.
+
+`Type` is an open string, so your package defines its own type name; Core needs no changes:
 
 ```csharp
+public static class UdpEndPointType
+{
+    public const string Udp = "Udp";
+}
+
 public static NymBrokerBuilder WithUdp(this NymBrokerBuilder builder)
 {
     if (builder.LoadedConfiguration is null) return builder;
 
     foreach (var ep in builder.LoadedConfiguration.Endpoints)
     {
-        if (ep.Type == EndPointType.Udp)   // needs a new EndPointType member — see the note below
+        if (ep.IsType(UdpEndPointType.Udp))   // case-insensitive
             builder.AddUdpEndPoint(ep.Name, ToSettings(ep), ep.Mode);
     }
 
@@ -525,7 +532,12 @@ private static UdpSettings ToSettings(EndPointConfiguration ep)
 }
 ```
 
-> **`EndPointType` is a closed enum.** `Type` is parsed into `NymBroker.Core.Factory.EndPointType`, which currently has `File`, `RabbitMq`, `Memory`, `Sql` and `Postgres`. An unknown string makes `LoadConfiguration` throw, and that breaks every endpoint in the file, not just yours. So config support for a new transport needs a new enum member in `NymBroker.Core`, which is a core change that needs sign-off. Until then, register the endpoint in code with `Add…EndPoint`.
+How the pieces fit:
+
+- `LoadConfiguration` loads **every** entry, whatever its `Type`, and registers only `File` and `Memory` itself. Every other entry waits for the `With*()` call that recognises its type.
+- `NymBroker.Core.Factory.EndPointType` holds the built-in names as string constants (`File`, `RabbitMq`, `Memory`, `Sql`, `Postgres`) and lists them in `EndPointType.BuiltIn`. Don't add your type there; keep the constant in your own package.
+- Pick a type name that won't clash with the built-ins or other packages. Matching is case-insensitive.
+- An entry whose `With*()` is never called is silently ignored, so posting to that endpoint name fails at runtime with *"No endpoint registered with name …"*. Remind users to call your `With*()` after `LoadConfiguration`.
 
 ---
 

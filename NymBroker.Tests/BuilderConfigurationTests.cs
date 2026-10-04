@@ -173,6 +173,76 @@ public sealed class BuilderConfigurationTests
         Assert.Empty(config.Endpoints);
     }
 
+    // --- Open endpoint types ---
+
+    [Fact]
+    public void BrokerConfigurationReader_Read_UnknownType_IsLoadedAsIs()
+    {
+        var json = """
+            {
+              "NymBroker": {
+                "Endpoints": [
+                  { "name": "Mem1",   "type": "Memory" },
+                  { "name": "Custom", "type": "SqlServer", "config": { "tableName": "dbo.q" } }
+                ]
+              }
+            }
+            """;
+
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var config = BrokerConfigurationReader.Read(new ConfigurationBuilder().AddJsonStream(stream).Build());
+
+        Assert.Equal(2, config.Endpoints.Count);
+        Assert.Equal("SqlServer", config.Endpoints[1].Type);
+        Assert.True(config.Endpoints[1].Config.HasValue);
+    }
+
+    [Fact]
+    public void EndPointConfiguration_IsType_IsCaseInsensitive()
+    {
+        var ep = new EndPointConfiguration { Name = "M", Type = "memory" };
+
+        Assert.True(ep.IsType(EndPointType.Memory));
+        Assert.False(ep.IsType(EndPointType.File));
+    }
+
+    [Fact]
+    public async Task ApplyConfiguration_UnknownType_IsLeftForExtensionToRegister()
+    {
+        var config = new BrokerConfiguration
+        {
+            Endpoints =
+            [
+                new EndPointConfiguration { Name = "CfgMem", Type = "memory" },
+                new EndPointConfiguration { Name = "Ext",    Type = "Custom" }
+            ]
+        };
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var builder = services.AddNymBroker().ApplyConfiguration(config);
+
+        // What a With*() extension in another package does for its own type name.
+        foreach (var ep in config.Endpoints.Where(ep => ep.IsType("Custom")))
+        {
+            builder.Services.AddKeyedSingleton<IEndPoint>(ep.Name, (_, _) => new MemoryQueueEndPoint(ep.Name));
+            builder.RegisterEndpoint(ep.Name);
+        }
+        builder.Build();
+
+        await using var sp = services.BuildServiceProvider();
+        var broker = sp.GetRequiredService<INymBroker>();
+
+        await broker.PostAsync("CfgMem", new { Ok = true }, TestContext.Current.CancellationToken);
+        await broker.PostAsync("Ext", new { Ok = true }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public void EndPointType_BuiltIn_ListsShippedTypes()
+    {
+        Assert.Equal(["File", "RabbitMq", "Memory", "Sql", "Postgres"], EndPointType.BuiltIn);
+    }
+
     // --- EndPointConfiguration.ToFileSettings ---
 
     [Fact]

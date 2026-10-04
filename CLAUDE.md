@@ -222,7 +222,7 @@ services.AddNymBroker()
     .Build();
 ```
 
-Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type` (`File|Memory|RabbitMq|Sql|Postgres`), `Config` (camelCase type-specific settings). `File` and `Memory` are processed automatically by `LoadConfiguration` without a `With*()` call.
+Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config` (camelCase type-specific settings). `Type` is an **open string**, not an enum: `EndPointType` is a static class of string constants for the built-in types (`File|Memory|RabbitMq|Sql|Postgres`, also listed in `EndPointType.BuiltIn`). Unknown types load without error and are left for their package's `With*()` extension, which matches with `ep.IsType(name)` (case-insensitive). New transports define their type-name constant in their own package; Core does not change. `File` and `Memory` are processed automatically by `LoadConfiguration` without a `With*()` call.
 
 `NymBrokerBuilder` exposes `Services` (the DI container) and `LoadedConfiguration` as public properties so extension packages in other assemblies can register their endpoint types.
 

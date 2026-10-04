@@ -18,7 +18,7 @@ Answer these before writing code. Ask the user only for the ones the request and
 - **Client library** and whether its client is thread-safe.
 - **Where it lives:** a new `NymBroker.<Transport>` project in this repo (default for a reusable transport), or code in an app/sample.
 
-Per CLAUDE.md, a new project or a change to `EndPointType` is an architectural decision: **confirm with the user before creating either.**
+Per CLAUDE.md, a new project is an architectural decision: **confirm with the user before creating one.**
 
 ## 2. Pick the shape
 
@@ -42,7 +42,7 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - Retries use `NymBroker.Resilience.RetryPolicy` (one per endpoint, `OnRetry` logs). **Never add Polly.**
 - Constructor: `(string name, TSettings settings, ILogger<T> logger, EndpointMode mode = EndpointMode.ReadWrite)`.
 
-For a new project, mirror `NymBroker.RabbitMq/`: a csproj that references only `NymBroker.Core` plus the client package, with `PackageId`/`PackageDescription` set; `<Transport>Settings.cs`; `<Transport>EndPoint.cs`; `NymBrokerBuilder<Transport>Extensions.cs`. Add the project to the solution and to `scripts/pack.ps1`.
+For a new project, mirror `NymBroker.RabbitMq/`: a csproj that references only `NymBroker.Core` plus the client package, with `PackageId`/`PackageDescription` set; `<Transport>Settings.cs`; `<Transport>EndPoint.cs`; `NymBrokerBuilder<Transport>Extensions.cs`. Add the project to `NymBroker.slnx`; `scripts/pack.ps1` picks up `NymBroker.*` projects automatically.
 
 ## 4. Register
 
@@ -53,7 +53,7 @@ builder.Services.AddKeyedSingleton<IEndPoint>(name, (sp, _) => new XEndPoint(nam
 builder.RegisterEndpoint(name);
 ```
 
-Config-file support (`WithX()`) also needs a new `EndPointType` member in `NymBroker.Core` (guide §7). That's a core change, so ask first.
+Config-file support: add a `WithX()` extension that matches entries with `ep.IsType(XEndPointType.X)`, using a type-name constant defined in your own package (guide §7). `Type` is an open string, so Core needs no change; don't add your type to `EndPointType`.
 
 ## 5. Test
 
