@@ -1,6 +1,6 @@
 # NymBroker
 
-A .NET 10 enterprise message processing framework following [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). Messages flow as JSON envelopes through a configurable pipeline of endpoints, filters, routers, and consumers.
+NymBroker is a .NET 10 message-processing framework based on [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). It decouples producers from handlers: applications post typed messages to endpoints, and the broker deserializes, filters, routes, and dispatches them to consumers or subscribers. Start with the in-process Memory endpoint, then add file, SQLite, PostgreSQL, or RabbitMQ transports as your application grows.
 
 ```
 Source Endpoint → [Wire Tap] → Deserialize → [TTL Check] → Filter → Router → Consumer / Destination Endpoint
@@ -9,6 +9,76 @@ Source Endpoint → [Wire Tap] → Deserialize → [TTL Check] → Filter → Ro
                                                                      ↕
                                                            Aggregator / Splitter
 ```
+
+## Quickstart
+
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). From the repository root, run the fluent API sample:
+
+```bash
+dotnet run --project samples/NymBroker.Sample
+```
+
+The sample uses in-process Memory and File endpoints, so no external broker or database is needed. It posts example orders, logs them through a consumer, and demonstrates routing and scheduled messages. Stop it with **Ctrl+C**.
+
+To create a console app for the smallest useful broker setup, run these commands from the repository root:
+
+```bash
+dotnet new console --framework net10.0 --name Quickstart
+dotnet add Quickstart/Quickstart.csproj reference NymBroker.Core/NymBroker.Core.csproj
+dotnet add Quickstart/Quickstart.csproj package Microsoft.Extensions.Hosting --version 10.0.12
+```
+
+Replace `Quickstart/Program.cs` with:
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using NymBroker.Core.Consume;
+using NymBroker.Core.DI;
+using NymBroker.Core.Impl;
+using NymBroker.Core.Message;
+
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices((_, services) =>
+    {
+        services.AddNymBroker()
+            .AddMemoryEndPoint("Orders")
+            .AddConsumer<OrderConsumer>()
+            .Build();
+    })
+    .Build();
+
+var broker = host.Services.GetRequiredService<INymBroker>();
+await host.StartAsync();
+await broker.PostAsync("Orders", new Order("ORD-1"));
+await host.WaitForShutdownAsync();
+
+public sealed record Order(string Id);
+
+public sealed class OrderConsumer : IConsume<Order>
+{
+    public Task ConsumeAsync(Order message, IMessageContext context, CancellationToken ct = default)
+    {
+        Console.WriteLine($"Received order {message.Id}");
+        return Task.CompletedTask;
+    }
+}
+```
+
+`AddConsumer<T>()` registers the handler, `AddMemoryEndPoint()` creates a local queue, and `PostAsync()` sends a message to it. The host starts the broker listener; press **Ctrl+C** to stop.
+
+## Core concepts
+
+| Building block | Purpose |
+|---|---|
+| [Endpoints](#endpoints) | Named transport adapters that accept and/or deliver messages. Memory is useful for local work and tests; File, SQLite, PostgreSQL, and RabbitMQ connect other systems. |
+| [Routes](#routing) | Match message types and conditions, then forward messages to destination endpoints. |
+| [Filters](#filters) | Inspect or modify a message before routing; return `null` to drop it. |
+| [Consumers](#getting-started) | Implement `IConsume<T>` to handle messages of a particular type. Consumers are dispatched through dependency injection. |
+| [Subscribers](#publish-subscribe-channel) | Implement `ISubscribe<T>` to receive copies published to a topic, independently of endpoint routing. |
+| [Retries](NymBroker.Resilience/README.md) | Transport retries handle transient File and RabbitMQ failures; SQLite/PostgreSQL queue settings retry failed message processing. |
+
+In short: a producer posts to an endpoint, the broker processes the message through filters and routes, then dispatches it to a consumer and/or destination endpoint. Publishing to a topic instead fans a copy out to its subscribers.
 
 ## Features
 
@@ -33,19 +103,21 @@ Source Endpoint → [Wire Tap] → Deserialize → [TTL Check] → Filter → Ro
 |---|---|
 | `NymBroker.Core` | Framework core — no external transport dependency |
 | `NymBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
-| `NymBroker.Resilience` | Dependency-free retry policy (`RetryPolicy`) used by the File and RabbitMQ endpoints |
+| [`NymBroker.Resilience`](NymBroker.Resilience/README.md) | Dependency-free retry policy (`RetryPolicy`) used by the File and RabbitMQ endpoints |
 | `NymBroker.Sqlite` | Optional SQLite transport via Dapper (add when needed) |
 | `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
 | `NymBroker.Tests` | xUnit tests |
-| `samples/NymBroker.Sample` | Fluent API demo |
-| `samples/NymBroker.ConfigSample` | JSON config file demo |
-| `samples/NymBroker.SqlSample` | SQLite endpoint demo |
-| `samples/NymBroker.WebSample` | ASP.NET Core minimal API demo — REST POST → SQLite queue → consumer |
-| `samples/NymBroker.PostgresSample` | PostgreSQL endpoint demo — posts orders before start, broker reads from DB |
-| `samples/NymBroker.ConsumerSample` | Cross-process consumer — listens on a shared queue (SQLite / Postgres / RabbitMQ) |
-| `samples/NymBroker.ProducerSample` | Cross-process producer — posts orders to a shared queue then exits |
-| `samples/NymBroker.CsvSample` | Input transformer demo — posts raw CSV bytes, `CsvOrderTransformer` converts them to typed messages |
-| `samples/NymBroker.Benchmarks` | Throughput and allocation benchmark |
+| [`NymBroker.Sample`](samples/NymBroker.Sample) | Fluent API, Memory/File endpoints, routing, and scheduled actions |
+| [`NymBroker.ConfigSample`](samples/NymBroker.ConfigSample) | Endpoint configuration from JSON |
+| [`NymBroker.SqlSample`](samples/NymBroker.SqlSample) | SQLite queue and message processing |
+| [`NymBroker.WebSample`](samples/NymBroker.WebSample) | ASP.NET Core REST API → SQLite queue → consumer |
+| [`NymBroker.PostgresSample`](samples/NymBroker.PostgresSample) | PostgreSQL endpoint and queue processing |
+| [`NymBroker.ConsumerSample`](samples/NymBroker.ConsumerSample) | Long-running cross-process consumer (SQLite / PostgreSQL / RabbitMQ) |
+| [`NymBroker.ProducerSample`](samples/NymBroker.ProducerSample) | Cross-process producer that posts to a shared queue |
+| [`NymBroker.CsvSample`](samples/NymBroker.CsvSample) | Input transformer that converts raw CSV into typed messages |
+| [`NymBroker.RabbitSample`](samples/NymBroker.RabbitSample) | RabbitMQ transport |
+| [`NymBroker.RoutingSample`](samples/NymBroker.RoutingSample) | Endpoint routing and publish/subscribe |
+| [`NymBroker.Benchmarks`](samples/NymBroker.Benchmarks) | Throughput and allocation benchmarks |
 
 ## Getting started
 
