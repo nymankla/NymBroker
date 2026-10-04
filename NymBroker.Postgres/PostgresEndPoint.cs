@@ -146,6 +146,9 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
                     message.AttemptCount >= _settings.MaxRetryCount ? MessageStatus.Failed : MessageStatus.Pending,
                     ex.Message));
                 _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
+                if (message.AttemptCount >= _settings.MaxRetryCount)
+                    _logger.LogWarning("Message {MessageId} on endpoint '{Name}' marked Failed after {Attempts} attempts (terminal state); last error: {Error}",
+                        message.MessageId, _name, message.AttemptCount, ex.Message);
             }
         }
 

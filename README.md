@@ -429,7 +429,7 @@ services.AddNymBroker()
     .Build();
 ```
 
-Messages are consumed with `autoAck: false`. A message is acked after successful processing or nacked with `requeue: true` on failure, so no message is lost if the handler throws. The endpoint reconnects automatically on connection loss using the built-in `NymBroker.Resilience` retry policy.
+Messages are consumed with `autoAck: false`. A message is acked after successful processing. On failure it is nacked with `requeue: true` once; if it fails again after redelivery it is treated as a poison message and nacked with `requeue: false` (dead-lettered when the queue has a DLX; disable via `RejectRedeliveredFailures = false`, which requeues indefinitely). The endpoint reconnects automatically on connection loss using the built-in `NymBroker.Resilience` retry policy.
 
 Start RabbitMQ with the provided Docker Compose file:
 

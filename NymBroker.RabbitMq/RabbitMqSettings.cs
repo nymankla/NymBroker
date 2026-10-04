@@ -19,4 +19,10 @@ public sealed class RabbitMqSettings
     /// windows on crash. Requires ConsumerDispatchConcurrency=1 (the default).
     /// </summary>
     public int BatchAckSize { get; set; } = 1;
+
+    /// <summary>
+    /// When true (default), a message whose handler fails after it was already redelivered is nacked
+    /// with requeue=false (dead-lettered if the queue has a DLX) instead of being requeued forever.
+    /// </summary>
+    public bool RejectRedeliveredFailures { get; set; } = true;
 }
