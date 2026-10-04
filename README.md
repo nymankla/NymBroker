@@ -97,6 +97,29 @@ In short: a producer posts to an endpoint, the broker processes the message thro
 - **Scoped consumers** — each message dispatch gets its own DI scope
 - **Input transformers** — intercept raw bytes before envelope deserialization; convert any format (CSV, protobuf, plain text) into a `RawMessageContext` the broker can route and dispatch
 
+## Observability
+
+NymBroker uses the built-in `System.Diagnostics.Metrics` and `ActivitySource` APIs; the core package does not require an OpenTelemetry dependency. Configure your application's OpenTelemetry SDK (and exporters) to subscribe to the instrumentation names:
+
+```csharp
+services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics.AddMeter("NymBroker", "NymBroker.Resilience"))
+    .WithTracing(tracing => tracing.AddSource("NymBroker"));
+```
+
+The broker emits these measurements:
+
+| Instrument | Meter | Meaning |
+|---|---|---|
+| `nymbroker.messages.received` | `NymBroker` | Calls entering message processing, tagged with the source endpoint |
+| `nymbroker.messages.failed` | `NymBroker` | Processing failures, including deserialization and consumer failures |
+| `nymbroker.message.processing.duration` | `NymBroker` | Processing latency in milliseconds, tagged with success/failure outcome |
+| `nymbroker.retries` | `NymBroker.Resilience` | Retry attempts made by `RetryPolicy` |
+
+Each processing call is instrumented with a `nymbroker.process` consumer activity when a listener is attached. Once an envelope is decoded, the activity and logging scope carry the message ID, correlation ID, message type, and source endpoint. These identifiers let log aggregators and trace backends correlate broker-stage logs with a message. Activity context propagates across asynchronous processing; subscribe to `NymBroker` to export the spans.
+
+For production dashboards and alerts, monitor message receive rate alongside failures and processing latency, retry rate, dead-letter and expired-message logs, and transport-specific queue depth/age and endpoint health. The core metrics describe broker processing and retries; queue depth and transport health should be collected from the configured endpoint or hosting platform.
+
 ## Solution layout
 
 | Project | Purpose |

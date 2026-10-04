@@ -1,6 +1,9 @@
 using System.Text;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Aggregator;
+using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Message;
 using NymBroker.Core.PubSub;
@@ -54,6 +57,47 @@ public sealed partial class NymBrokerImpl
     {
         if (_startInitiated && !_started) await _startGate.Task.WaitAsync(ct);
 
+        var tags = new TagList { { "source", sourceEndpoint ?? "unknown" } };
+        NymBrokerDiagnostics.MessagesReceived.Add(1, tags);
+        var startedAt = Stopwatch.GetTimestamp();
+        var failed = false;
+        using var activity = NymBrokerActivitySource.Source.StartActivity("nymbroker.process", ActivityKind.Consumer);
+        activity?.SetTag("messaging.system", "nymbroker");
+        activity?.SetTag("nymbroker.source", sourceEndpoint);
+
+        void RecordFailure(Exception? exception = null)
+        {
+            if (failed) return;
+            failed = true;
+            NymBrokerDiagnostics.MessagesFailed.Add(1, tags);
+            if (exception != null)
+                activity?.SetTag("error.type", exception.GetType().FullName);
+            activity?.SetStatus(ActivityStatusCode.Error);
+        }
+
+        try
+        {
+            await ProcessMessageAsync(raw, sourceEndpoint, ct, activity, RecordFailure);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            RecordFailure(ex);
+            throw;
+        }
+        finally
+        {
+            tags.Add("outcome", failed ? "failure" : "success");
+            NymBrokerDiagnostics.ProcessingDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds, tags);
+        }
+    }
+
+    private async Task ProcessMessageAsync(
+        byte[] raw,
+        string? sourceEndpoint,
+        CancellationToken ct,
+        Activity? activity,
+        Action<Exception?> recordFailure)
+    {
         // ── Wire Tap ─────────────────────────────────────────────────────────
         // Copies raw bytes to every tap endpoint before processing. Tap endpoints see
         // all messages including those that will be filtered, expired, or dead-lettered.
@@ -86,12 +130,23 @@ public sealed partial class NymBrokerImpl
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to deserialize message from {Source}", sourceEndpoint);
+                recordFailure(ex);
                 return;
             }
         }
 
         if (context.Address == null) context.Address = new EndpointAddress();
         context.Address.From = sourceEndpoint;
+        activity?.SetTag("messaging.message.id", context.Id);
+        activity?.SetTag("messaging.conversation_id", context.CorrelationId);
+        activity?.SetTag("messaging.message.type", context.MessageType);
+        using var logScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["MessageId"] = context.Id,
+            ["CorrelationId"] = context.CorrelationId,
+            ["MessageType"] = context.MessageType,
+            ["SourceEndpoint"] = sourceEndpoint
+        });
 
         // ── TTL check ─────────────────────────────────────────────────────────
         // Expired messages are forwarded to the dead letter endpoint (if configured)
@@ -139,6 +194,7 @@ public sealed partial class NymBrokerImpl
                 if (!string.Equals(split.Compression, _compressor.Name, StringComparison.Ordinal))
                 {
                     _logger.LogError("Reassembled message uses unknown compression '{Compression}' — cannot decode; dropping.", split.Compression);
+                    recordFailure(null);
                     return;
                 }
                 reassembled = _compressor.Decompress(reassembled);
@@ -184,7 +240,7 @@ public sealed partial class NymBrokerImpl
             if (topic.SubscriberDispatchers.Count > 0 && messageType != null && deserializedMessage == null)
                 deserializedMessage = MessageSerializerJson.DeserializeMessageObject(raw2, messageType);
 
-            await FanOutTopicAsync(topic, deserializedMessage, context, ct);
+            await FanOutTopicAsync(topic, deserializedMessage, context, ct, recordFailure);
         }
 
         if (wasRouted || wasTopicFanOut)
@@ -207,6 +263,7 @@ public sealed partial class NymBrokerImpl
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogError(ex, "Consumer failed for message type {MessageType} — routing to dead letter", messageType.Name);
+                recordFailure(ex);
                 await TryPostToDeadLetterAsync(raw, ct);
             }
         }
@@ -224,7 +281,12 @@ public sealed partial class NymBrokerImpl
         catch (Exception ex) { _logger.LogError(ex, "Failed to post message to dead letter endpoint '{Endpoint}'", _deadLetterEndpoint); }
     }
 
-    private async Task FanOutTopicAsync(TopicContext topic, object? message, IMessageContext context, CancellationToken ct)
+    private async Task FanOutTopicAsync(
+        TopicContext topic,
+        object? message,
+        IMessageContext context,
+        CancellationToken ct,
+        Action<Exception?>? recordFailure = null)
     {
         foreach (var endpointName in topic.SubscriberEndpoints)
         {
@@ -247,6 +309,7 @@ public sealed partial class NymBrokerImpl
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Topic '{Topic}' failed to deliver to endpoint '{Endpoint}'", topic.TopicName, endpointName);
+                recordFailure?.Invoke(ex);
             }
         }
 

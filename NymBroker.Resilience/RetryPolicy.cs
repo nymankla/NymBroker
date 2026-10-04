@@ -1,3 +1,5 @@
+using System.Diagnostics.Metrics;
+
 namespace NymBroker.Resilience;
 
 /// <summary>
@@ -5,6 +7,12 @@ namespace NymBroker.Resilience;
 /// </summary>
 public sealed class RetryPolicy
 {
+    public const string InstrumentationName = "NymBroker.Resilience";
+
+    private static readonly Meter Meter = new(InstrumentationName);
+    private static readonly Counter<long> RetryAttempts =
+        Meter.CreateCounter<long>("nymbroker.retries", "{retry}");
+
     private static readonly TimeSpan DefaultMaxDelay = TimeSpan.FromDays(1);
 
     private readonly RetryOptions _options;
@@ -72,6 +80,7 @@ public sealed class RetryPolicy
 
     private async ValueTask OnRetryThenDelayAsync(RetryAttempt args, CancellationToken ct)
     {
+        RetryAttempts.Add(1);
         if (_options.OnRetry != null)
             await _options.OnRetry(args).ConfigureAwait(false);
         if (args.Delay > TimeSpan.Zero)
