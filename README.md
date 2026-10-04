@@ -533,7 +533,7 @@ The `NymBroker.ProducerSample` and `NymBroker.ConsumerSample` projects demonstra
 
 ## Routing
 
-Route a message type to one or more destination endpoints. If a route matches, the message is forwarded to that endpoint. Consumer dispatch still runs unless explicitly suppressed.
+Route a message type to one or more destination endpoints. If a route matches, the message is forwarded to that endpoint. If a route matches (or a topic matches, via endpoint fan-out or `ISubscribe<T>` subscribers), the message is **not** consumed by registered consumers. Consumer dispatch only runs when the message matches no route and no topic.
 
 ```csharp
 // All high-priority orders go to FileOut

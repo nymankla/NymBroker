@@ -19,7 +19,7 @@ var host = Host.CreateDefaultBuilder(args)
 
 var broker = host.Services.GetRequiredService<INymBroker>();
 
-// High-priority orders are also written to FileOut (in addition to consumer dispatch).
+// High-priority orders are written to FileOut instead of being dispatched to consumers.
 broker.Route<OrderMessage>()
     .To("FileOut")
     .When(msg => msg.TryGetProperty("priority", out var p) && p.GetString() == "high")
