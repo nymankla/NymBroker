@@ -3,6 +3,7 @@ using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.Memory;
+using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Factory;
 using NymBroker.Core.Factory.Configuration;
 using NymBroker.Core.Impl;
@@ -78,6 +79,14 @@ public sealed class PubSubTests
             lock (Received) Received.Add(message);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FailingEndPoint : IEndPoint
+    {
+        public Task PostAsync(byte[] message, CancellationToken ct = default)
+            => throw new InvalidOperationException("Endpoint intentionally failed");
+
+        public IHealthCheckResult HealthCheck() => HealthCheckResult.Healthy();
     }
 
     // --- Helpers ---
@@ -452,6 +461,67 @@ public sealed class PubSubTests
         var topicItems = await DrainAsync(topicEp);
         Assert.Single(topicItems);
         Assert.Empty(consumer.Received); // wasTopicFanOut=true → consumer dispatch skipped
+    }
+
+    [Fact]
+    public async Task Topic_EndpointDeliveryFailure_DeadLettersMessageWithoutConsumerFallback()
+    {
+        var consumer = new OrderConsumer();
+        var (broker, _) = BuildBroker(services =>
+            services.AddKeyedSingleton<IMessageConsumer>(nameof(OrderConsumer), consumer));
+        var deadLetter = new MemoryQueueEndPoint("DLQ");
+
+        broker.RegisterConsumer(typeof(OrderMessage), nameof(OrderConsumer));
+        broker.AddEndpoint("Failing", new FailingEndPoint());
+        broker.AddEndpoint("DLQ", deadLetter);
+        broker.SetDeadLetterEndpoint("DLQ");
+        broker.AddTopic(new TopicContext
+        {
+            TopicName = "orders",
+            MessageType = typeof(OrderMessage),
+            SubscriberEndpoints = ImmutableList.Create("Failing")
+        });
+
+        var raw = await SerializeAsync(new OrderMessage { OrderId = "FailedEndpoint" });
+        await broker.ProcessAsync(raw, null, TestContext.Current.CancellationToken);
+
+        var deadLetterItems = await DrainAsync(deadLetter);
+        Assert.Single(deadLetterItems);
+        Assert.Equal(raw, deadLetterItems[0]);
+        Assert.Empty(consumer.Received);
+    }
+
+    [Fact]
+    public async Task Topic_SubscriberDispatchFailure_DeadLettersMessageWithoutConsumerFallback()
+    {
+        var subscriber = new ThrowingOrderSubscriber();
+        var consumer = new OrderConsumer();
+        var (broker, _) = BuildBroker(services =>
+        {
+            services.AddKeyedSingleton<IMessageSubscriber>(nameof(ThrowingOrderSubscriber), subscriber);
+            services.AddKeyedSingleton<IMessageConsumer>(nameof(OrderConsumer), consumer);
+        });
+        var deadLetter = new MemoryQueueEndPoint("DLQ");
+
+        broker.RegisterConsumer(typeof(OrderMessage), nameof(OrderConsumer));
+        broker.AddEndpoint("DLQ", deadLetter);
+        broker.SetDeadLetterEndpoint("DLQ");
+        broker.AddTopic(new TopicContext
+        {
+            TopicName = "orders",
+            MessageType = typeof(OrderMessage),
+            SubscriberDispatchers = ImmutableList.Create<(Type, string)>(
+                (typeof(ThrowingOrderSubscriber), nameof(ThrowingOrderSubscriber)))
+        });
+
+        var raw = await SerializeAsync(new OrderMessage { OrderId = "FailedSubscriber" });
+        await broker.ProcessAsync(raw, null, TestContext.Current.CancellationToken);
+
+        var deadLetterItems = await DrainAsync(deadLetter);
+        Assert.Single(deadLetterItems);
+        Assert.Equal(raw, deadLetterItems[0]);
+        Assert.Equal(1, subscriber.CallCount);
+        Assert.Empty(consumer.Received);
     }
 
     // =========================================================================

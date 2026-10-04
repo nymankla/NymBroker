@@ -240,7 +240,16 @@ public sealed partial class NymBrokerImpl
             if (topic.SubscriberDispatchers.Count > 0 && messageType != null && deserializedMessage == null)
                 deserializedMessage = MessageSerializerJson.DeserializeMessageObject(raw2, messageType);
 
-            await FanOutTopicAsync(topic, deserializedMessage, context, ct, recordFailure);
+            try
+            {
+                await FanOutTopicAsync(topic, deserializedMessage, context, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "Topic '{Topic}' failed to deliver message — routing to dead letter", topic.TopicName);
+                recordFailure(ex);
+                await TryPostToDeadLetterAsync(raw, ct);
+            }
         }
 
         if (wasRouted || wasTopicFanOut)
@@ -285,8 +294,7 @@ public sealed partial class NymBrokerImpl
         TopicContext topic,
         object? message,
         IMessageContext context,
-        CancellationToken ct,
-        Action<Exception?>? recordFailure = null)
+        CancellationToken ct)
     {
         foreach (var endpointName in topic.SubscriberEndpoints)
         {
@@ -300,17 +308,9 @@ public sealed partial class NymBrokerImpl
                 _logger.LogWarning("Topic '{Topic}' cannot deliver to read-only endpoint '{Endpoint}'", topic.TopicName, endpointName);
                 continue;
             }
-            try
-            {
-                using var stream = _serializer.Serialize(context);
-                await endpoint.PostAsync(StreamToBytes(stream), ct);
-                _logger.LogInformation("Topic '{Topic}' delivered to endpoint '{Endpoint}'", topic.TopicName, endpointName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Topic '{Topic}' failed to deliver to endpoint '{Endpoint}'", topic.TopicName, endpointName);
-                recordFailure?.Invoke(ex);
-            }
+            using var stream = _serializer.Serialize(context);
+            await endpoint.PostAsync(StreamToBytes(stream), ct);
+            _logger.LogInformation("Topic '{Topic}' delivered to endpoint '{Endpoint}'", topic.TopicName, endpointName);
         }
 
         if (message != null && topic.SubscriberDispatchers.Count > 0)
