@@ -90,6 +90,16 @@ The jitter formulas follow the ones Polly v8 uses (± 25 % for constant, "decorr
 | `FileEndPoint` | `MaxRetryAttempts = 4`, `Delay = 25 ms`, `Exponential`, `UseJitter = true`, `ShouldHandle = ex is IOException`; logs at `Debug` | Retries a file that is still locked or empty when the watcher event fires. After the last attempt the endpoint logs a warning and skips the file, which keeps its original name and is not renamed to `.processed`. |
 | `RabbitMqEndPoint` | `MaxRetryAttempts = int.MaxValue`, `Delay = RabbitMqSettings.ReconnectDelaySeconds`, `Constant`, default `ShouldHandle`; logs at `Warning` | Keeps reconnecting and re-subscribing until the listener is cancelled. |
 
+## Failure semantics by transport
+
+| Failure kind | Behaviour |
+|---|---|
+| Transient (locked file, lost RabbitMQ connection) | Retried with `RetryPolicy` (backoff, jitter, cancellation-aware); every retry is logged. |
+| Handler failure (SQLite/PostgreSQL) | Message returns to `Pending` until `AttemptCount >= MaxRetryCount`, then becomes `Failed` (terminal), keeping `LastError`/`FailedAtUtc`; a warning with the message id is logged. Reprocess by resetting `Status` to `0` and `AttemptCount` to `0`. |
+| Handler failure (RabbitMQ) | Requeued once; failing again after redelivery is a poison message, nacked with `requeue: false` (dead-lettered if a DLX exists) and logged. |
+| Retries exhausted (File) | Warning logged; file is skipped and left in place. |
+| Cancellation | Always treated as clean shutdown, never retried or logged as an error. |
+
 ## Testing
 
 Use `Delay = TimeSpan.Zero` so tests don't wait, or pass a fake `TimeProvider` (for example `FakeTimeProvider` from `Microsoft.Extensions.TimeProvider.Testing`) to step through delays yourself. See `NymBroker.Tests/RetryPolicyTests.cs` for examples.

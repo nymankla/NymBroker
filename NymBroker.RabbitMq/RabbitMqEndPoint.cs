@@ -93,7 +93,12 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
                                 await channel.BasicAckAsync(lastGoodTag, multiple: true, cancellationToken: token);
                                 pendingCount = 0;
                             }
-                            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true, cancellationToken: token);
+                            // A message that already failed once after redelivery is treated as poison: reject
+                            // without requeue so it dead-letters (if a DLX is configured) instead of looping forever.
+                            var requeue = !(_settings.RejectRedeliveredFailures && ea.Redelivered);
+                            if (!requeue)
+                                _logger.LogWarning("Message {DeliveryTag} from {Queue} failed again after redelivery; rejecting without requeue (poison message)", ea.DeliveryTag, _settings.ReadQueueName);
+                            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: requeue, cancellationToken: token);
                         }
                     };
 

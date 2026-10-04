@@ -58,6 +58,9 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
                             {
                                 await FinalizeClaimedMessageAsync(message, succeeded: false, error: ex.Message, token);
                                 _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
+                                if (message.AttemptCount >= _settings.MaxRetryCount)
+                                    _logger.LogWarning("Message {MessageId} on endpoint '{Name}' marked Failed after {Attempts} attempts (terminal state); last error: {Error}",
+                                        message.MessageId, _name, message.AttemptCount, ex.Message);
                             }
                             processed++;
                         }
