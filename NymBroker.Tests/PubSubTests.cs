@@ -454,6 +454,33 @@ public sealed class PubSubTests
         Assert.Empty(consumer.Received); // wasTopicFanOut=true → consumer dispatch skipped
     }
 
+    [Fact]
+    public async Task Topic_WithSubscriberDispatcher_ConsumerIsNotDispatched()
+    {
+        var subscriber = new OrderSubscriber();
+        var consumer = new OrderConsumer();
+
+        var (broker, _) = BuildBroker(services =>
+        {
+            services.AddKeyedSingleton<IMessageSubscriber>(nameof(OrderSubscriber), subscriber);
+            services.AddKeyedSingleton<IMessageConsumer>(nameof(OrderConsumer), consumer);
+        });
+
+        broker.RegisterConsumer(typeof(OrderMessage), nameof(OrderConsumer));
+        broker.AddTopic(new TopicContext
+        {
+            TopicName = "orders",
+            MessageType = typeof(OrderMessage),
+            SubscriberDispatchers = ImmutableList.Create<(Type, string)>((typeof(OrderSubscriber), nameof(OrderSubscriber)))
+        });
+
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "SubscriberOnly1" }), null, TestContext.Current.CancellationToken);
+
+        Assert.Single(subscriber.Received);
+        Assert.Equal("SubscriberOnly1", subscriber.Received[0].Message.OrderId);
+        Assert.Empty(consumer.Received);
+    }
+
     // =========================================================================
     // 11. Unknown topic name in PublishAsync(topicName) → logs warning, no exception
     // =========================================================================
