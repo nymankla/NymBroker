@@ -506,6 +506,25 @@ public sealed class PubSubTests
         broker.RegisterConsumer(typeof(OrderMessage), nameof(OrderConsumer));
         broker.AddEndpoint("DLQ", deadLetter);
         broker.SetDeadLetterEndpoint("DLQ");
+        broker.AddTopic(new TopicContext
+        {
+            TopicName = "orders",
+            MessageType = typeof(OrderMessage),
+            SubscriberDispatchers = ImmutableList.Create<(Type, string)>(
+                (typeof(ThrowingOrderSubscriber), nameof(ThrowingOrderSubscriber)))
+        });
+
+        var raw = await SerializeAsync(new OrderMessage { OrderId = "FailedSubscriber" });
+        await broker.ProcessAsync(raw, null, TestContext.Current.CancellationToken);
+
+        var deadLetterItems = await DrainAsync(deadLetter);
+        Assert.Single(deadLetterItems);
+        Assert.Equal(raw, deadLetterItems[0]);
+        Assert.Equal(1, subscriber.CallCount);
+        Assert.Empty(consumer.Received);
+    }
+
+    [Fact]
     public async Task Topic_WithSubscriberDispatcher_ConsumerIsNotDispatched()
     {
         var subscriber = new OrderSubscriber();
@@ -522,17 +541,6 @@ public sealed class PubSubTests
         {
             TopicName = "orders",
             MessageType = typeof(OrderMessage),
-            SubscriberDispatchers = ImmutableList.Create<(Type, string)>(
-                (typeof(ThrowingOrderSubscriber), nameof(ThrowingOrderSubscriber)))
-        });
-
-        var raw = await SerializeAsync(new OrderMessage { OrderId = "FailedSubscriber" });
-        await broker.ProcessAsync(raw, null, TestContext.Current.CancellationToken);
-
-        var deadLetterItems = await DrainAsync(deadLetter);
-        Assert.Single(deadLetterItems);
-        Assert.Equal(raw, deadLetterItems[0]);
-        Assert.Equal(1, subscriber.CallCount);
             SubscriberDispatchers = ImmutableList.Create<(Type, string)>((typeof(OrderSubscriber), nameof(OrderSubscriber)))
         });
 
