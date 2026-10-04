@@ -51,7 +51,12 @@ public sealed class ObservabilityTests
         {
             ShouldListenTo = activitySource => activitySource.Name == NymBrokerActivitySource.InstrumentationName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
-            ActivityStopped = activity => captured = activity
+            // The listener is process-wide; ignore activities from tests running in parallel.
+            ActivityStopped = activity =>
+            {
+                if ((string?)activity.GetTagItem("nymbroker.source") == source)
+                    captured = activity;
+            }
         };
         ActivitySource.AddActivityListener(listener);
 
