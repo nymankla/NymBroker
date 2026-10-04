@@ -8,7 +8,9 @@ using NymBroker.Core.Route;
 using NymBroker.Sql;
 using NymBroker.Postgres;
 using NymBroker.RabbitMq;
+using NymBroker.SqlServer;
 using Npgsql;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -16,10 +18,13 @@ const int    MemoryCount  = 50_000;
 const int    FileCount    = 100;
 const int    SqlCount     = 1_000;
 const int    PgCount      = 1_000;
+const int    MssqlCount   = 1_000;
 const int    RabbitCount  = 1_000;
 const int    SplitCount   = 200;
 const int    SplitThresholdBytes = 16 * 1024;
 const string PgConnStr    = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
+const string MssqlConnStr = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True";
+const string MssqlTable   = "dbo.nymbroker_bench";
 const string RabbitQueue  = "nymbroker.bench";
 const string RabbitMgmt   = "http://localhost:15672";
 var Settings = Path.Combine(AppContext.BaseDirectory, "benchmarksettings.json");
@@ -31,6 +36,7 @@ Console.WriteLine($"  Memory scenarios : {MemoryCount:N0} messages");
 Console.WriteLine($"  File scenario    : {FileCount:N0} messages");
 Console.WriteLine($"  SQL scenario     : {SqlCount:N0} messages");
 Console.WriteLine($"  Postgres scenario: {PgCount:N0} messages");
+Console.WriteLine($"  SQL Server scen. : {MssqlCount:N0} messages");
 Console.WriteLine($"  RabbitMQ scenarios: {RabbitCount:N0} messages (direct + batch/100)");
 Console.WriteLine($"  Split scenarios  : {SplitCount:N0} messages (threshold={SplitThresholdBytes / 1024} KB)");
 Console.WriteLine();
@@ -124,6 +130,24 @@ else
     Console.WriteLine("  Postgres – direct        ... skipped (Postgres not available)");
 }
 
+if (await IsSqlServerAvailableAsync())
+{
+    await CleanSqlServerTableAsync();
+    results.Add(await RunAsync("SqlServer – direct", "MssqlBench", MssqlCount,
+        configureBuilder: b => b.AddSqlServerEndPoint("MssqlBench", new SqlServerSettings
+        {
+            ConnectionString = MssqlConnStr,
+            TableName        = MssqlTable,
+            BatchSize        = 50,
+            AutoCreateTable  = true,
+            PollInterval     = TimeSpan.Zero
+        })));
+}
+else
+{
+    Console.WriteLine("  SqlServer – direct       ... skipped (SQL Server not available)");
+}
+
 if (await IsRabbitMqAvailableAsync())
 {
     await PurgeRabbitQueueAsync();
@@ -172,6 +196,29 @@ async Task CleanPgTableAsync()
     await using var conn = await ds.OpenConnectionAsync();
     await using var cmd  = conn.CreateCommand();
     cmd.CommandText = "DROP TABLE IF EXISTS nymbroker_bench";
+    await cmd.ExecuteNonQueryAsync();
+}
+
+// ─── sql server helpers ──────────────────────────────────────────────────────
+
+async Task<bool> IsSqlServerAvailableAsync()
+{
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await using var conn = new SqlConnection(MssqlConnStr);
+        await conn.OpenAsync(cts.Token);
+        return true;
+    }
+    catch { return false; }
+}
+
+async Task CleanSqlServerTableAsync()
+{
+    await using var conn = new SqlConnection(MssqlConnStr);
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = $"DROP TABLE IF EXISTS {MssqlTable}";
     await cmd.ExecuteNonQueryAsync();
 }
 

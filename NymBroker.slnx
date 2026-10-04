@@ -4,6 +4,7 @@
   <Project Path="NymBroker.Resilience/NymBroker.Resilience.csproj" />
   <Project Path="NymBroker.Sqlite/NymBroker.Sqlite.csproj" />
   <Project Path="NymBroker.Postgres/NymBroker.Postgres.csproj" />
+  <Project Path="NymBroker.SqlServer/NymBroker.SqlServer.csproj" />
   <Project Path="NymBroker.Tests/NymBroker.Tests.csproj" />
   <Project Path="samples/NymBroker.Benchmarks/NymBroker.Benchmarks.csproj">
     <Build Solution="Debug|*" Project="false" />
@@ -23,6 +24,9 @@
   <Project Path="samples/NymBroker.RoutingSample/NymBroker.RoutingSample.csproj" />
   <Project Path="samples/NymBroker.Sample/NymBroker.Sample.csproj" />
   <Project Path="samples/NymBroker.SqlSample/NymBroker.SqlSample.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
+  <Project Path="samples/NymBroker.SqlServerSample/NymBroker.SqlServerSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
   <Project Path="samples/NymBroker.WebSample/NymBroker.WebSample.csproj">

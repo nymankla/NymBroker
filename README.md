@@ -1,6 +1,6 @@
 # NymBroker
 
-NymBroker is a .NET 10 message-processing framework based on [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). It decouples producers from handlers: applications post typed messages to endpoints, and the broker deserializes, filters, routes, and dispatches them to consumers or subscribers. Start with the in-process Memory endpoint, then add file, SQLite, PostgreSQL, or RabbitMQ transports as your application grows.
+NymBroker is a .NET 10 message-processing framework based on [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). It decouples producers from handlers: applications post typed messages to endpoints, and the broker deserializes, filters, routes, and dispatches them to consumers or subscribers. Start with the in-process Memory endpoint, then add file, SQLite, PostgreSQL, SQL Server, or RabbitMQ transports as your application grows.
 
 ```
 Source Endpoint → [Wire Tap] → Deserialize → [TTL Check] → Filter → Router → Consumer / Destination Endpoint
@@ -71,7 +71,7 @@ public sealed class OrderConsumer : IConsume<Order>
 
 | Building block | Purpose |
 |---|---|
-| [Endpoints](#endpoints) | Named transport adapters that accept and/or deliver messages. Memory is useful for local work and tests; File, SQLite, PostgreSQL, and RabbitMQ connect other systems. |
+| [Endpoints](#endpoints) | Named transport adapters that accept and/or deliver messages. Memory is useful for local work and tests; File, SQLite, PostgreSQL, SQL Server, and RabbitMQ connect other systems. |
 | [Routes](#routing) | Match message types and conditions, then forward messages to destination endpoints. |
 | [Filters](#filters) | Inspect or modify a message before routing; return `null` to drop it. |
 | [Consumers](#getting-started) | Implement `IConsume<T>` to handle messages of a particular type. Consumers are dispatched through dependency injection. |
@@ -82,7 +82,7 @@ In short: a producer posts to an endpoint, the broker processes the message thro
 
 ## Features
 
-- **Multiple transports** — RabbitMQ, SQLite, PostgreSQL, File system, and in-process Memory endpoint
+- **Multiple transports** — RabbitMQ, SQLite, PostgreSQL, SQL Server, File system, and in-process Memory endpoint
 - **Fluent routing API** — type-safe, composable route conditions
 - **Typed consumers** — implement `IConsume<T>`, optionally handle multiple message types in one class
 - **Publish-Subscribe Channel** — EIP pub/sub; declare topics with typed `ISubscribe<T>` subscribers or endpoint fan-out
@@ -129,12 +129,14 @@ For production dashboards and alerts, monitor message receive rate alongside fai
 | [`NymBroker.Resilience`](NymBroker.Resilience/README.md) | Dependency-free retry policy (`RetryPolicy`) used by the File and RabbitMQ endpoints |
 | `NymBroker.Sqlite` | Optional SQLite transport via Dapper (add when needed) |
 | `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
+| `NymBroker.SqlServer` | Optional SQL Server transport via Microsoft.Data.SqlClient |
 | `NymBroker.Tests` | xUnit tests |
 | [`NymBroker.Sample`](samples/NymBroker.Sample) | Fluent API, Memory/File endpoints, routing, and scheduled actions |
 | [`NymBroker.ConfigSample`](samples/NymBroker.ConfigSample) | Endpoint configuration from JSON |
 | [`NymBroker.SqlSample`](samples/NymBroker.SqlSample) | SQLite queue and message processing |
 | [`NymBroker.WebSample`](samples/NymBroker.WebSample) | ASP.NET Core REST API → SQLite queue → consumer |
 | [`NymBroker.PostgresSample`](samples/NymBroker.PostgresSample) | PostgreSQL endpoint and queue processing |
+| [`NymBroker.SqlServerSample`](samples/NymBroker.SqlServerSample) | SQL Server endpoint and queue processing |
 | [`NymBroker.ConsumerSample`](samples/NymBroker.ConsumerSample) | Long-running cross-process consumer (SQLite / PostgreSQL / RabbitMQ) |
 | [`NymBroker.ProducerSample`](samples/NymBroker.ProducerSample) | Cross-process producer that posts to a shared queue |
 | [`NymBroker.CsvSample`](samples/NymBroker.CsvSample) | Input transformer that converts raw CSV into typed messages |
@@ -432,6 +434,101 @@ From a JSON config file (call `.WithPostgres()` after `.LoadConfiguration()`):
 services.AddNymBroker()
     .LoadConfiguration("queuesettings.json")
     .WithPostgres()
+    .AddConsumer<OrderConsumer>()
+    .Build();
+```
+
+### SQL Server
+
+Add a reference to `NymBroker.SqlServer` and use the extension method:
+
+```csharp
+using NymBroker.SqlServer;
+
+services.AddNymBroker()
+    .AddSqlServerEndPoint("SqlServerQueue", new SqlServerSettings
+    {
+        ConnectionString = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True",
+        TableName        = "dbo.orders",
+        BatchSize        = 10,
+        AutoCreateTable  = true,
+        LeaseTimeout     = TimeSpan.FromMinutes(5),
+        MaxRetryCount    = 5
+    })
+    .AddConsumer<OrderConsumer>()
+    .Build();
+```
+
+It has the same `Pending -> InProgress -> Completed/Failed` lifecycle, leases and retry handling as the PostgreSQL endpoint, implemented with SQL Server patterns:
+
+- **Competing consumers:** rows are claimed with `UPDLOCK, READPAST`, so several application instances can poll the same table without processing a message twice.
+- **One round trip and one commit per batch:** the results of a batch (Completed / back to Pending / Failed) are written in the same T-SQL batch and transaction that claims the next one.
+- **Stays fast as the table grows:** a filtered index covers only Pending and InProgress rows, so claiming doesn't slow down as completed rows pile up.
+- **Safe late writes:** results are only written if the row is still InProgress with the same attempt number, so a poller whose lease expired can't overwrite a row another poller has claimed since.
+- **Clean shutdown:** stopping the listener writes the results of messages already handled; claimed but unhandled messages are redelivered when their lease expires.
+
+SQL Server has no lightweight `LISTEN/NOTIFY`, so when the queue is empty the endpoint polls every `PollInterval`; while messages are waiting it claims batches back to back. Requires SQL Server 2016 or later (it uses `OPENJSON`).
+
+Start a local SQL Server with `./scripts/setup-sqlserver.ps1`. It runs SQL Server 2022 in Docker on `localhost,1433` and creates the `nymbroker` database; `-Stop` and `-Logs` work as for the other scripts.
+
+**Schema** (auto-created when `AutoCreateTable = true`):
+
+```sql
+CREATE TABLE [dbo].[nymbroker_messages] (
+    queue_id         BIGINT IDENTITY(1,1) NOT NULL,
+    message_id       UNIQUEIDENTIFIER NOT NULL,
+    status           INT              NOT NULL DEFAULT 0 CHECK (status IN (0, 1, 2, 3)),
+    created_at_utc   DATETIME2(7)     NOT NULL DEFAULT SYSUTCDATETIME(),
+    locked_until_utc DATETIME2(7)     NULL,
+    completed_at_utc DATETIME2(7)     NULL,
+    failed_at_utc    DATETIME2(7)     NULL,
+    attempt_count    INT              NOT NULL DEFAULT 0,
+    last_error       NVARCHAR(MAX)    NULL,
+    payload          VARBINARY(MAX)   NOT NULL,
+    CONSTRAINT [pk_dbo_nymbroker_messages] PRIMARY KEY CLUSTERED (queue_id)
+);
+-- Only Pending/InProgress rows are indexed, so claiming stays cheap as completed rows accumulate.
+CREATE INDEX [ix_dbo_nymbroker_messages_active]
+    ON [dbo].[nymbroker_messages](queue_id) INCLUDE (status, locked_until_utc)
+    WHERE status IN (0, 1);
+```
+
+**`SqlServerSettings` properties:**
+
+| Property | Default | Description |
+|---|---|---|
+| `ConnectionString` | `Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True` | SQL Server connection string (the default matches `setup-sqlserver.ps1`) |
+| `TableName` | `dbo.nymbroker_messages` | Table to read/write; `schema.table` or `table` |
+| `BatchSize` | `10` | Max rows claimed per poll cycle |
+| `AutoCreateTable` | `true` | Create table + indexes on first connect |
+| `PollInterval` | `100 ms` | Delay after a poll that found no messages; while messages are waiting, batches are claimed back to back |
+| `LeaseTimeout` | `5 min` | How long a claimed message stays leased before it can be reclaimed |
+| `MaxRetryCount` | `5` | Number of failed attempts before a message is marked `Failed` |
+
+From a JSON config file (call `.WithSqlServer()` after `.LoadConfiguration()`; the type name is case-insensitive):
+
+```json
+{
+  "NymBroker": {
+    "Endpoints": [
+      {
+        "Name": "SqlServerQueue",
+        "Type": "SqlServer",
+        "Config": {
+          "connectionString": "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True",
+          "tableName": "dbo.orders",
+          "batchSize": 25
+        }
+      }
+    ]
+  }
+}
+```
+
+```csharp
+services.AddNymBroker()
+    .LoadConfiguration("queuesettings.json")
+    .WithSqlServer()
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
@@ -738,6 +835,8 @@ services.AddNymBroker()
     .Build();
 ```
 
+Each add-on package processes its own entries: `.WithRabbitMq()` (`RabbitMq`), `.WithSql()` (`Sql`), `.WithPostgres()` (`Postgres`) and `.WithSqlServer()` (`SqlServer`). `Type` is an open, case-insensitive string, so a file can also declare endpoint types from your own packages. An entry whose `With*()` is never called is ignored.
+
 ## Message envelope (wire format)
 
 Every message is wrapped in a JSON envelope:
@@ -1018,6 +1117,9 @@ dotnet run --project samples/NymBroker.WebSample
 # PostgreSQL endpoint demo (start Postgres first with ./scripts/setup-postgres.ps1)
 dotnet run --project samples/NymBroker.PostgresSample
 
+# SQL Server endpoint demo (start SQL Server first with ./scripts/setup-sqlserver.ps1)
+dotnet run --project samples/NymBroker.SqlServerSample
+
 # CSV input transformer demo — posts raw CSV lines, broker converts and dispatches as typed messages
 dotnet run --project samples/NymBroker.CsvSample
 dotnet run --project samples/NymBroker.CsvSample -- "ORD-99,Zara,12.50,low"   # single custom line
@@ -1087,6 +1189,7 @@ A warmup pass runs first to JIT the hot paths before measurements begin. GC is f
 | **Split+Compress – direct** | `Memory` | 200 | Each message carries a ~276 KB highly compressible payload and is posted with `splitThresholdBytes: 16 384` and `compress: true`. `PostAsync` compresses the envelope with `BrotliCompressor` before handing it to `ISplitter`, so fewer/smaller `SplitMessage` parts are posted; `AggregatorImpl` reassembles and decompresses them on arrival. Measures the split+compress+reassemble round trip end to end. |
 | **Split – no compress** | `Memory` | 200 | Same payload and threshold as above but `compress: false`, so the envelope is split into Base64-chunked `SplitMessage` parts without compression. Isolates the cost/benefit of compression by comparing directly against **Split+Compress – direct**. |
 | **Postgres – direct** | `PgBench` | 1 000 | Messages are inserted into a real PostgreSQL table, then claimed using `FOR UPDATE SKIP LOCKED` and dispatched (`BatchSize=50`, `PollInterval=0`). Skipped automatically when PostgreSQL is not reachable. Measures the overhead of TCP round trips and the CTE-based atomic claim. |
+| **SqlServer – direct** | `MssqlBench` | 1 000 | Messages are inserted into a real SQL Server table (`dbo.nymbroker_bench`, dropped before each run), then claimed with `UPDLOCK, READPAST` and dispatched (`BatchSize=50`, `PollInterval=0`). Skipped automatically when SQL Server is not reachable. Start it with `./scripts/setup-sqlserver.ps1`. |
 
 ### Configuration
 
@@ -1109,7 +1212,7 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 }
 ```
 
-`FileLoop` uses the same directory for reading and writing (`bench-in`), so posted files are immediately visible to the `FileSystemWatcher`. `PubSubDest` is the fan-out target used by the **PubSub – endpoint** scenario. The `Postgres – direct` scenario adds its endpoint directly in code (not via the settings file) and is skipped if PostgreSQL is unreachable.
+`FileLoop` uses the same directory for reading and writing (`bench-in`), so posted files are immediately visible to the `FileSystemWatcher`. `PubSubDest` is the fan-out target used by the **PubSub – endpoint** scenario. The `Postgres – direct` and `SqlServer – direct` scenarios add their endpoints directly in code (not via the settings file) and are skipped if their database is unreachable.
 
 ### Completion tracking
 
@@ -1146,12 +1249,20 @@ Notes on the numbers:
 - **SQL** runs against an in-memory SQLite database (`BatchSize=100`, `PollInterval=0`). Each message costs one INSERT plus a SELECT and UPDATE (optimistic claim). ~1 000 msg/s is the ceiling for single-connection `:memory:` SQLite; a file-backed database will be lower.
 - **Split+Compress vs Split – no compress** isolate the compression step: with the same 16 KB threshold and ~276 KB compressible payload, compression cuts the part count roughly in half (fewer `SplitMessage` posts and reassembly steps), which is why the compressed variant is both faster and allocates less despite paying the Brotli compress/decompress cost. Allocation is dominated by the Base64-encoded chunk strings, not the framework dispatch path — this is the one scenario where megabyte-scale allocations are expected. For incompressible payloads (already-compressed binary, encrypted blobs), expect the two scenarios to converge since `PostAsync` skips compression whenever it doesn't shrink the payload.
 - **Postgres** runs against a local PostgreSQL instance over TCP (`BatchSize=50`, `PollInterval=0`). Each message costs one INSERT (post) plus a CTE `FOR UPDATE SKIP LOCKED` claim plus a finalize UPDATE — three round trips. ~1 200 msg/s reflects TCP latency; throughput scales with batch size and connection pooling in multi-instance deployments.
+- **SqlServer** posts one message at a time, so it is bound by the INSERT: every commit waits for a transaction-log flush, which takes ~3 ms on Docker Desktop's virtual disk. Against the `setup-sqlserver.ps1` container on Windows it measured ~215 msg/s, with Postgres at ~400 msg/s in the same run (neither is in the results above, which come from an earlier run on different storage). Consuming is much faster: draining a backlog runs at ~4 500–6 000 msg/s with `BatchSize=50`, because each batch is one round trip and one commit. Concurrent producers also get more throughput, since SQL Server groups their commits into shared log flushes (~1 900 msg/s with 16 producers). With real server storage, expect higher numbers across the board. Don't enable `DELAYED_DURABILITY` for a real queue to speed up inserts, because it can lose committed messages on a crash.
 
 ## Running tests
 
 ```bash
 dotnet test
 dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"   # single class
+```
+
+SQL Server integration tests are skipped unless `NYMBROKER_SQLSERVER_CS` is set. To run them, start SQL Server with `./scripts/setup-sqlserver.ps1` and then:
+
+```powershell
+$env:NYMBROKER_SQLSERVER_CS = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
+dotnet test --project NymBroker.Tests -- --filter-class "*SqlServer*"
 ```
 
 ## Design constraints

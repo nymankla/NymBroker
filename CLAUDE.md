@@ -25,13 +25,22 @@ dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"   # s
 dotnet run --project samples/NymBroker.Sample            # fluent API demo
 dotnet run --project samples/NymBroker.ConfigSample      # JSON config demo
 dotnet run --project samples/NymBroker.SqlSample         # SQLite endpoint demo
+dotnet run --project samples/NymBroker.SqlServerSample   # SQL Server endpoint demo (run setup-sqlserver.ps1 first)
 dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 
-# RabbitMQ (Docker Desktop required)
+# SQL Server integration tests (skipped unless the env var is set)
+$env:NYMBROKER_SQLSERVER_CS = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
+dotnet test --project NymBroker.Tests -- --filter-class "*SqlServer*"
+
+# Local infrastructure (Docker Desktop required) — services defined in scripts/docker-compose.yml
 ./scripts/setup-rabbitmq.ps1          # start + wait for healthy
 ./scripts/setup-rabbitmq.ps1 -Stop    # stop
 ./scripts/setup-rabbitmq.ps1 -Logs    # tail logs
+./scripts/setup-postgres.ps1          # PostgreSQL on localhost:5432, db nymbroker (postgres/postgres); same -Stop/-Logs
+./scripts/setup-sqlserver.ps1         # SQL Server 2022 on localhost,1433, creates db nymbroker (sa / NymBroker!Dev123); same -Stop/-Logs
 ```
+
+Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker compose down`, which stops **all** services in the compose file. `setup-sqlserver.ps1 -Stop` stops only SQL Server.
 
 ## Architecture
 
@@ -44,11 +53,13 @@ dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 | `NymBroker.Resilience` | Dependency-free retry policy (`RetryPolicy`, `RetryOptions`) — constant/exponential backoff with optional jitter. Referenced by Core; used by `FileEndPoint` (IOException retry) and `RabbitMqEndPoint` (reconnect). Replaces Polly. Options documented in [NymBroker.Resilience/README.md](NymBroker.Resilience/README.md). |
 | `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses Dapper + `Microsoft.Data.Sqlite`. |
 | `NymBroker.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
-| `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. |
+| `NymBroker.SqlServer` | Optional add-on — `SqlServerEndPoint`, `SqlServerSettings`, `AddSqlServerEndPoint`/`WithSqlServer`, config type `SqlServerEndPointType.SqlServer`. Uses `Microsoft.Data.SqlClient`. |
+| `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. SQL Server integration tests (`SqlServerEndPointTests`) run only when `NYMBROKER_SQLSERVER_CS` is set; otherwise they are skipped. |
 | `samples/NymBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
 | `samples/NymBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
 | `samples/NymBroker.SqlSample` | SQLite endpoint demo — posts orders, broker claims and dispatches |
-| `samples/NymBroker.Benchmarks` | Throughput + allocation benchmark — Memory, File, and SQLite scenarios |
+| `samples/NymBroker.SqlServerSample` | SQL Server endpoint demo — same flow as the Postgres sample; needs `scripts/setup-sqlserver.ps1` |
+| `samples/NymBroker.Benchmarks` | Throughput + allocation benchmark — Memory, File, SQLite and split scenarios always; Postgres, SQL Server and RabbitMQ scenarios when reachable on localhost (skipped otherwise) |
 
 ### Key Abstractions
 
@@ -203,6 +214,17 @@ services.AddNymBroker()
     .AddConsumer<OrderConsumer>()
     .Build();
 
+// With SQL Server (reference NymBroker.SqlServer):
+services.AddNymBroker()
+    .AddSqlServerEndPoint("SqlServerQueue", new SqlServerSettings
+    {
+        ConnectionString = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True",
+        TableName        = "dbo.orders",
+        AutoCreateTable  = true
+    })
+    .AddConsumer<OrderConsumer>()
+    .Build();
+
 // With RabbitMQ (reference NymBroker.RabbitMq):
 services.AddNymBroker()
     .AddRabbitMqEndPoint("Rabbit", new RabbitMqSettings { HostName = "localhost", ReadQueueName = "q.in" })
@@ -218,11 +240,12 @@ services.AddNymBroker()
     .WithRabbitMq()     // processes Type=RabbitMq entries
     .WithSql()          // processes Type=Sql entries (from NymBroker.Sqlite)
     .WithPostgres()     // processes Type=Postgres entries
+    .WithSqlServer()    // processes Type=SqlServer entries (from NymBroker.SqlServer)
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
 
-Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config` (camelCase type-specific settings). `Type` is an **open string**, not an enum: `EndPointType` is a static class of string constants for the built-in types (`File|Memory|RabbitMq|Sql|Postgres`, also listed in `EndPointType.BuiltIn`). Unknown types load without error and are left for their package's `With*()` extension, which matches with `ep.IsType(name)` (case-insensitive). New transports define their type-name constant in their own package; Core does not change. `File` and `Memory` are processed automatically by `LoadConfiguration` without a `With*()` call.
+Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config` (camelCase type-specific settings). `Type` is an **open string**, not an enum: `EndPointType` is a static class of string constants for the built-in types (`File|Memory|RabbitMq|Sql|Postgres`, also listed in `EndPointType.BuiltIn`). Unknown types load without error and are left for their package's `With*()` extension, which matches with `ep.IsType(name)` (case-insensitive). New transports define their type-name constant in their own package; Core does not change (e.g. `SqlServerEndPointType.SqlServer = "SqlServer"` lives in `NymBroker.SqlServer`). `File` and `Memory` are processed automatically by `LoadConfiguration` without a `With*()` call.
 
 `NymBrokerBuilder` exposes `Services` (the DI container) and `LoadedConfiguration` as public properties so extension packages in other assemblies can register their endpoint types.
 
@@ -243,6 +266,19 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config
 ### PostgreSQL Endpoint
 
 `PostgresEndPoint` (namespace `NymBroker.Postgres`) uses the same message lifecycle as SQLite. Claiming uses `SELECT … FOR UPDATE SKIP LOCKED` so multiple application instances can poll the same table concurrently without a process-wide lock.
+
+### SQL Server Endpoint
+
+`SqlServerEndPoint` (namespace `NymBroker.SqlServer`) has the same lifecycle, leases, retry/`Failed` handling and logging as `PostgresEndPoint`, but the SQL is written for SQL Server rather than ported. Each choice below was measured against the straight port (`scripts/setup-sqlserver.ps1` container): backlog drain went from ~3 000 to ~4 500–6 000 msg/s, and from ~2 500 to ~5 000 msg/s with 300k completed rows in the table.
+
+- **One round trip and one commit per batch** (`SqlServerQueueSql.FinalizeAndClaim`): the results of batch N are written in the same T-SQL batch as the claim of batch N+1. The transaction is inside the SQL text (`SET XACT_ABORT ON; BEGIN TRANSACTION … COMMIT`), not `SqlConnection.BeginTransaction`, which would cost two extra round trips.
+- **Claiming** uses an updatable CTE with `WITH (UPDLOCK, READPAST, ROWLOCK)` (the SQL Server equivalent of `SKIP LOCKED`) and `OUTPUT inserted.*`, ordered by `queue_id`.
+- **Finalize** reads `{id, attempt, status, error}` items from one JSON `NVARCHAR(MAX)` parameter with `OPENJSON` (SQL Server 2016+). It must drive the join (`FROM OPENJSON(...) INNER LOOP JOIN <table> WITH (FORCESEEK)`): without the hints the optimizer cannot estimate `OPENJSON`'s row count and scans the whole table (~8× more CPU). The guard `status = InProgress AND attempt_count = source.attempt` stops a poller whose lease expired from overwriting a re-claimed row.
+- **Schema**: clustered PK on the IDENTITY `queue_id`; a single **filtered index** `(queue_id) INCLUDE (status, locked_until_utc) WHERE status IN (0, 1)`, so claiming stays cheap as Completed/Failed rows accumulate. `message_id` has no unique index (it is a per-insert GUID nobody looks up, and a random-GUID index costs a page-scattered write per insert). Status values are **inlined literals**, not parameters — SQL Server only uses a filtered index when it can match the predicate at compile time.
+- **Polling**: back to back while batches come back non-empty; `PollInterval` only applies after an empty poll. No `LISTEN/NOTIFY` equivalent.
+- **Shutdown**: `StopListeningAsync` awaits the loop, which then writes the results of already-handled messages with a fresh 10 s token (`FinalizeOnShutdownAsync`). Claimed-but-unhandled messages wait for lease expiry. `PostgresEndPoint` only cancels.
+- **Inserts** are one autocommit `INSERT` per `PostAsync` (durable on return), so a single producer is bound by the transaction-log flush (~3 ms on Docker Desktop). Concurrent producers benefit from SQL Server's own group commit. Don't use `DELAYED_DURABILITY` for the queue — it can lose committed messages.
+- **Connections**: one pooled `SqlConnection` per operation (`SqlConnection` is not thread-safe).
 
 ### Performance Design
 
@@ -269,6 +305,7 @@ No exception is silently swallowed. The policy per layer:
 | `FileEndPoint.ReadAndArchiveAsync` | IOException after retries → `LogWarning`, file skipped. |
 | `MemoryQueueEndPoint.StartListeningAsync` | Per-message handler failure → `LogError` (loop continues). Unexpected loop termination → `LogCritical`. |
 | `SqliteEndPoint` (listener loop) | Per-message handler failure → `LogError`, message returned to `Pending` or marked `Failed` after max retries. Poll error → `LogError` (loop continues). Unexpected termination → `LogCritical`. |
+| `PostgresEndPoint` / `SqlServerEndPoint` (listener loop) | Same as `SqliteEndPoint`, plus `LogWarning` when a message reaches the terminal `Failed` state. Health check failure → `LogError`, `Unhealthy` returned (never throws). `SqlServerEndPoint` only: a failed finalize-and-claim is retried on the next cycle (transaction rolled back); if writing results on shutdown fails → `LogWarning` (messages redelivered after lease expiry). |
 | `RabbitMqEndPoint` (message handler) | Handler failure → `LogError`, message nacked with `requeue: true`. |
 | `RabbitMqEndPoint` (listener loop) | Unexpected loop termination → `LogCritical`. `OperationCanceledException` swallowed. |
 

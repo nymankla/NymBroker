@@ -11,6 +11,7 @@ using NymBroker.Core.Message;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NymBroker.Postgres;
+using NymBroker.SqlServer;
 
 namespace NymBroker.Tests;
 
@@ -241,6 +242,59 @@ public sealed class BuilderConfigurationTests
     public void EndPointType_BuiltIn_ListsShippedTypes()
     {
         Assert.Equal(["File", "RabbitMq", "Memory", "Sql", "Postgres"], EndPointType.BuiltIn);
+    }
+
+    // --- SQL Server add-on ---
+
+    [Fact]
+    public async Task AddSqlServerEndPoint_RegistersEndpointInContainer()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        services.AddNymBroker()
+            .AddSqlServerEndPoint("Mssql", new SqlServerSettings { AutoCreateTable = false })
+            .Build();
+
+        await using var sp = services.BuildServiceProvider();
+
+        Assert.IsType<SqlServerEndPoint>(sp.GetRequiredKeyedService<IEndPoint>("Mssql"));
+    }
+
+    [Fact]
+    public async Task WithSqlServer_RegistersConfiguredEndpoint_CaseInsensitively()
+    {
+        var json = """
+            {
+              "NymBroker": {
+                "Endpoints": [
+                  { "name": "Mem1",   "type": "Memory" },
+                  { "name": "Mssql1", "type": "sqlserver", "config": { "tableName": "dbo.orders_queue", "autoCreateTable": false, "batchSize": 25 } }
+                ]
+              }
+            }
+            """;
+
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, json);
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddNymBroker()
+                .LoadConfiguration(path)
+                .WithSqlServer()
+                .Build();
+
+            await using var sp = services.BuildServiceProvider();
+
+            Assert.IsType<SqlServerEndPoint>(sp.GetRequiredKeyedService<IEndPoint>("Mssql1"));
+            Assert.IsType<MemoryQueueEndPoint>(sp.GetRequiredKeyedService<IEndPoint>("Mem1"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     // --- EndPointConfiguration.ToFileSettings ---
