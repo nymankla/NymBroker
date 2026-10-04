@@ -53,9 +53,9 @@ dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 ### Key Abstractions
 
 ```
-IEndPoint                 ← all transports
-  IEndPointPoll           ← pull-based: ReadAsync yields current items then completes
-  IEndPointEventDriven    ← push-based: StartListeningAsync + handler callback
+IEndPoint                 ← all transports: Mode, PostAsync(byte[]), HealthCheck()
+  IEndPointEventDriven    ← inbound: StartListeningAsync(handler) / StopListeningAsync
+EndpointMode              ← ReadWrite (default) | ReadOnly | WriteOnly
 
 IMessageContext<T>        ← typed envelope (Id, CorrelationId, Address, MessageType, Created)
 RawMessageContext          ← internal deserialized form; holds JsonElement RawMessage for deferred typing
@@ -66,7 +66,11 @@ IRouteBuilder<T>          ← fluent route definition (see Routing section)
 IRouteCondition           ← composable predicate evaluated on (IMessageContext, JsonElement)
 ```
 
-`NymBrokerImpl.StartAsync` only starts `IEndPointEventDriven` endpoints. `IEndPointPoll`-only endpoints are never auto-driven by the broker engine. `SqliteEndPoint` and `PostgresEndPoint` implement **both** interfaces — their internal poll loop runs on `Task.Run` and calls `ProcessAsync` on each claimed message.
+`NymBrokerImpl.StartAsync` calls `StartListeningAsync` on every `IEndPointEventDriven` endpoint whose `Mode` is not `WriteOnly`, wiring the handler to `ProcessAsync(raw, endpointName, ct)`. A plain `IEndPoint` is a send-only sink. Pull-based transports (`SqliteEndPoint`, `PostgresEndPoint`) still implement `IEndPointEventDriven` — their poll loop runs on `Task.Run` and calls the handler for each claimed message. `StartAsync` throws if a route, topic, dead-letter or wire-tap target is `ReadOnly`.
+
+`MemoryQueueEndPoint`, `FileEndPoint` and `SqliteEndPoint` also expose a non-interface `ReadAsync` (drains currently available items) — used by tests and samples to inspect what was posted. There is no `IEndPointPoll` interface any more.
+
+See [docs/writing-an-endpoint.md](docs/writing-an-endpoint.md) for how to implement a new endpoint.
 
 ### Message Envelope (JSON wire format)
 
@@ -224,7 +228,7 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type` (`File|M
 
 ### SQLite Endpoint
 
-`SqliteEndPoint` (namespace `NymBroker.Sql`, project `NymBroker.Sqlite`) implements both `IEndPointPoll` and `IEndPointEventDriven`.
+`SqliteEndPoint` (namespace `NymBroker.Sql`, project `NymBroker.Sqlite`) implements `IEndPointEventDriven` (internal poll loop) plus a non-interface `ReadAsync`.
 
 **Message lifecycle**: `Pending (0)` → `InProgress (1)` → `Completed (2)` or `Failed (3)`.
 
@@ -246,7 +250,7 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type` (`File|M
 - **Compiled dispatch lambdas** in `ConsumerDispatcher` — `~10×` faster than `MethodInfo.Invoke`.
 - **ImmutableList / ImmutableDictionary** for routes, filters, consumer keys — lock-free reads; writes (config-time only) use `ImmutableInterlocked.Update` for atomic CAS-loop replacement (correct for multi-key updates).
 - **PropertyInfo cache** in `MessageSerializerJson.PropCache` — one reflection lookup per concrete `MessageContext<T>` type.
-- **Bounded `Channel<string>`** in `MemoryQueueEndPoint` for backpressure.
+- **Bounded `Channel<byte[]>`** in `MemoryQueueEndPoint` for backpressure.
 - **`FileShare.ReadWrite | FileShare.Delete`** in `FileEndPoint.ReadAndArchiveAsync` — `FileShare.Delete` is required so that `File.Move` (rename) can succeed while the read handle is still open. Without it, Windows enforces sharing semantics and the rename fails with ERROR_SHARING_VIOLATION even from the same process.
 - **`SemaphoreSlim(1,1)` in `SqliteEndPoint`** — SQLite single-connection; all DB ops serialized. `ReadAsync` collects rows under the lock then yields outside it to avoid holding the lock during consumer execution.
 
@@ -293,4 +297,4 @@ Transient-failure retries use `RetryPolicy` from the dependency-free `NymBroker.
 - Consumers are keyed services: key = `typeof(TConsumer).Name`.
 - `RouteContext` is non-sealed and `Evaluate()` is virtual — subclass for custom route logic.
 - Never swallow exceptions silently — every fire-and-forget boundary and catch block must log.
-- New transport endpoints must implement both `IEndPointPoll` and `IEndPointEventDriven` so the broker engine drives them automatically.
+- New transport endpoints that receive messages must implement `IEndPointEventDriven` (pull-based transports run their own poll loop inside it) so the broker engine drives them automatically. Send-only sinks implement plain `IEndPoint` with `Mode => EndpointMode.WriteOnly`.

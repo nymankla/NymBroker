@@ -210,6 +210,8 @@ await broker.PostAsync("MemQueue", new OrderMessage { OrderId = "ORD-1", Custome
 
 ## Endpoints
 
+Need a transport that isn't listed here? See [Writing an Endpoint](docs/writing-an-endpoint.md) for the endpoint contract, samples for sink, push and pull transports, registration and testing.
+
 ### Memory
 
 In-process bounded `Channel<byte[]>` — zero I/O, useful for internal routing and tests:
