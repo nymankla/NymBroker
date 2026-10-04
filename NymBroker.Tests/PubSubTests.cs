@@ -506,6 +506,18 @@ public sealed class PubSubTests
         broker.RegisterConsumer(typeof(OrderMessage), nameof(OrderConsumer));
         broker.AddEndpoint("DLQ", deadLetter);
         broker.SetDeadLetterEndpoint("DLQ");
+    public async Task Topic_WithSubscriberDispatcher_ConsumerIsNotDispatched()
+    {
+        var subscriber = new OrderSubscriber();
+        var consumer = new OrderConsumer();
+
+        var (broker, _) = BuildBroker(services =>
+        {
+            services.AddKeyedSingleton<IMessageSubscriber>(nameof(OrderSubscriber), subscriber);
+            services.AddKeyedSingleton<IMessageConsumer>(nameof(OrderConsumer), consumer);
+        });
+
+        broker.RegisterConsumer(typeof(OrderMessage), nameof(OrderConsumer));
         broker.AddTopic(new TopicContext
         {
             TopicName = "orders",
@@ -521,6 +533,13 @@ public sealed class PubSubTests
         Assert.Single(deadLetterItems);
         Assert.Equal(raw, deadLetterItems[0]);
         Assert.Equal(1, subscriber.CallCount);
+            SubscriberDispatchers = ImmutableList.Create<(Type, string)>((typeof(OrderSubscriber), nameof(OrderSubscriber)))
+        });
+
+        await broker.ProcessAsync(await SerializeAsync(new OrderMessage { OrderId = "SubscriberOnly1" }), null, TestContext.Current.CancellationToken);
+
+        Assert.Single(subscriber.Received);
+        Assert.Equal("SubscriberOnly1", subscriber.Received[0].Message.OrderId);
         Assert.Empty(consumer.Received);
     }
 
