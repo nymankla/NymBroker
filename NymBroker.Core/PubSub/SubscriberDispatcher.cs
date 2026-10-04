@@ -18,6 +18,7 @@ public sealed class SubscriberDispatcher(IServiceScopeFactory scopeFactory, ILog
         CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
+        List<Exception>? failures = null;
         foreach (var (subscriberType, serviceKey) in subscribers)
         {
             try
@@ -26,12 +27,20 @@ public sealed class SubscriberDispatcher(IServiceScopeFactory scopeFactory, ILog
                 var dispatch = DispatchCache.GetOrAdd(subscriberType, BuildDispatcher);
                 await dispatch(subscriber, message, context, ct);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Subscriber {Subscriber} failed processing message type {MessageType}",
                     subscriberType.Name, message.GetType().Name);
+                (failures ??= []).Add(ex);
             }
         }
+
+        if (failures != null)
+            throw new AggregateException("One or more topic subscribers failed.", failures);
     }
 
     private static Func<IMessageSubscriber, object, IMessageContext, CancellationToken, Task> BuildDispatcher(Type subscriberType)
