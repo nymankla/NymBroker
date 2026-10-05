@@ -313,6 +313,10 @@ public sealed class AzureServiceBusEndPointTests : IAsyncLifetime
 
         Assert.Equal(callsAtStop, Volatile.Read(ref calls));
         Assert.Equal("after-stop", (await PeekAsync(SubQueue.None))?.Body.ToString());
+
+        // Don't leave the message for the next test (the next test's drain would also catch it).
+        await using var client = new ServiceBusClient(ConnectionString);
+        await DrainAsync(() => client.CreateReceiver(TestQueue));
     }
 
     [Fact]
@@ -476,14 +480,31 @@ public sealed class AzureServiceBusEndPointTests : IAsyncLifetime
         return message;
     }
 
-    private static async Task DrainAsync(ServiceBusClient client, ServiceBusReceiver receiver)
+    /// <summary>
+    /// Empties one entity. A single empty receive is not proof it is empty: a fresh receiver on the emulator can take a
+    /// while to deliver, and a message still locked by a stopped processor only comes back when its lock (30 s) expires.
+    /// So keep receiving until a peek — on a new receiver each time, because a receiver's peek cursor only moves forward —
+    /// finds nothing.
+    /// </summary>
+    private static async Task DrainAsync(Func<ServiceBusReceiver> createReceiver)
     {
+        var ct = TestContext.Current.CancellationToken;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(45);
+        await using var receiver = createReceiver();
         while (true)
         {
-            var batch = await receiver.ReceiveMessagesAsync(100, TimeSpan.FromMilliseconds(500), TestContext.Current.CancellationToken);
-            if (batch.Count == 0) return;
+            await using (var peeker = createReceiver())
+            {
+                if (await peeker.PeekMessageAsync(cancellationToken: ct) is null)
+                    return;
+            }
+
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException($"Could not drain '{receiver.EntityPath}' before the test.");
+
+            var batch = await receiver.ReceiveMessagesAsync(100, TimeSpan.FromSeconds(2), ct);
             foreach (var m in batch)
-                await receiver.CompleteMessageAsync(m, TestContext.Current.CancellationToken);
+                await receiver.CompleteMessageAsync(m, ct);
         }
     }
 
@@ -506,10 +527,9 @@ public sealed class AzureServiceBusEndPointTests : IAsyncLifetime
         await using var client = new ServiceBusClient(ConnectionString);
         foreach (var subQueue in new[] { SubQueue.None, SubQueue.DeadLetter })
         {
-            await using var queue = client.CreateReceiver(TestQueue, new ServiceBusReceiverOptions { SubQueue = subQueue });
-            await DrainAsync(client, queue);
-            await using var sub = client.CreateReceiver(TestTopic, TestSubscription, new ServiceBusReceiverOptions { SubQueue = subQueue });
-            await DrainAsync(client, sub);
+            var options = new ServiceBusReceiverOptions { SubQueue = subQueue };
+            await DrainAsync(() => client.CreateReceiver(TestQueue, options));
+            await DrainAsync(() => client.CreateReceiver(TestTopic, TestSubscription, options));
         }
     }
 

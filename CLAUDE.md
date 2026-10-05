@@ -330,8 +330,8 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config
 - One lazily created `ServiceBusClient` + `ServiceBusSender` per endpoint (thread-safe, long-lived). Transient faults use the SDK's own retry options — no `RetryPolicy` wrapper. `ProcessErrorAsync` logs every processor error.
 - Auth: `ConnectionString`, or `FullyQualifiedNamespace` + `Credential` (`TokenCredential`, code-only, `[JsonIgnore]`). `AzureServiceBusSettings.Validate` runs at registration and in the constructor.
 - `HealthCheck()` peeks the entity (or opens the sender for a send-only topic endpoint) with a 5 s timeout; unhealthy if the processor stopped unexpectedly.
-- `StopListeningAsync` → `StopProcessingAsync` (waits for in-flight handlers); a handler cancelled during shutdown leaves its message unsettled (redelivered after the lock expires).
-- Emulator quirks seen in tests: `ReceiveAndDelete` reads from a DLQ returned nothing (peek-lock works); `DeadLetterSource` is empty. Integration tests share the fixed `nymbroker.tests` queue (MaxDeliveryCount 3) and drain it before each test.
+- `StopListeningAsync` → `StopProcessingAsync` (waits for in-flight handlers). A message whose handler finished is always settled — with `CancellationToken.None`, because stopping cancels the processor's token and would otherwise leave it to be redelivered as a duplicate. A handler cancelled during shutdown leaves its message unsettled (redelivered after the lock expires).
+- Emulator quirks seen in tests: `ReceiveAndDelete` reads from a DLQ returned nothing (peek-lock works); `DeadLetterSource` is empty. Integration tests share the fixed `nymbroker.tests` queue (MaxDeliveryCount 3) and drain it before each test — until a peek on a fresh receiver finds nothing, since a single empty receive can be a slow link or a still-locked message.
 
 ### Performance Design
 
