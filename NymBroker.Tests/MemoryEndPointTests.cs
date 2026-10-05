@@ -1,5 +1,6 @@
 using System.Text;
 using NymBroker.Core.Endpoint.Memory;
+using NymBroker.Core.Endpoint;
 
 namespace NymBroker.Tests;
 
@@ -17,6 +18,7 @@ public sealed class MemoryEndPointTests
             received = Encoding.UTF8.GetString(msg);
             cts.Cancel();
             await Task.CompletedTask;
+            return ProcessResult.Completed;
         }, cts.Token);
 
         var payload = "{\"test\":true}";

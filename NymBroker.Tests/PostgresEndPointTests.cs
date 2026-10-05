@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using NymBroker.Postgres;
+using NymBroker.Core.Endpoint;
 
 namespace NymBroker.Tests;
 
@@ -50,7 +51,7 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         var payload = Encoding.UTF8.GetBytes("""{"id":"1","message":{"text":"åäö"}}""");
 
         await ep.PostAsync(payload, TestContext.Current.CancellationToken);
-        await ep.StartListeningAsync((raw, _) => { received.TrySetResult(raw); return Task.CompletedTask; },
+        await ep.StartListeningAsync((raw, _) => { received.TrySetResult(raw); return Task.FromResult(ProcessResult.Completed); },
             TestContext.Current.CancellationToken);
 
         Assert.Equal(payload, await received.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken));
@@ -78,7 +79,7 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
                 throw new InvalidOperationException("boom failed");
             }
             ok.TrySetResult();
-            return Task.CompletedTask;
+            return Task.FromResult(ProcessResult.Completed);
         }, TestContext.Current.CancellationToken);
 
         await ok.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
@@ -101,7 +102,7 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         Assert.True(ep.HealthCheck().IsHealthy);   // also creates the table
-        await ep.StartListeningAsync((raw, _) => { received.TrySetResult(Encoding.UTF8.GetString(raw)); return Task.CompletedTask; },
+        await ep.StartListeningAsync((raw, _) => { received.TrySetResult(Encoding.UTF8.GetString(raw)); return Task.FromResult(ProcessResult.Completed); },
             TestContext.Current.CancellationToken);
 
         await ExecuteAsync($"DROP TABLE {_tableName}");
@@ -124,7 +125,7 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         var calls = 0;
         var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await ep.StartListeningAsync((_, _) => { Interlocked.Increment(ref calls); first.TrySetResult(); return Task.CompletedTask; },
+        await ep.StartListeningAsync((_, _) => { Interlocked.Increment(ref calls); first.TrySetResult(); return Task.FromResult(ProcessResult.Completed); },
             TestContext.Current.CancellationToken);
         await ep.PostAsync(Encoding.UTF8.GetBytes("before-stop"), TestContext.Current.CancellationToken);
         await first.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
@@ -152,8 +153,9 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         await ep.PostAsync(Encoding.UTF8.GetBytes("slow"), TestContext.Current.CancellationToken);
         await ep.StartListeningAsync(async (raw, _) =>
         {
-            if (Encoding.UTF8.GetString(raw) == "fast") { fastHandled.TrySetResult(); return; }
+            if (Encoding.UTF8.GetString(raw) == "fast") { fastHandled.TrySetResult(); return ProcessResult.Completed; }
             await releaseSlow.Task;   // still running when stop is requested; completes normally
+            return ProcessResult.Completed;
         }, TestContext.Current.CancellationToken);
 
         await fastHandled.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
@@ -163,6 +165,28 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
 
         Assert.Equal(2, await CountAsync("status = 2"));
         Assert.Equal(0, await CountAsync("status = 1"));
+    }
+
+    // --- ProcessResult.DeadLetter marks the row Failed immediately, with the reason ---
+
+    [Fact]
+    public async Task DeadLetterResult_MarksRowFailedImmediately_WithReason()
+    {
+        RequirePostgres();
+        var ep = CreateEndPoint(maxRetryCount: 5);
+        await ep.PostAsync(Encoding.UTF8.GetBytes("x"), TestContext.Current.CancellationToken);
+
+        var calls = 0;
+        await ep.StartListeningAsync((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(ProcessResult.DeadLetter(DeadLetterReasons.Expired, "too old"));
+        }, TestContext.Current.CancellationToken);
+
+        await WaitUntilAsync(async () => await CountAsync("status = 3 AND attempt_count = 1 AND last_error = 'Expired: too old'") == 1);
+        await ep.StopListeningAsync();
+
+        Assert.Equal(1, Volatile.Read(ref calls));
     }
 
     // --- A late finalize (stale attempt) must not overwrite a re-claimed row ---
@@ -209,7 +233,7 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         await ep.StartListeningAsync((_, _) =>
         {
             if (Interlocked.Increment(ref handled) == messageCount) done.TrySetResult();
-            return Task.CompletedTask;
+            return Task.FromResult(ProcessResult.Completed);
         }, TestContext.Current.CancellationToken);
         await done.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
 
@@ -225,7 +249,7 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         RequirePostgres();
         var ep = CreateEndPoint(pollInterval: TimeSpan.FromSeconds(30));
         var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await ep.StartListeningAsync((_, _) => { received.TrySetResult(); return Task.CompletedTask; },
+        await ep.StartListeningAsync((_, _) => { received.TrySetResult(); return Task.FromResult(ProcessResult.Completed); },
             TestContext.Current.CancellationToken);
         await Task.Delay(500, TestContext.Current.CancellationToken);   // let the loop go idle and LISTEN
 
@@ -273,10 +297,10 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         for (var i = 0; i < messageCount; i++)
             await producer.PostAsync(Encoding.UTF8.GetBytes($"m{i}"), TestContext.Current.CancellationToken);
 
-        Task Handler(byte[] raw, CancellationToken _)
+        Task<ProcessResult> Handler(byte[] raw, CancellationToken _)
         {
             seen.AddOrUpdate(Encoding.UTF8.GetString(raw), 1, (_, n) => n + 1);
-            return Task.CompletedTask;
+            return Task.FromResult(ProcessResult.Completed);
         }
 
         await CreateEndPoint(batchSize: 5).StartListeningAsync(Handler, TestContext.Current.CancellationToken);

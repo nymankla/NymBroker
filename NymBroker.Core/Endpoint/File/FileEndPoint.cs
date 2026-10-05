@@ -14,7 +14,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
     private readonly DirectoryInfo _postDir;
     private readonly RetryPolicy _fileReadyPolicy;
     private FileSystemWatcher? _watcher;
-    private Func<byte[], CancellationToken, Task>? _handler;
+    private Func<byte[], CancellationToken, Task<ProcessResult>>? _handler;
 
     // All file events (watcher + poll + startup scan) feed into this channel.
     // Single reader ensures only one Task processes a given file at a time,
@@ -64,7 +64,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
         return System.IO.File.WriteAllBytesAsync(path, message, ct);
     }
 
-    public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
+    public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
         _handler = handler;
 
@@ -175,7 +175,15 @@ public sealed class FileEndPoint : IEndPointEventDriven
                 var content = await ReadAndArchiveAsync(file, ct);
                 if (content != null && _handler != null)
                 {
-                    try { await _handler(Encoding.UTF8.GetBytes(content), ct); }
+                    try
+                    {
+                        var result = await _handler(Encoding.UTF8.GetBytes(content), ct);
+                        // The file was already renamed to .processed, so it cannot be redelivered; the broker never
+                        // asks this endpoint to dead-letter (UsesNativeDeadLetter is false).
+                        if (result.Outcome != ProcessOutcome.Completed)
+                            _logger.LogError(result.Exception, "File '{File}' was not processed ({Outcome}: {Failure}) and will not be retried",
+                                file.Name, result.Outcome, result.FailureText);
+                    }
                     catch (OperationCanceledException) { return; }
                     catch (Exception ex) { _logger.LogError(ex, "Unhandled error processing file '{File}'", file.Name); }
                 }

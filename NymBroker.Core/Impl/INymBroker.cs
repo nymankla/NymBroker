@@ -1,3 +1,4 @@
+using NymBroker.Core.Endpoint;
 using NymBroker.Core.Filter;
 using NymBroker.Core.Message;
 using NymBroker.Core.Route;
@@ -74,9 +75,12 @@ public interface INymBroker
     /// <summary>Publish a message directly to a named topic, bypassing type-based topic matching.</summary>
     Task PublishAsync<T>(string topicName, T message, CancellationToken ct = default) where T : class;
 
-    /// <summary>Process raw UTF-8 JSON bytes arriving from an endpoint. Called by endpoint listeners.</summary>
-    Task ProcessAsync(byte[] raw, string? sourceEndpoint = null, CancellationToken ct = default);
+    /// <summary>
+    /// Process raw UTF-8 JSON bytes arriving from an endpoint. Called by endpoint listeners, which settle the message
+    /// according to the returned <see cref="ProcessResult"/>. Never throws except <see cref="OperationCanceledException"/>.
+    /// </summary>
+    Task<ProcessResult> ProcessAsync(byte[] raw, string? sourceEndpoint = null, CancellationToken ct = default);
 
     /// <summary>Convenience overload for tests and external callers; converts the string to UTF-8 bytes.</summary>
-    Task ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default);
+    Task<ProcessResult> ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default);
 }

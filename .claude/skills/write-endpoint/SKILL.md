@@ -35,7 +35,8 @@ There is no `IEndPointPoll`; a pull transport still implements `IEndPointEventDr
 Start from the matching sample in the guide. Then verify every item in the guide's §9 checklist. These are the ones that get missed most often:
 
 - `StartListeningAsync` **returns immediately**. The loop runs in `Task.Run(..., CancellationToken.None)` on a linked CTS; `StopListeningAsync` cancels and **awaits** the loop.
-- Handler failure: `LogError`, then nack/abandon (or drop if the transport can't redeliver), and **the loop continues**. Ack only after the handler succeeds.
+- Settle every message by the handler's `ProcessResult` (guide §1): `Completed` → ack; `Retry` → nack/abandon so it is redelivered (or log it as lost if the transport can't redeliver); `DeadLetter` → the transport's dead-letter queue with `Reason`/`Description`. A handler exception counts as `Retry`. **The loop continues** either way.
+- `UsesNativeDeadLetter => _settings.UseNativeDeadLetter` (default `true`) **only** if the transport has its own dead-letter queue; otherwise leave the interface default (`false`) and the broker's dead-letter endpoint takes failures.
 - Three catch layers: per message (`when (ex is not OperationCanceledException)`) → `LogError`; `OperationCanceledException` → swallow; anything else → `LogCritical`. Never a silent catch.
 - `PostAsync` sends the bytes unchanged and is safe to call concurrently.
 - `HealthCheck()` has a timeout and never throws.
@@ -65,7 +66,7 @@ Config-file support: add a `WithX()` extension that matches entries with `ep.IsT
 Add `NymBroker.Tests/<Transport>EndPointTests.cs`. No external infrastructure: use a fake client, loopback or `:memory:`. Make tests parallel-safe with unique names, ports and tables. Cover:
 
 1. A posted message reaches the handler with the bytes unchanged.
-2. A throwing handler leads to nack/abandon, and the next message is still processed.
+2. Each `ProcessResult` settles correctly (`Completed` → ack, `Retry` → redelivered, `DeadLetter` → dead-lettered with the reason); a throwing handler counts as `Retry`; the next message is still processed.
 3. A poll/receive error is logged and the loop recovers (pull shape).
 4. After `StopListeningAsync` returns, the handler is never called again.
 5. `HealthCheck()` reports a failed client as unhealthy without throwing.

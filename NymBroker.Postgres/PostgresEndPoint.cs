@@ -40,7 +40,10 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         _logger = logger;
     }
 
-    public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
+    /// <summary>Dead-letters by marking the row <c>Failed</c> immediately, with the reason in <c>last_error</c>.</summary>
+    public bool UsesNativeDeadLetter => _settings.UseNativeDeadLetter;
+
+    public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = _listeningCts.Token;
@@ -106,7 +109,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         return HealthCheckResult.Healthy();
     }
 
-    private async Task RunListenerLoopAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken token)
+    private async Task RunListenerLoopAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token)
     {
         // Results of the last processed batch, written by the next FinalizeAndClaim round trip.
         var unfinalized = new List<MessageCompletion>();
@@ -153,25 +156,43 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         await FinalizeOnShutdownAsync(unfinalized);
     }
 
-    private async Task ProcessClaimedMessagesAsync(List<ClaimedMessage> messages, Func<byte[], CancellationToken, Task> handler,
+    private async Task ProcessClaimedMessagesAsync(List<ClaimedMessage> messages, Func<byte[], CancellationToken, Task<ProcessResult>> handler,
         List<MessageCompletion> completions, CancellationToken ct)
     {
         foreach (var message in messages)
         {
+            ProcessResult result;
             try
             {
-                await handler(message.Payload, ct);
-                completions.Add(MessageCompletion.Completed(message));
+                result = await handler(message.Payload, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                var terminal = message.AttemptCount >= _settings.MaxRetryCount;
-                completions.Add(MessageCompletion.FromFailure(message, terminal ? MessageStatus.Failed : MessageStatus.Pending, ex.Message));
                 _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
+                result = ProcessResult.Retry(ex);
+            }
+            completions.Add(ToCompletion(message, result));
+        }
+    }
+
+    private MessageCompletion ToCompletion(ClaimedMessage message, ProcessResult result)
+    {
+        switch (result.Outcome)
+        {
+            case ProcessOutcome.Completed:
+                return MessageCompletion.Completed(message);
+
+            case ProcessOutcome.DeadLetter:
+                _logger.LogWarning("Message {MessageId} on endpoint '{Name}' dead-lettered (marked Failed): {Failure}",
+                    message.MessageId, _name, result.FailureText);
+                return MessageCompletion.FromFailure(message, MessageStatus.Failed, result.FailureText);
+
+            default:
+                var terminal = message.AttemptCount >= _settings.MaxRetryCount;
                 if (terminal)
                     _logger.LogWarning("Message {MessageId} on endpoint '{Name}' marked Failed after {Attempts} attempts (terminal state); last error: {Error}",
-                        message.MessageId, _name, message.AttemptCount, ex.Message);
-            }
+                        message.MessageId, _name, message.AttemptCount, result.FailureText);
+                return MessageCompletion.FromFailure(message, terminal ? MessageStatus.Failed : MessageStatus.Pending, result.FailureText);
         }
     }
 

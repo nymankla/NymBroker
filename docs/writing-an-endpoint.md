@@ -30,8 +30,16 @@ public interface IEndPoint
 
 public interface IEndPointEventDriven : IEndPoint
 {
-    Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct);
+    Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct);
     Task StopListeningAsync();
+    bool UsesNativeDeadLetter => false;   // true if the transport can dead-letter a received message itself
+}
+
+public enum ProcessOutcome { Completed, Retry, DeadLetter }
+
+public readonly record struct ProcessResult(ProcessOutcome Outcome, string? Reason, string? Description, Exception? Exception)
+{
+    public string? FailureText { get; }   // "{Reason}: {Description}" — for logs and error columns
 }
 ```
 
@@ -40,7 +48,7 @@ public interface IEndPointEventDriven : IEndPoint
 | When | The broker calls | Your job |
 |---|---|---|
 | A route, topic, wire tap, dead-letter or `PostAsync` targets the endpoint | `PostAsync(bytes, ct)` | Deliver the bytes durably (or throw). |
-| `StartAsync` (host start), if the endpoint is `IEndPointEventDriven` and not `WriteOnly` | `StartListeningAsync(handler, ct)` | Start receiving **in the background** and return quickly. Call `handler(bytes, ct)` once per received message. |
+| `StartAsync` (host start), if the endpoint is `IEndPointEventDriven` and not `WriteOnly` | `StartListeningAsync(handler, ct)` | Start receiving **in the background** and return quickly. Call `handler(bytes, ct)` once per received message and **settle the message by the `ProcessResult` it returns**. |
 | `StopAsync` (host stop) | `StopListeningAsync()` | Stop receiving. Let in-flight messages finish. |
 | Health probes / your own code | `HealthCheck()` | Report whether the transport is usable. Never throw. |
 
@@ -52,21 +60,31 @@ The `handler` the broker passes in is `ProcessAsync(raw, endpointName, ct)`. The
 
 If your transport has a size limit (UDP datagrams, some queue services), callers pass `splitThresholdBytes` to `broker.PostAsync`. The broker then splits the message into parts your endpoint can carry, and reassembles them on the receiving side. The endpoint needs no special handling.
 
-### What happens when `handler` throws
+### Settling a message: the `ProcessResult`
 
-`ProcessAsync` deals with most failures itself, so they don't reach your endpoint:
+The handler returns a `ProcessResult` that says what to do with the message you received. Map each outcome to your transport's own operation:
 
-- Deserialization failures are logged and the message is dropped.
-- Consumer and topic fan-out failures are logged and the message is sent to the dead-letter endpoint, if one is configured.
+| Outcome | Meaning | Transport with redelivery (RabbitMQ, SQL lease tables, cloud queues) | No redelivery (UDP, in-memory, webhooks) |
+|---|---|---|---|
+| `Completed` | Done | ack / complete / mark completed | nothing to do |
+| `Retry` | Failed, may succeed later (a consumer threw, a route's destination failed) | nack / abandon / release the lease so it is **redelivered**; stop after a max delivery count | log at `Error`: the message is lost |
+| `DeadLetter` | Can never succeed (`Reason` is one of `DeadLetterReasons`: undecodable, expired, …) | move it to the transport's **dead-letter queue** now, recording `Reason` / `Description` | never returned (see below) |
 
-The handler **can** still throw. For example, a route's destination `PostAsync` may fail, or the token may be cancelled. When the handler throws, treat the message as **not processed**:
+- **`ProcessAsync` doesn't throw** (except on cancellation), but still wrap the handler call in a try/catch and treat an exception as `Retry`.
+- **Keep the listener loop alive** whatever the outcome. One bad message must never stop the endpoint.
+- **`ProcessResult.FailureText`** (`"{Reason}: {Description}"`) is the string to put in logs and error columns.
 
-| Transport has redelivery? | On handler failure |
-|---|---|
-| Yes (RabbitMQ, SQL lease tables, cloud queues) | Log at `Error`, then nack, abandon or release the lease so the message is redelivered. |
-| No (UDP, in-memory, webhooks without retry) | Log at `Error` and move on. The message is lost; say so in your docs. |
+### Native dead-lettering: `UsesNativeDeadLetter`
 
-In both cases, **keep the listener loop alive**. One bad message must never stop the endpoint.
+If your transport has its own dead-letter queue (a dead-letter exchange, a DLQ sub-queue, a `Failed` state in a table), return `true` from `UsesNativeDeadLetter`, driven by a `UseNativeDeadLetter` setting that defaults to `true`. That changes what the broker returns for failures:
+
+| Failure | `UsesNativeDeadLetter = true` | `false` (the default for the interface) |
+|---|---|---|
+| Consumer or topic delivery throws | `Retry`: your transport redelivers and dead-letters at its delivery limit | the broker posts the bytes to its dead-letter endpoint (`WithDeadLetterEndpoint`) and returns `Completed` |
+| Undecodable, expired, unknown compression | `DeadLetter(reason)`: dead-letter it now | the broker posts to its dead-letter endpoint and returns `Completed` |
+| A route's destination throws | `Retry` | `Retry` |
+
+So an endpoint **without** a native dead-letter queue only ever sees `Completed` or `Retry`, and failed messages end up on the broker's dead-letter endpoint. Endpoints in this repo: RabbitMQ (reject without requeue, i.e. the queue's dead-letter exchange) and the SQLite / PostgreSQL / SQL Server tables (`Failed` with the reason in the error column) dead-letter natively; Memory and File don't.
 
 ### `EndpointMode`
 
@@ -189,7 +207,7 @@ public sealed class UdpEndPoint : IEndPointEventDriven, IAsyncDisposable
         await _sender.SendAsync(message, _settings.RemoteHost, _settings.RemotePort, ct);
     }
 
-    public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
+    public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
         _listener = new UdpClient(new IPEndPoint(IPAddress.Any, _settings.ListenPort));
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -200,20 +218,24 @@ public sealed class UdpEndPoint : IEndPointEventDriven, IAsyncDisposable
         return Task.CompletedTask;
     }
 
-    private async Task RunListenerLoopAsync(UdpClient listener, Func<byte[], CancellationToken, Task> handler, CancellationToken token)
+    private async Task RunListenerLoopAsync(UdpClient listener, Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token)
     {
         try
         {
             while (!token.IsCancellationRequested)
             {
-                var result = await listener.ReceiveAsync(token);
+                var datagram = await listener.ReceiveAsync(token);
                 try
                 {
-                    await handler(result.Buffer, token);
+                    // UDP has no redelivery and no dead-letter queue (UsesNativeDeadLetter stays false), so anything
+                    // but Completed means the message is lost — log it and keep the loop alive.
+                    var result = await handler(datagram.Buffer, token);
+                    if (result.Outcome != ProcessOutcome.Completed)
+                        _logger.LogError(result.Exception, "Message on endpoint '{Name}' was not processed ({Failure}) and cannot be redelivered",
+                            _name, result.FailureText);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    // UDP has no redelivery, so a failed message is lost — log it, keep the loop alive.
                     _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
                 }
             }
@@ -252,18 +274,19 @@ The patterns every listening endpoint should copy:
 
 1. **Return from `StartListeningAsync` right away.** The broker starts endpoints one after another inside `StartAsync`. Run the receive loop with `Task.Run(..., CancellationToken.None)` and keep the `Task`.
 2. **Use a linked `CancellationTokenSource`.** Then the loop stops either when the host token is cancelled or when `StopListeningAsync` runs.
-3. **Use three catch layers**, the same as the built-in endpoints:
+3. **Settle every message by its result.** UDP can't redeliver or dead-letter, so `UsesNativeDeadLetter` stays `false` and anything other than `Completed` is logged as lost.
+4. **Use three catch layers**, the same as the built-in endpoints:
    - Per message: `catch (Exception ex) when (ex is not OperationCanceledException)` → `LogError`, then continue.
    - Loop: `catch (OperationCanceledException) { }`, because that is a clean shutdown, not an error.
    - Anything else that kills the loop → `LogCritical`.
-4. **Await the loop in `StopListeningAsync`,** so shutdown doesn't cut off a message mid-dispatch.
-5. **Report a dead loop in `HealthCheck`.** A listener that has stopped while it should be running is unhealthy.
+5. **Await the loop in `StopListeningAsync`,** so shutdown doesn't cut off a message mid-dispatch.
+6. **Report a dead loop in `HealthCheck`.** A listener that has stopped while it should be running is unhealthy.
 
 ---
 
 ## 5. Sample C — pull-based poller with ack/abandon
 
-Most real brokers and cloud queues (Azure Service Bus, Amazon SQS, Google Pub/Sub, database tables) follow the same pattern: **receive with a lease**, process, then **complete** or **abandon**. This sample codes against a small `IRemoteQueueClient` interface; in a real endpoint you'd call the vendor SDK in its place.
+Most real brokers and cloud queues (Azure Service Bus, Amazon SQS, Google Pub/Sub, database tables) follow the same pattern: **receive with a lease**, process, then **complete**, **abandon** or **dead-letter**. This sample codes against a small `IRemoteQueueClient` interface; in a real endpoint you'd call the vendor SDK in its place.
 
 ```csharp
 using Microsoft.Extensions.Logging;
@@ -280,6 +303,7 @@ public interface IRemoteQueueClient
     Task<IReadOnlyList<RemoteMessage>> ReceiveBatchAsync(int maxMessages, TimeSpan wait, CancellationToken ct);
     Task CompleteAsync(RemoteMessage message, CancellationToken ct);
     Task AbandonAsync(RemoteMessage message, CancellationToken ct);
+    Task DeadLetterAsync(RemoteMessage message, string reason, string? description, CancellationToken ct);
     Task PingAsync(CancellationToken ct);
 }
 
@@ -290,6 +314,9 @@ public sealed class BrokeredQueueSettings
     public int BatchSize { get; set; } = 32;
     public TimeSpan PollWait { get; set; } = TimeSpan.FromSeconds(5);
     public TimeSpan ErrorBackoff { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>Let the queue's own dead-letter queue hold failed messages (instead of the broker's dead-letter endpoint).</summary>
+    public bool UseNativeDeadLetter { get; set; } = true;
 }
 
 /// <summary>Pull-based endpoint: a background loop polls the queue, dispatches, then acks or abandons each message.</summary>
@@ -330,10 +357,13 @@ public sealed class BrokeredQueueEndPoint : IEndPointEventDriven
 
     public EndpointMode Mode { get; }
 
+    /// <summary>The queue has its own dead-letter queue, so the broker hands failures back as Retry / DeadLetter.</summary>
+    public bool UsesNativeDeadLetter => _settings.UseNativeDeadLetter;
+
     public Task PostAsync(byte[] message, CancellationToken ct = default)
         => _sendPolicy.ExecuteAsync(token => new ValueTask(_client.SendAsync(message, token)), ct).AsTask();
 
-    public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
+    public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = _listeningCts.Token;
@@ -341,7 +371,7 @@ public sealed class BrokeredQueueEndPoint : IEndPointEventDriven
         return Task.CompletedTask;
     }
 
-    private async Task RunListenerLoopAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken token)
+    private async Task RunListenerLoopAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token)
     {
         try
         {
@@ -372,22 +402,40 @@ public sealed class BrokeredQueueEndPoint : IEndPointEventDriven
         }
     }
 
-    private async Task DispatchAsync(RemoteMessage message, Func<byte[], CancellationToken, Task> handler, CancellationToken token)
+    private async Task DispatchAsync(RemoteMessage message, Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token)
     {
+        ProcessResult result;
         try
         {
-            await handler(message.Body, token);
+            result = await handler(message.Body, token);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // The broker did not finish with the message — hand it back so the queue redelivers it.
+            // Defensive: ProcessAsync does not throw, but a handler might. Treat it like Retry.
             _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}' (delivery {Count})",
                 _name, message.DeliveryCount);
-            await _client.AbandonAsync(message, token);
-            return;
+            result = ProcessResult.Retry(ex);
         }
 
-        await _client.CompleteAsync(message, token);
+        switch (result.Outcome)
+        {
+            case ProcessOutcome.Completed:
+                await _client.CompleteAsync(message, token);
+                break;
+
+            case ProcessOutcome.DeadLetter:
+                // The message can never succeed — move it to the queue's dead-letter queue with the reason.
+                _logger.LogWarning("Message on endpoint '{Name}' dead-lettered: {Failure}", _name, result.FailureText);
+                await _client.DeadLetterAsync(message, result.Reason!, result.Description, token);
+                break;
+
+            default:
+                // Retry — hand it back; the queue redelivers it and dead-letters it at its max delivery count.
+                _logger.LogWarning("Message on endpoint '{Name}' will be redelivered (delivery {Count}): {Failure}",
+                    _name, message.DeliveryCount, result.FailureText);
+                await _client.AbandonAsync(message, token);
+                break;
+        }
     }
 
     public async Task StopListeningAsync()
@@ -418,9 +466,9 @@ public sealed class BrokeredQueueEndPoint : IEndPointEventDriven
 
 What this sample adds beyond Sample B:
 
-- **Ack only after the handler succeeds.** `CompleteAsync` runs only when `handler` returned normally. If the process crashes mid-dispatch, the lease expires and the queue redelivers the message. This gives you *at-least-once* delivery. Pair it with `.AddIdempotentReceiver()` on the builder if consumers must not see duplicates.
-- **Separate poll errors from message errors.** A failed `ReceiveBatchAsync` is a transport problem: log it, back off, retry. A failed `handler` is a message problem: abandon it and continue with the batch.
-- **Handle poison messages.** Repeated abandons should eventually stop. Rely on the queue's max-delivery-count / dead-letter feature if it has one. Otherwise, check `DeliveryCount` and mark the message failed yourself, the way `SqliteEndPoint` and `PostgresEndPoint` use `MaxRetryCount`, and log at `Warning` when you do.
+- **Settle by the result, and ack only on `Completed`.** `CompleteAsync` runs only for `Completed`; `Retry` abandons the message so the queue redelivers it; `DeadLetter` moves it to the queue's dead-letter queue with the reason. The endpoint sets `UsesNativeDeadLetter` because the queue has a DLQ. If the process crashes mid-dispatch, the lease expires and the queue redelivers the message. This gives you *at-least-once* delivery. Pair it with `.AddIdempotentReceiver()` on the builder if consumers must not see duplicates.
+- **Separate poll errors from message errors.** A failed `ReceiveBatchAsync` is a transport problem: log it, back off, retry. A `Retry` or `DeadLetter` result is a message problem: settle that message and continue with the batch.
+- **Handle poison messages.** Repeated `Retry`s should eventually stop. Rely on the queue's max-delivery-count / dead-letter feature if it has one. Otherwise, check `DeliveryCount` and mark the message failed yourself, the way the SQL endpoints use `MaxRetryCount`, and log at `Warning` when you do.
 - **Retry with `RetryPolicy`.** Use `NymBroker.Resilience` for transient send and reconnect failures. Build one policy per endpoint and reuse it; `OnRetry` must log. Don't add Polly. See [NymBroker.Resilience/README.md](../NymBroker.Resilience/README.md) for every option.
 - **Keep the health check bounded.** `HealthCheck()` is synchronous, so put a timeout on the probe and catch everything. A health check must never throw.
 
@@ -555,7 +603,7 @@ public async Task PostedMessage_IsDeliveredToHandler()
         new UdpSettings { ListenPort = 50511, RemotePort = 50511 }, NullLogger<UdpEndPoint>.Instance);
 
     var received = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
-    await ep.StartListeningAsync((raw, _) => { received.TrySetResult(raw); return Task.CompletedTask; },
+    await ep.StartListeningAsync((raw, _) => { received.TrySetResult(raw); return Task.FromResult(ProcessResult.Completed); },
         TestContext.Current.CancellationToken);
 
     var payload = Encoding.UTF8.GetBytes("""{"id":"1"}""");
@@ -567,7 +615,8 @@ public async Task PostedMessage_IsDeliveredToHandler()
 
 **Failure semantics.** With a fake client, assert that:
 
-- a handler that throws leads to `AbandonAsync`, not `CompleteAsync`;
+- each `ProcessResult` maps to the right settle call: `Completed` → `CompleteAsync`, `Retry` → `AbandonAsync`, `DeadLetter` → `DeadLetterAsync` with the reason;
+- a handler that throws is treated as `Retry`;
 - the listener keeps going and processes the next message;
 - a poll exception is logged and polling resumes;
 - `StopListeningAsync` returns and no handler call happens after it.
@@ -584,8 +633,9 @@ Tests run in parallel. Use a unique name, port or table per test, and filter any
 - [ ] Constructor takes `string name`, a settings object, `ILogger<T>` and `EndpointMode mode = EndpointMode.ReadWrite`.
 - [ ] `PostAsync` sends the bytes unchanged, is safe to call concurrently, and honours `ct`.
 - [ ] `StartListeningAsync` returns immediately; the loop runs on `Task.Run` with a linked CTS.
-- [ ] Every received message goes through `handler`. On handler failure: `LogError`, then nack/abandon (or drop, if the transport can't redeliver). The loop survives.
-- [ ] Messages are acked/completed only **after** the handler succeeds.
+- [ ] Every received message goes through `handler` and is settled by its `ProcessResult`: `Completed` → ack; `Retry` → redeliver (or log as lost if the transport can't); `DeadLetter` → the transport's dead-letter queue with `Reason`/`Description`. A handler exception counts as `Retry`. The loop survives.
+- [ ] `UsesNativeDeadLetter` is `true` (via a `UseNativeDeadLetter` setting, default `true`) only if the transport has its own dead-letter queue.
+- [ ] Messages are acked/completed only for `Completed`.
 - [ ] Poison messages stop being retried eventually (max delivery count or `MaxRetryCount`), with a `Warning` log.
 - [ ] `OperationCanceledException` is swallowed only at shutdown boundaries; unexpected loop death is logged at `Critical`.
 - [ ] No silent catches: every `catch` logs.

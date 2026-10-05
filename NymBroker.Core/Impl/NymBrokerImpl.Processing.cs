@@ -1,6 +1,7 @@
 using System.Text;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Aggregator;
 using NymBroker.Core.Diagnostics;
@@ -29,12 +30,20 @@ public sealed partial class NymBrokerImpl
     public async Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true)
         => await PostToEndpointAsync(endpointName, StreamToBytes(messageStream), splitThresholdBytes, compress, ct);
 
-    public Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
+    public async Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
         var context = new MessageContext<T> { Message = message };
         using var stream = _serializer.Serialize(context);
-        var bytes = StreamToBytes(stream);
-        return ProcessAsync(bytes, null, ct);
+        var result = await ProcessAsync(StreamToBytes(stream), null, ct);
+
+        // An in-process publish has no transport to redeliver it, so a Retry (e.g. a route's destination
+        // failed) surfaces to the caller, as it did before ProcessAsync returned results.
+        if (result.Outcome == ProcessOutcome.Retry)
+        {
+            if (result.Exception != null)
+                ExceptionDispatchInfo.Capture(result.Exception).Throw();
+            throw new InvalidOperationException(result.Description ?? "Publishing the message failed.");
+        }
     }
 
     public async Task PublishAsync<T>(string topicName, T message, CancellationToken ct = default) where T : class
@@ -50,10 +59,10 @@ public sealed partial class NymBrokerImpl
         await FanOutTopicAsync(topic, message, context, ct);
     }
 
-    public Task ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default)
+    public Task<ProcessResult> ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default)
         => ProcessAsync(Encoding.UTF8.GetBytes(raw), sourceEndpoint, ct);
 
-    public async Task ProcessAsync(byte[] raw, string? sourceEndpoint = null, CancellationToken ct = default)
+    public async Task<ProcessResult> ProcessAsync(byte[] raw, string? sourceEndpoint = null, CancellationToken ct = default)
     {
         if (_startInitiated && !_started) await _startGate.Task.WaitAsync(ct);
 
@@ -75,29 +84,41 @@ public sealed partial class NymBrokerImpl
             activity?.SetStatus(ActivityStatusCode.Error);
         }
 
+        var resultTag = "cancelled";
         try
         {
-            await ProcessMessageAsync(raw, sourceEndpoint, ct, activity, RecordFailure);
+            var result = await ProcessMessageAsync(raw, sourceEndpoint, ct, activity, RecordFailure);
+            resultTag = ResultTag(result.Outcome);
+            return result;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // Unexpected failure (e.g. posting to a route's destination threw): the source endpoint
+            // decides what Retry means for its transport (redeliver, or log and drop).
             RecordFailure(ex);
-            throw;
+            _logger.LogError(ex, "Processing failed for a message from {Source}; returning Retry to the endpoint", sourceEndpoint);
+            resultTag = ResultTag(ProcessOutcome.Retry);
+            return ProcessResult.Retry(ex);
         }
         finally
         {
             tags.Add("outcome", failed ? "failure" : "success");
+            tags.Add("result", resultTag);
             NymBrokerDiagnostics.ProcessingDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds, tags);
         }
     }
 
-    private async Task ProcessMessageAsync(
+    private async Task<ProcessResult> ProcessMessageAsync(
         byte[] raw,
         string? sourceEndpoint,
         CancellationToken ct,
         Activity? activity,
         Action<Exception?> recordFailure)
     {
+        // Endpoints whose transport has its own dead-letter queue settle failures themselves (Retry / DeadLetter);
+        // for all others the broker posts to its dead-letter endpoint and reports Completed.
+        var nativeDeadLetter = UsesNativeDeadLetter(sourceEndpoint);
+
         // ── Wire Tap ─────────────────────────────────────────────────────────
         // Copies raw bytes to every tap endpoint before processing. Tap endpoints see
         // all messages including those that will be filtered, expired, or dead-lettered.
@@ -121,7 +142,7 @@ public sealed partial class NymBrokerImpl
         if (transformer != null)
         {
             var transformed = transformer.Transform(raw.AsSpan(), sourceEndpoint);
-            if (transformed == null) return;
+            if (transformed == null) return ProcessResult.Completed;
             context = transformed;
         }
         else
@@ -131,7 +152,8 @@ public sealed partial class NymBrokerImpl
             {
                 _logger.LogError(ex, "Failed to deserialize message from {Source}", sourceEndpoint);
                 recordFailure(ex);
-                return;
+                return await DeadLetterAsync(raw, sourceEndpoint, nativeDeadLetter,
+                    DeadLetterReasons.DeserializationFailed, ex.Message, ex, ct);
             }
         }
 
@@ -159,8 +181,8 @@ public sealed partial class NymBrokerImpl
                 _logger.LogWarning(
                     "Discarding expired message {MessageId} (type={MessageType}, age={Age:F1}s, ttl={Ttl:F1}s)",
                     context.Id, context.MessageType, age.TotalSeconds, _maxMessageAge.Value.TotalSeconds);
-                await TryPostToDeadLetterAsync(raw, ct);
-                return;
+                return await DeadLetterAsync(raw, sourceEndpoint, nativeDeadLetter, DeadLetterReasons.Expired,
+                    $"Message age {age.TotalSeconds:F1}s exceeds the maximum of {_maxMessageAge.Value.TotalSeconds:F1}s", null, ct);
             }
         }
 
@@ -168,13 +190,13 @@ public sealed partial class NymBrokerImpl
         foreach (var filter in _filters)
         {
             context = filter.Filter(context)!;
-            if (context == null) return;
+            if (context == null) return ProcessResult.Completed;
         }
 
         if (context is not RawMessageContext raw2)
         {
             _logger.LogWarning("Unexpected context type: {Type}", context.GetType().Name);
-            return;
+            return ProcessResult.Completed;
         }
 
         // ── Resolve CLR type ──────────────────────────────────────────────────
@@ -184,25 +206,26 @@ public sealed partial class NymBrokerImpl
         if (messageType == typeof(SplitMessage))
         {
             var split = MessageSerializerJson.DeserializeMessage<SplitMessage>(raw2);
-            if (split == null) return;
+            if (split == null) return ProcessResult.Completed;
 
+            // Earlier parts are Completed; the part that completes the group carries the reassembled message's result.
             var reassembled = await _aggregator.AddAsync(split, context, ct);
-            if (reassembled == null) return;
+            if (reassembled == null) return ProcessResult.Completed;
 
             if (!string.IsNullOrEmpty(split.Compression))
             {
                 if (!string.Equals(split.Compression, _compressor.Name, StringComparison.Ordinal))
                 {
-                    _logger.LogError("Reassembled message uses unknown compression '{Compression}' — cannot decode; dropping.", split.Compression);
+                    _logger.LogError("Reassembled message uses unknown compression '{Compression}' — cannot decode.", split.Compression);
                     recordFailure(null);
-                    return;
+                    return await DeadLetterAsync(raw, sourceEndpoint, nativeDeadLetter, DeadLetterReasons.UnknownCompression,
+                        $"Unknown compression '{split.Compression}'", null, ct);
                 }
                 reassembled = _compressor.Decompress(reassembled);
             }
 
             var reassembledJson = Encoding.UTF8.GetString(reassembled);
-            await ProcessAsync(reassembledJson, sourceEndpoint, ct);
-            return;
+            return await ProcessAsync(reassembledJson, sourceEndpoint, ct);
         }
 
         var msgElement = raw2.RawMessage;
@@ -231,6 +254,7 @@ public sealed partial class NymBrokerImpl
 
         // ── Topic fan-out (pub/sub) ────────────────────────────────────────────
         var wasTopicFanOut = false;
+        ProcessResult? topicFailure = null;
         object? deserializedMessage = null;
         foreach (var topic in _topics)
         {
@@ -246,19 +270,28 @@ public sealed partial class NymBrokerImpl
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogError(ex, "Topic '{Topic}' failed to deliver message — routing to dead letter", topic.TopicName);
                 recordFailure(ex);
-                await TryPostToDeadLetterAsync(raw, ct);
+                if (nativeDeadLetter)
+                {
+                    // Let the transport redeliver; keep delivering to the remaining topics.
+                    _logger.LogError(ex, "Topic '{Topic}' failed to deliver message — the endpoint will retry it", topic.TopicName);
+                    topicFailure ??= ProcessResult.Retry(ex);
+                }
+                else
+                {
+                    _logger.LogError(ex, "Topic '{Topic}' failed to deliver message — routing to dead letter", topic.TopicName);
+                    await TryPostToDeadLetterAsync(raw, DeadLetterReasons.TopicDeliveryFailed, ex.Message, ct);
+                }
             }
         }
 
         if (wasRouted || wasTopicFanOut)
-            return;
+            return topicFailure ?? ProcessResult.Completed;
 
         if (messageType == null)
         {
             _logger.LogWarning("No consumer or route for unresolved message type '{MessageType}' from {Source}", raw2.MessageType, sourceEndpoint);
-            return;
+            return ProcessResult.Completed;
         }
 
         // ── Consumer dispatch — failures go to dead letter ────────────────────
@@ -271,14 +304,46 @@ public sealed partial class NymBrokerImpl
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogError(ex, "Consumer failed for message type {MessageType} — routing to dead letter", messageType.Name);
                 recordFailure(ex);
-                await TryPostToDeadLetterAsync(raw, ct);
+                if (nativeDeadLetter)
+                {
+                    // The transport redelivers it and dead-letters natively once its delivery limit is reached.
+                    _logger.LogError(ex, "Consumer failed for message type {MessageType} — the endpoint will retry it", messageType.Name);
+                    return ProcessResult.Retry(ex);
+                }
+
+                _logger.LogError(ex, "Consumer failed for message type {MessageType} — routing to dead letter", messageType.Name);
+                await TryPostToDeadLetterAsync(raw, DeadLetterReasons.ConsumerFailed, ex.Message, ct);
             }
         }
+
+        return ProcessResult.Completed;
     }
 
-    private async Task TryPostToDeadLetterAsync(byte[] raw, CancellationToken ct)
+    private bool UsesNativeDeadLetter(string? sourceEndpoint)
+        => sourceEndpoint != null
+           && _endpoints.TryGetValue(sourceEndpoint, out var endpoint)
+           && endpoint is IEndPointEventDriven { UsesNativeDeadLetter: true };
+
+    /// <summary>
+    /// A message that can never succeed: native endpoints get <see cref="ProcessOutcome.DeadLetter"/>; otherwise it is
+    /// posted to the broker's dead-letter endpoint (if configured) and reported as Completed.
+    /// </summary>
+    private async Task<ProcessResult> DeadLetterAsync(byte[] raw, string? sourceEndpoint, bool nativeDeadLetter,
+        string reason, string? description, Exception? exception, CancellationToken ct)
+    {
+        if (nativeDeadLetter)
+        {
+            _logger.LogWarning("Message from {Source} is dead-lettered by the endpoint ({Reason}: {Description})",
+                sourceEndpoint, reason, description);
+            return ProcessResult.DeadLetter(reason, description, exception);
+        }
+
+        await TryPostToDeadLetterAsync(raw, reason, description, ct);
+        return ProcessResult.Completed;
+    }
+
+    private async Task TryPostToDeadLetterAsync(byte[] raw, string reason, string? description, CancellationToken ct)
     {
         if (_deadLetterEndpoint == null) return;
         if (!_endpoints.TryGetValue(_deadLetterEndpoint, out var dlq))
@@ -286,9 +351,20 @@ public sealed partial class NymBrokerImpl
             _logger.LogError("Dead letter endpoint '{Endpoint}' not found", _deadLetterEndpoint);
             return;
         }
-        try { await dlq.PostAsync(raw, ct); }
+        try
+        {
+            await dlq.PostAsync(raw, ct);
+            _logger.LogWarning("Message dead-lettered to endpoint '{Endpoint}' ({Reason}: {Description})", _deadLetterEndpoint, reason, description);
+        }
         catch (Exception ex) { _logger.LogError(ex, "Failed to post message to dead letter endpoint '{Endpoint}'", _deadLetterEndpoint); }
     }
+
+    private static string ResultTag(ProcessOutcome outcome) => outcome switch
+    {
+        ProcessOutcome.Completed => "completed",
+        ProcessOutcome.Retry => "retry",
+        _ => "dead_letter"
+    };
 
     private async Task FanOutTopicAsync(
         TopicContext topic,

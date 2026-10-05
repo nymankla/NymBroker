@@ -3,6 +3,7 @@ using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using NymBroker.Sql;
+using NymBroker.Core.Endpoint;
 
 namespace NymBroker.Tests;
 
@@ -140,6 +141,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
             received.Add(System.Text.Encoding.UTF8.GetString(msg));
             if (received.Count >= 2) tcs.TrySetResult();
             await Task.CompletedTask;
+            return ProcessResult.Completed;
         }, cts.Token);
 
         await tcs.Task;
@@ -175,7 +177,7 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
                 throw new InvalidOperationException("Transient failure");
 
             completed.TrySetResult();
-            return Task.CompletedTask;
+            return Task.FromResult(ProcessResult.Completed);
         }, cts.Token);
 
         await completed.Task;

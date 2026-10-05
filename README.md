@@ -86,7 +86,7 @@ In short: a producer posts to an endpoint, the broker processes the message thro
 - **Fluent routing API** — type-safe, composable route conditions
 - **Typed consumers** — implement `IConsume<T>`, optionally handle multiple message types in one class
 - **Publish-Subscribe Channel** — EIP pub/sub; declare topics with typed `ISubscribe<T>` subscribers or endpoint fan-out
-- **Dead Letter Channel** — failed and expired messages are automatically forwarded to a configured dead-letter endpoint
+- **Dead Letter Channel** — failed, expired and undecodable messages go to the transport's own dead-letter queue (RabbitMQ DLX, `Failed` rows in the SQL endpoints) or, for transports without one, to a configured dead-letter endpoint
 - **Wire Tap** — copy every raw message to a secondary endpoint before processing; zero impact on normal flow
 - **Idempotent Receiver** — deduplicate messages by ID using a TTL-based in-memory store; duplicate messages are silently dropped
 - **Message Expiration (TTL)** — discard messages older than a configured age; optionally forward them to the dead-letter endpoint
@@ -113,7 +113,7 @@ The broker emits these measurements:
 |---|---|---|
 | `nymbroker.messages.received` | `NymBroker` | Calls entering message processing, tagged with the source endpoint |
 | `nymbroker.messages.failed` | `NymBroker` | Processing failures, including deserialization and consumer failures |
-| `nymbroker.message.processing.duration` | `NymBroker` | Processing latency in milliseconds, tagged with success/failure outcome |
+| `nymbroker.message.processing.duration` | `NymBroker` | Processing latency in milliseconds, tagged with `outcome` (`success`/`failure`) and `result` (`completed`/`retry`/`dead_letter`, the `ProcessResult` returned to the endpoint) |
 | `nymbroker.retries` | `NymBroker.Resilience` | Retry attempts made by `RetryPolicy` |
 
 Each processing call is instrumented with a `nymbroker.process` consumer activity when a listener is attached. Once an envelope is decoded, the activity and logging scope carry the message ID, correlation ID, message type, and source endpoint. These identifiers let log aggregators and trace backends correlate broker-stage logs with a message. Activity context propagates across asynchronous processing; subscribe to `NymBroker` to export the spans.
@@ -329,6 +329,7 @@ CREATE TABLE NymBrokerMessages (
 | `PollInterval` | `100 ms` | Delay between poll cycles; `TimeSpan.Zero` = poll immediately after a full batch |
 | `LeaseTimeout` | `5 min` | How long a claimed message stays leased before it can be reclaimed |
 | `MaxRetryCount` | `5` | Number of failed attempts before a message is marked `Failed` |
+| `UseNativeDeadLetter` | `true` | Settle failures in the table (retry up to `MaxRetryCount`, mark undecodable/expired messages `Failed` at once). `false` sends failures to the broker's dead-letter endpoint instead and marks the row Completed |
 
 From a JSON config file (call `.WithSql()` after `.LoadConfiguration()`):
 
@@ -421,6 +422,7 @@ Tables created by NymBroker 0.1.4 or earlier had two full indexes on `status` in
 | `PollInterval` | `100 ms` | How long to wait after a poll that found no messages (cut short by a `NOTIFY` when `UseNotifications` is on); while messages are waiting, batches are claimed back to back |
 | `LeaseTimeout` | `5 min` | How long a claimed message stays leased before it can be reclaimed |
 | `MaxRetryCount` | `5` | Number of failed attempts before a message is marked `Failed` |
+| `UseNativeDeadLetter` | `true` | Settle failures in the table (retry up to `MaxRetryCount`, mark undecodable/expired messages `Failed` at once). `false` sends failures to the broker's dead-letter endpoint instead and marks the row Completed |
 | `UseNotifications` | `true` | `PostAsync` sends a `NOTIFY` so idle listeners wake immediately instead of waiting out `PollInterval` |
 
 From a JSON config file (call `.WithPostgres()` after `.LoadConfiguration()`):
@@ -517,6 +519,7 @@ CREATE INDEX [ix_dbo_nymbroker_messages_active]
 | `PollInterval` | `100 ms` | Delay after a poll that found no messages; while messages are waiting, batches are claimed back to back |
 | `LeaseTimeout` | `5 min` | How long a claimed message stays leased before it can be reclaimed |
 | `MaxRetryCount` | `5` | Number of failed attempts before a message is marked `Failed` |
+| `UseNativeDeadLetter` | `true` | Settle failures in the table (retry up to `MaxRetryCount`, mark undecodable/expired messages `Failed` at once). `false` sends failures to the broker's dead-letter endpoint instead and marks the row Completed |
 
 From a JSON config file (call `.WithSqlServer()` after `.LoadConfiguration()`; the type name is case-insensitive):
 
@@ -564,7 +567,7 @@ services.AddNymBroker()
     .Build();
 ```
 
-Messages are consumed with `autoAck: false`. A message is acked after successful processing. On failure it is nacked with `requeue: true` once; if it fails again after redelivery it is treated as a poison message and nacked with `requeue: false` (dead-lettered when the queue has a DLX; disable via `RejectRedeliveredFailures = false`, which requeues indefinitely). The endpoint reconnects automatically on connection loss using the built-in `NymBroker.Resilience` retry policy.
+Messages are consumed with `autoAck: false`. A message is acked after successful processing. When a consumer fails it is nacked with `requeue: true` once; if it fails again after redelivery it is treated as a poison message and nacked with `requeue: false` (dead-lettered when the queue has a DLX; disable via `RejectRedeliveredFailures = false`, which requeues indefinitely). Messages that can never succeed (undecodable, expired) are nacked with `requeue: false` immediately. Set `UseNativeDeadLetter = false` to send failures to the broker's dead-letter endpoint instead (the message is then acked). The endpoint reconnects automatically on connection loss using the built-in `NymBroker.Resilience` retry policy.
 
 Start RabbitMQ with the provided Docker Compose file:
 
@@ -972,18 +975,30 @@ The transformer runs inside `ProcessAsync`; returning `null` silently drops the 
 
 ### Dead Letter Channel
 
-Forward failed messages to a separate endpoint so they can be inspected or reprocessed without blocking the main flow. Any message that causes a consumer to throw (other than `OperationCanceledException`) is sent to the dead-letter endpoint. TTL-expired messages (see below) are also forwarded there.
+Failed messages are set aside so they can be inspected or reprocessed without blocking the main flow. Where they go depends on the endpoint the message came from.
+
+**Endpoints with their own dead-letter queue** (`UsesNativeDeadLetter`): RabbitMQ and the SQLite, PostgreSQL and SQL Server endpoints, with `UseNativeDeadLetter = true` (the default). The broker tells the endpoint what to do through the `ProcessResult` it returns, and the transport does the dead-lettering:
+
+| Failure | Result | RabbitMQ | SQL endpoints |
+|---|---|---|---|
+| A consumer or topic subscriber throws | `Retry` | requeued once, then rejected to the queue's dead-letter exchange | back to `Pending`, `Failed` after `MaxRetryCount` |
+| Undecodable bytes, expired (TTL), unknown compression | `DeadLetter` with a reason | rejected to the dead-letter exchange at once | `Failed` at once, reason in the error column |
+| A route's destination fails | `Retry` | as above | as above |
+
+**All other endpoints** (Memory, File, custom endpoints without a dead-letter queue, or `UseNativeDeadLetter = false`): the broker posts the original bytes to the endpoint named by `WithDeadLetterEndpoint` and the source message is completed. This covers consumer and topic failures, expired messages, and undecodable messages (which were dropped before 0.2.0).
 
 ```csharp
 services.AddNymBroker()
     .AddMemoryEndPoint("Main")
-    .AddMemoryEndPoint("DeadLetters")
+    .AddMemoryEndPoint("DeadLetters", mode: EndpointMode.WriteOnly)
     .AddConsumer<OrderConsumer>()
     .WithDeadLetterEndpoint("DeadLetters")
     .Build();
 ```
 
-`StartAsync` throws `InvalidOperationException` if the dead-letter endpoint is `ReadOnly`.
+- `StartAsync` throws `InvalidOperationException` if the dead-letter endpoint is `ReadOnly`.
+- Make the dead-letter endpoint `WriteOnly` unless you mean to consume from it in the same broker: a listening dead-letter endpoint feeds its messages straight back into processing, and a consumer that keeps failing would loop.
+- Every dead-lettering is logged at `Warning` with its reason (`DeadLetterReasons`).
 
 ### Wire Tap
 
@@ -1051,9 +1066,9 @@ services.AddNymBroker()
 
 1. Wire tap — raw bytes forwarded before any other processing
 2. Transformer / deserialization
-3. TTL check — expired → dead letter + discard
+3. TTL check — expired → dead letter
 4. Filter loop — idempotency filter runs here
-5. Routing, topic fan-out, consumer dispatch — consumer failure → dead letter
+5. Routing, topic fan-out, consumer dispatch — consumer failure → retried by the transport, or dead letter (see above)
 
 ## Aggregator / Splitter
 

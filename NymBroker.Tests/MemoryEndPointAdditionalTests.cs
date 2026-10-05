@@ -1,5 +1,6 @@
 using System.Text;
 using NymBroker.Core.Endpoint.Memory;
+using NymBroker.Core.Endpoint;
 
 namespace NymBroker.Tests;
 
@@ -17,7 +18,7 @@ public sealed class MemoryEndPointAdditionalTests
     public async Task StopListeningAsync_CompletesTheChannel()
     {
         var ep = new MemoryQueueEndPoint("stop-test");
-        await ep.StartListeningAsync((_, _) => Task.CompletedTask, TestContext.Current.CancellationToken);
+        await ep.StartListeningAsync((_, _) => Task.FromResult(ProcessResult.Completed), TestContext.Current.CancellationToken);
 
         await ep.StopListeningAsync();
 
@@ -60,6 +61,7 @@ public sealed class MemoryEndPointAdditionalTests
                     allReceived.TrySetResult();
             }
             await Task.CompletedTask;
+            return ProcessResult.Completed;
         }, cts.Token);
 
         await ep.EnqueueAsync("{\"n\":1}", TestContext.Current.CancellationToken);

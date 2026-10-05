@@ -19,6 +19,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
     private readonly SemaphoreSlim _dbLock = new(1, 1);
     private SqliteConnection? _connection;
     private CancellationTokenSource? _listeningCts;
+    private Task? _loop;
 
     public EndpointMode Mode { get; }
 
@@ -32,12 +33,15 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     // ── IEndPointEventDriven ────────────────────────────────────────────────
 
-    public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
+    /// <summary>Dead-letters by marking the row <c>Failed</c> immediately, with the reason in <c>LastError</c>.</summary>
+    public bool UsesNativeDeadLetter => _settings.UseNativeDeadLetter;
+
+    public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = _listeningCts.Token;
 
-        _ = Task.Run(async () =>
+        _loop = Task.Run(async () =>
         {
             try
             {
@@ -49,19 +53,18 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
                         var messages = await ClaimMessagesAsync(token);
                         foreach (var message in messages)
                         {
+                            ProcessResult result;
                             try
                             {
-                                await handler(Encoding.UTF8.GetBytes(message.Payload), token);
-                                await FinalizeClaimedMessageAsync(message, succeeded: true, error: null, token);
+                                result = await handler(Encoding.UTF8.GetBytes(message.Payload), token);
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException)
                             {
-                                await FinalizeClaimedMessageAsync(message, succeeded: false, error: ex.Message, token);
                                 _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
-                                if (message.AttemptCount >= _settings.MaxRetryCount)
-                                    _logger.LogWarning("Message {MessageId} on endpoint '{Name}' marked Failed after {Attempts} attempts (terminal state); last error: {Error}",
-                                        message.MessageId, _name, message.AttemptCount, ex.Message);
+                                result = ProcessResult.Retry(ex);
                             }
+                            // The message was handled, so record the outcome even if shutdown was requested meanwhile.
+                            await SettleAsync(message, result, CancellationToken.None);
                             processed++;
                         }
                     }
@@ -88,10 +91,15 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         return Task.CompletedTask;
     }
 
-    public Task StopListeningAsync()
+    /// <summary>Stops polling and waits for the loop to finish, so no handler runs after this returns.</summary>
+    public async Task StopListeningAsync()
     {
         _listeningCts?.Cancel();
-        return Task.CompletedTask;
+        if (_loop is not null)
+        {
+            await _loop;
+            _loop = null;
+        }
     }
 
     public async IAsyncEnumerable<string> ReadAsync(
@@ -162,7 +170,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _listeningCts?.Cancel();
+        await StopListeningAsync();
         _listeningCts?.Dispose();
         if (_connection is not null)
         {
@@ -349,7 +357,30 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
-    private async Task FinalizeClaimedMessageAsync(ClaimedMessage message, bool succeeded, string? error, CancellationToken ct)
+    private async Task SettleAsync(ClaimedMessage message, ProcessResult result, CancellationToken ct)
+    {
+        switch (result.Outcome)
+        {
+            case ProcessOutcome.Completed:
+                await FinalizeClaimedMessageAsync(message, succeeded: true, error: null, ct);
+                break;
+
+            case ProcessOutcome.DeadLetter:
+                await FinalizeClaimedMessageAsync(message, succeeded: false, error: result.FailureText, ct, forceFailed: true);
+                _logger.LogWarning("Message {MessageId} on endpoint '{Name}' dead-lettered (marked Failed): {Failure}",
+                    message.MessageId, _name, result.FailureText);
+                break;
+
+            default:
+                await FinalizeClaimedMessageAsync(message, succeeded: false, error: result.FailureText, ct);
+                if (message.AttemptCount >= _settings.MaxRetryCount)
+                    _logger.LogWarning("Message {MessageId} on endpoint '{Name}' marked Failed after {Attempts} attempts (terminal state); last error: {Error}",
+                        message.MessageId, _name, message.AttemptCount, result.FailureText);
+                break;
+        }
+    }
+
+    private async Task FinalizeClaimedMessageAsync(ClaimedMessage message, bool succeeded, string? error, CancellationToken ct, bool forceFailed = false)
     {
         await _dbLock.WaitAsync(ct);
         try
@@ -376,7 +407,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
                 return;
             }
 
-            if (message.AttemptCount >= _settings.MaxRetryCount)
+            if (forceFailed || message.AttemptCount >= _settings.MaxRetryCount)
             {
                 await conn.ExecuteAsync($"""
                     UPDATE {_settings.TableName}

@@ -25,4 +25,12 @@ public sealed class RabbitMqSettings
     /// with requeue=false (dead-lettered if the queue has a DLX) instead of being requeued forever.
     /// </summary>
     public bool RejectRedeliveredFailures { get; set; } = true;
+
+    /// <summary>
+    /// When true (default), failed messages are settled by RabbitMQ: consumer failures are requeued (see
+    /// <see cref="RejectRedeliveredFailures"/>) and messages that can never succeed are rejected without requeue, so they
+    /// reach the queue's dead-letter exchange. When false, the broker posts failures to its own dead-letter endpoint
+    /// (<c>WithDeadLetterEndpoint</c>) and the message is acked.
+    /// </summary>
+    public bool UseNativeDeadLetter { get; set; } = true;
 }

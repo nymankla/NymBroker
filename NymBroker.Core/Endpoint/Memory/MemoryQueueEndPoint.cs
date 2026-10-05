@@ -32,7 +32,7 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
     public Task PostAsync(byte[] message, CancellationToken ct = default)
         => _channel.Writer.WriteAsync(message, ct).AsTask();
 
-    public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
+    public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
         _ = Task.Run(async () =>
         {
@@ -42,7 +42,12 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
                 {
                     try
                     {
-                        await handler(msg, ct);
+                        var result = await handler(msg, ct);
+                        // In-memory messages cannot be redelivered, and the broker never asks this endpoint to
+                        // dead-letter (UsesNativeDeadLetter is false), so anything but Completed means the message is lost.
+                        if (result.Outcome != ProcessOutcome.Completed)
+                            _logger.LogError(result.Exception, "Message on endpoint '{Name}' was not processed ({Outcome}: {Failure}) and cannot be redelivered",
+                                _name, result.Outcome, result.FailureText);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {

@@ -66,8 +66,10 @@ Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker comp
 
 ```
 IEndPoint                 ← all transports: Mode, PostAsync(byte[]), HealthCheck()
-  IEndPointEventDriven    ← inbound: StartListeningAsync(handler) / StopListeningAsync
+  IEndPointEventDriven    ← inbound: StartListeningAsync(handler) / StopListeningAsync; UsesNativeDeadLetter
 EndpointMode              ← ReadWrite (default) | ReadOnly | WriteOnly
+ProcessResult             ← what the handler returns: Completed | Retry | DeadLetter(Reason, Description); FailureText
+DeadLetterReasons         ← DeserializationFailed, Expired, UnknownCompression, ConsumerFailed, TopicDeliveryFailed
 
 IMessageContext<T>        ← typed envelope (Id, CorrelationId, Address, MessageType, Created)
 RawMessageContext          ← internal deserialized form; holds JsonElement RawMessage for deferred typing
@@ -78,7 +80,18 @@ IRouteBuilder<T>          ← fluent route definition (see Routing section)
 IRouteCondition           ← composable predicate evaluated on (IMessageContext, JsonElement)
 ```
 
-`NymBrokerImpl.StartAsync` calls `StartListeningAsync` on every `IEndPointEventDriven` endpoint whose `Mode` is not `WriteOnly`, wiring the handler to `ProcessAsync(raw, endpointName, ct)`. A plain `IEndPoint` is a send-only sink. Pull-based transports (`SqliteEndPoint`, `PostgresEndPoint`) still implement `IEndPointEventDriven` — their poll loop runs on `Task.Run` and calls the handler for each claimed message. `StartAsync` throws if a route, topic, dead-letter or wire-tap target is `ReadOnly`.
+`NymBrokerImpl.StartAsync` calls `StartListeningAsync` on every `IEndPointEventDriven` endpoint whose `Mode` is not `WriteOnly`, wiring the handler to `ProcessAsync(raw, endpointName, ct)`, which returns a `ProcessResult` the endpoint settles the message by (ack / redeliver / dead-letter). A plain `IEndPoint` is a send-only sink. Pull-based transports (`SqliteEndPoint`, `PostgresEndPoint`) still implement `IEndPointEventDriven` — their poll loop runs on `Task.Run` and calls the handler for each claimed message. `StartAsync` throws if a route, topic, dead-letter or wire-tap target is `ReadOnly`.
+
+**Processing results and native dead-lettering (0.2.0, #39).** `ProcessAsync` never throws (except `OperationCanceledException`); it returns:
+
+| Situation | Source has `UsesNativeDeadLetter = true` | Otherwise (Memory, File, opt-out, `PublishAsync`) |
+|---|---|---|
+| Success, filtered, no consumer | `Completed` | `Completed` |
+| Undecodable / expired / unknown compression | `DeadLetter(reason)` | post to the `WithDeadLetterEndpoint` endpoint, `Completed` |
+| Consumer or topic fan-out throws | `Retry(ex)` — the transport redelivers, dead-letters at its limit | post to the dead-letter endpoint, `Completed` |
+| A route's destination throws (or any unexpected exception) | `Retry(ex)` | `Retry(ex)` |
+
+`UsesNativeDeadLetter` is driven by `UseNativeDeadLetter` (default `true`) in `RabbitMqSettings`, `SqliteSettings`, `PostgresSettings`, `SqlServerSettings`; Memory/File return `false`. For split messages the part that completes the group carries the reassembled message's result. `PublishAsync<T>` rethrows a `Retry`'s exception (no transport to redeliver). The processing-duration histogram carries a `result` tag (`completed`/`retry`/`dead_letter`). Helper: `UsesNativeDeadLetter(source)` / `DeadLetterAsync(...)` in `NymBrokerImpl.Processing.cs`.
 
 `MemoryQueueEndPoint`, `FileEndPoint` and `SqliteEndPoint` also expose a non-interface `ReadAsync` (drains currently available items) — used by tests and samples to inspect what was posted. There is no `IEndPointPoll` interface any more.
 
@@ -124,7 +137,7 @@ broker.AddScheduledAction<T1,T2>(TimeSpan, Action<T1,T2>, T1, T2)
 broker.AddScheduledAction<T1>(string cronExpr, Action<T1>, T1)   // Cronos cron syntax
 
 broker.StartAsync(ct) / StopAsync(ct)              // called automatically by IHostedService
-broker.ProcessAsync(raw, sourceEndpoint, ct)        // entry point for endpoint listeners
+broker.ProcessAsync(raw, sourceEndpoint, ct)        // entry point for endpoint listeners → Task<ProcessResult>
 ```
 
 ### Routing
@@ -258,7 +271,7 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config
 
 **Claiming**: a `SemaphoreSlim(1,1)` (`_dbLock`) serializes all DB operations because `SqliteConnection` is not safe for concurrent access. `ClaimMessagesAsync` runs a SELECT + per-row UPDATE inside a transaction; only rows where `rows_affected > 0` are yielded (optimistic claim). Expired leases (`LockedUntilUtc <= unixepoch()`) are reclaimable.
 
-**Retry**: `AttemptCount` is incremented on every claim. On handler failure, messages are returned to `Pending` until `AttemptCount >= MaxRetryCount`, then marked `Failed`. `LeaseTimeout` controls how long a claimed message stays locked before another poller can reclaim it.
+**Retry**: `AttemptCount` is incremented on every claim. On `Retry` (or a handler exception), messages are returned to `Pending` until `AttemptCount >= MaxRetryCount`, then marked `Failed`; `DeadLetter` marks them `Failed` at once with `"{Reason}: {Description}"` in `LastError` (same in the Postgres / SQL Server endpoints). `StopListeningAsync` awaits the loop, and a handled message's outcome is written even during shutdown. `LeaseTimeout` controls how long a claimed message stays locked before another poller can reclaim it.
 
 **Schema migration**: `EnsureSchemaAsync` detects old single-status schemas and migrates them to the full leasing schema in a transaction (backup table + INSERT SELECT).
 
@@ -305,24 +318,24 @@ No exception is silently swallowed. The policy per layer:
 
 | Layer | Behaviour |
 |---|---|
-| `NymBrokerImpl.ProcessAsync` | Deserialization failure → `LogError`, message dropped. Unresolved type with no route → `LogWarning`. |
+| `NymBrokerImpl.ProcessAsync` | Deserialization failure → `LogError`, then dead-lettered (native `DeadLetter` or the broker's dead-letter endpoint). Unresolved type with no route → `LogWarning`. Every dead-lettering → `LogWarning` with its reason. Unexpected exception → `LogError`, returns `Retry`. |
 | `ConsumerDispatcher` | No registered consumer → `LogWarning`. |
 | `AggregatorImpl.PurgeExpired` | Purge count logged at `Debug`. |
 | `NymBrokerImpl.StartAsync` | Any startup exception → `LogError`, scheduled actions rolled back, exception re-thrown. |
-| `FileEndPoint.OnFileCreated` | Fire-and-forget handler failure → `LogError` (loop continues). |
+| `FileEndPoint.OnFileCreated` | Fire-and-forget handler failure, or a non-`Completed` result → `LogError` (the file is already renamed, no retry; loop continues). |
 | `FileEndPoint.ProcessExistingFilesAsync` | Per-file handler failure → `LogError` (remaining files still processed). Structural failure (e.g. directory gone) → `LogError` on outer Task.Run. |
 | `FileEndPoint.ReadAndArchiveAsync` | IOException after retries → `LogWarning`, file skipped. |
-| `MemoryQueueEndPoint.StartListeningAsync` | Per-message handler failure → `LogError` (loop continues). Unexpected loop termination → `LogCritical`. |
-| `SqliteEndPoint` (listener loop) | Per-message handler failure → `LogError`, message returned to `Pending` or marked `Failed` after max retries. Poll error → `LogError` (loop continues). Unexpected termination → `LogCritical`. |
+| `MemoryQueueEndPoint.StartListeningAsync` | Per-message handler failure, or a non-`Completed` result → `LogError` (no redelivery; loop continues). Unexpected loop termination → `LogCritical`. |
+| `SqliteEndPoint` (listener loop) | Per-message handler exception → `LogError`; `Retry` → returned to `Pending` or marked `Failed` after max retries; `DeadLetter` → `Failed` at once + `LogWarning`. Poll error → `LogError` (loop continues). Unexpected termination → `LogCritical`. |
 | `PostgresEndPoint` / `SqlServerEndPoint` (listener loop) | Same as `SqliteEndPoint`, plus `LogWarning` when a message reaches the terminal `Failed` state. Health check failure → `LogError`, `Unhealthy` returned (never throws). A failed finalize-and-claim is retried on the next cycle (transaction rolled back); if writing results on shutdown fails → `LogWarning` (messages redelivered after lease expiry). `PostgresEndPoint`: a failed LISTEN / notification wait → `LogWarning`, falls back to timer polling. |
-| `RabbitMqEndPoint` (message handler) | Handler failure → `LogError`, message nacked with `requeue: true`. |
+| `RabbitMqEndPoint` (message handler) | Handler exception → `LogError`, treated as `Retry`. `Retry` → `LogWarning`, nacked with `requeue: true` (poison after redelivery: `requeue: false`). `DeadLetter` → `LogWarning`, nacked with `requeue: false` (the queue's DLX). |
 | `RabbitMqEndPoint` (listener loop) | Unexpected loop termination → `LogCritical`. `OperationCanceledException` swallowed. |
 
 `OperationCanceledException` is always swallowed at fire-and-forget boundaries — it represents clean shutdown, not an error.
 
 ### RabbitMQ Reliability
 
-`RabbitMqEndPoint` uses `autoAck: false`. Every message is manually acked on success or nacked with `requeue: true` on failure. Connection and publish-channel setup use `SemaphoreSlim(1,1)` with a double-check pattern to prevent concurrent initialisation races.
+`RabbitMqEndPoint` uses `autoAck: false`. Every message is settled by its `ProcessResult`: `Completed` → ack (batched by `BatchAckSize`); `Retry` → nack `requeue: true`, or `requeue: false` once it was already redelivered (`RejectRedeliveredFailures`); `DeadLetter` → nack `requeue: false`, so it reaches the queue's dead-letter exchange if one is configured (RabbitMQ records `x-death` reason `rejected`; our reason is only logged). Connection and publish-channel setup use `SemaphoreSlim(1,1)` with a double-check pattern to prevent concurrent initialisation races.
 
 ### Retry Policy (NymBroker.Resilience)
 
@@ -343,4 +356,4 @@ Transient-failure retries use `RetryPolicy` from the dependency-free `NymBroker.
 - Consumers are keyed services: key = `typeof(TConsumer).Name`.
 - `RouteContext` is non-sealed and `Evaluate()` is virtual — subclass for custom route logic.
 - Never swallow exceptions silently — every fire-and-forget boundary and catch block must log.
-- New transport endpoints that receive messages must implement `IEndPointEventDriven` (pull-based transports run their own poll loop inside it) so the broker engine drives them automatically. Send-only sinks implement plain `IEndPoint` with `Mode => EndpointMode.WriteOnly`.
+- New transport endpoints that receive messages must implement `IEndPointEventDriven` (pull-based transports run their own poll loop inside it) so the broker engine drives them automatically, and settle each message by the handler's `ProcessResult`. Return `UsesNativeDeadLetter => settings.UseNativeDeadLetter` only if the transport has its own dead-letter queue. Send-only sinks implement plain `IEndPoint` with `Mode => EndpointMode.WriteOnly`.

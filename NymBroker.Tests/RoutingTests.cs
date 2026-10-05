@@ -115,7 +115,7 @@ public sealed class RoutingTests
 
         public IHealthCheckResult HealthCheck() => HealthCheckResult.Healthy();
 
-        public Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
+        public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
         {
             StartCalls++;
             return Task.CompletedTask;

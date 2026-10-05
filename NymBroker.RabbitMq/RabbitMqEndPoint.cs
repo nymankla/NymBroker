@@ -53,7 +53,10 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
             cancellationToken: ct);
     }
 
-    public async Task StartListeningAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
+    /// <summary>Dead-letters via <c>BasicNack(requeue: false)</c>, i.e. the queue's dead-letter exchange.</summary>
+    public bool UsesNativeDeadLetter => _settings.UseNativeDeadLetter;
+
+    public async Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(_settings.ReadQueueName))
             throw new InvalidOperationException($"RabbitMQ endpoint '{_name}' has no ReadQueueName configured.");
@@ -75,31 +78,53 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
                     var consumer = new AsyncEventingBasicConsumer(channel);
                     consumer.ReceivedAsync += async (_, ea) =>
                     {
+                        ProcessResult result;
                         try
                         {
-                            await handler(ea.Body.ToArray(), token);
+                            result = await handler(ea.Body.ToArray(), token);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error processing message from {Queue}", _settings.ReadQueueName);
+                            result = ProcessResult.Retry(ex);
+                        }
+
+                        if (result.Outcome == ProcessOutcome.Completed)
+                        {
                             lastGoodTag = ea.DeliveryTag;
                             if (++pendingCount >= batchSize)
                             {
                                 await channel.BasicAckAsync(lastGoodTag, multiple: true, cancellationToken: token);
                                 pendingCount = 0;
                             }
+                            return;
                         }
-                        catch (Exception ex)
+
+                        // Ack the successful messages before this one, then settle this one on its own.
+                        if (pendingCount > 0)
                         {
-                            _logger.LogError(ex, "Error processing message from {Queue}", _settings.ReadQueueName);
-                            if (pendingCount > 0)
-                            {
-                                await channel.BasicAckAsync(lastGoodTag, multiple: true, cancellationToken: token);
-                                pendingCount = 0;
-                            }
-                            // A message that already failed once after redelivery is treated as poison: reject
-                            // without requeue so it dead-letters (if a DLX is configured) instead of looping forever.
-                            var requeue = !(_settings.RejectRedeliveredFailures && ea.Redelivered);
-                            if (!requeue)
-                                _logger.LogWarning("Message {DeliveryTag} from {Queue} failed again after redelivery; rejecting without requeue (poison message)", ea.DeliveryTag, _settings.ReadQueueName);
-                            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: requeue, cancellationToken: token);
+                            await channel.BasicAckAsync(lastGoodTag, multiple: true, cancellationToken: token);
+                            pendingCount = 0;
                         }
+
+                        if (result.Outcome == ProcessOutcome.DeadLetter)
+                        {
+                            // Reject without requeue: RabbitMQ routes it to the queue's dead-letter exchange, if one is configured.
+                            _logger.LogWarning("Message {DeliveryTag} from {Queue} rejected without requeue (dead-lettered if the queue has a DLX): {Failure}",
+                                ea.DeliveryTag, _settings.ReadQueueName, result.FailureText);
+                            await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false, cancellationToken: token);
+                            return;
+                        }
+
+                        // Retry. A message that already failed once after redelivery is treated as poison: reject
+                        // without requeue so it dead-letters (if a DLX is configured) instead of looping forever.
+                        var requeue = !(_settings.RejectRedeliveredFailures && ea.Redelivered);
+                        if (requeue)
+                            _logger.LogWarning("Message {DeliveryTag} from {Queue} will be redelivered: {Failure}", ea.DeliveryTag, _settings.ReadQueueName, result.FailureText);
+                        else
+                            _logger.LogWarning("Message {DeliveryTag} from {Queue} failed again after redelivery; rejecting without requeue (poison message): {Failure}",
+                                ea.DeliveryTag, _settings.ReadQueueName, result.FailureText);
+                        await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: requeue, cancellationToken: token);
                     };
 
                     await channel.BasicConsumeAsync(_settings.ReadQueueName, autoAck: false, consumer: consumer, cancellationToken: token);
