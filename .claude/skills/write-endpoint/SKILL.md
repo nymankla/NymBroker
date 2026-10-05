@@ -41,6 +41,11 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - `HealthCheck()` has a timeout and never throws.
 - Retries use `NymBroker.Resilience.RetryPolicy` (one per endpoint, `OnRetry` logs). **Never add Polly.**
 - Constructor: `(string name, TSettings settings, ILogger<T> logger, EndpointMode mode = EndpointMode.ReadWrite)`.
+- Use Nymbroker.Resiliance if applicable
+- Always try to use best practices when implementing the endpoint. If implementing a new transport, follow the patterns established in the existing ones. 
+- Optimize for performance and reliability, using best practices for undelying transport and infrastructure.
+- Ensure proper disposal of resources and handle exceptions gracefully to maintain system stability.
+- Follow consistent naming conventions and code style to improve readability and maintainability.
 
 For a new project, mirror `NymBroker.RabbitMq/`: a csproj that references only `NymBroker.Core` plus the client package, with `PackageId`/`PackageDescription` set; `<Transport>Settings.cs`; `<Transport>EndPoint.cs`; `NymBrokerBuilder<Transport>Extensions.cs`. Add the project to `NymBroker.slnx`; `scripts/pack.ps1` picks up `NymBroker.*` projects automatically.
 
