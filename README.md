@@ -112,6 +112,8 @@ The broker emits these measurements:
 | Instrument | Meter | Meaning |
 |---|---|---|
 | `nymbroker.messages.received` | `NymBroker` | Calls entering message processing, tagged with the source endpoint |
+| `nymbroker.messages.routed` | `NymBroker` | Endpoint deliveries, tagged with `source`, `destination`, `message_type`, `via` (`route`/`topic`), optional `topic`, and `outcome` (`success`/`failure`) |
+| `nymbroker.messages.consumed` | `NymBroker` | Consumer and topic-subscriber invocations, tagged with `source`, `message_type`, `consumer`, `kind` (`consumer`/`subscriber`), and `outcome` (`success`/`failure`) |
 | `nymbroker.messages.failed` | `NymBroker` | Processing failures, including deserialization and consumer failures |
 | `nymbroker.messages.dead_lettered` | `NymBroker` | Dead-lettered messages, tagged with `reason` (`DeadLetterReasons` or a transport reason), `source` endpoint and `mode` (`broker`: posted to the dead-letter endpoint; `native`: the broker returned `ProcessResult.DeadLetter`) |
 | `nymbroker.message.processing.duration` | `NymBroker` | Processing latency in milliseconds, tagged with `outcome` (`success`/`failure`) and `result` (`completed`/`retry`/`dead_letter`, the `ProcessResult` returned to the endpoint) |
@@ -119,7 +121,7 @@ The broker emits these measurements:
 
 Each processing call is instrumented with a `nymbroker.process` consumer activity when a listener is attached. Once an envelope is decoded, the activity and logging scope carry the message ID, correlation ID, message type, and source endpoint. These identifiers let log aggregators and trace backends correlate broker-stage logs with a message. Activity context propagates across asynchronous processing; subscribe to `NymBroker` to export the spans.
 
-For production dashboards and alerts, monitor message receive rate alongside failures and processing latency, retry rate, dead-letter and expired-message logs, and transport-specific queue depth/age and endpoint health. The core metrics describe broker processing and retries; queue depth and transport health should be collected from the configured endpoint or hosting platform.
+For production dashboards and alerts, monitor message receive rate alongside routed and consumed rates by destination and consumer, the failure ratio per consumer, processing latency, retry rate, dead-letter and expired-message logs, and transport-specific queue depth/age and endpoint health. The counters describe delivery attempts and handler invocations separately; a topic delivery may be both routed and consumed by subscribers, so received is not a strict sum of these counters. The core metrics describe broker processing and retries; queue depth and transport health should be collected from the configured endpoint or hosting platform.
 
 ## Solution layout
 

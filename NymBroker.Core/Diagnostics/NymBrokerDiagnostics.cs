@@ -17,6 +17,13 @@ public static class NymBrokerDiagnostics
     internal static readonly Counter<long> MessagesDeadLettered =
         Meter.CreateCounter<long>("nymbroker.messages.dead_lettered", "{message}");
 
+    // Tags are bounded to config-time names and message types; never add message or payload identifiers.
+    internal static readonly Counter<long> MessagesRouted =
+        Meter.CreateCounter<long>("nymbroker.messages.routed", "{message}");
+
+    internal static readonly Counter<long> MessagesConsumed =
+        Meter.CreateCounter<long>("nymbroker.messages.consumed", "{message}");
+
     internal static readonly Histogram<double> ProcessingDuration =
         Meter.CreateHistogram<double>("nymbroker.message.processing.duration", "ms");
 }

@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Collections.Immutable;
 using System.Linq.Expressions;
 using NymBroker.Core.Consume;
+using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Message;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -30,7 +32,29 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogge
         await using var scope = scopeFactory.CreateAsyncScope();
         var consumer = scope.ServiceProvider.GetRequiredKeyedService<IMessageConsumer>(serviceKey);
         var dispatcher = DispatchCache.GetOrAdd(messageType, BuildDispatcher);
-        await dispatcher(consumer, message, context, ct);
+        var tags = new TagList
+        {
+            { "source", context.Address?.From ?? "unknown" },
+            { "message_type", MessageTypeName.Get(messageType) },
+            { "consumer", serviceKey },
+            { "kind", "consumer" }
+        };
+        try
+        {
+            await dispatcher(consumer, message, context, ct);
+            tags.Add("outcome", "success");
+            NymBrokerDiagnostics.MessagesConsumed.Add(1, tags);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            tags.Add("outcome", "failure");
+            NymBrokerDiagnostics.MessagesConsumed.Add(1, tags);
+            throw;
+        }
     }
 
     private static Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task> BuildDispatcher(Type messageType)
