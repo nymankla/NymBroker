@@ -113,6 +113,7 @@ The broker emits these measurements:
 |---|---|---|
 | `nymbroker.messages.received` | `NymBroker` | Calls entering message processing, tagged with the source endpoint |
 | `nymbroker.messages.failed` | `NymBroker` | Processing failures, including deserialization and consumer failures |
+| `nymbroker.messages.dead_lettered` | `NymBroker` | Dead-lettered messages, tagged with `reason` (`DeadLetterReasons` or a transport reason), `source` endpoint and `mode` (`broker`: posted to the dead-letter endpoint; `native`: the broker returned `ProcessResult.DeadLetter`) |
 | `nymbroker.message.processing.duration` | `NymBroker` | Processing latency in milliseconds, tagged with `outcome` (`success`/`failure`) and `result` (`completed`/`retry`/`dead_letter`, the `ProcessResult` returned to the endpoint) |
 | `nymbroker.retries` | `NymBroker.Resilience` | Retry attempts made by `RetryPolicy` |
 
@@ -1060,7 +1061,7 @@ Failed messages are set aside so they can be inspected or reprocessed without bl
 | Undecodable bytes, expired (TTL), unknown compression | `DeadLetter` with a reason | rejected to the dead-letter exchange at once | dead-lettered at once with the reason and description | `Failed` at once, reason in the error column |
 | A route's destination fails | `Retry` | as above | as above | as above |
 
-**All other endpoints** (Memory, File, custom endpoints without a dead-letter queue, or `UseNativeDeadLetter = false`): the broker posts the original bytes to the endpoint named by `WithDeadLetterEndpoint` and the source message is completed. This covers consumer and topic failures, expired messages, and undecodable messages (which were dropped before 0.2.0).
+**All other endpoints** (Memory, File, custom endpoints without a dead-letter queue, or `UseNativeDeadLetter = false`): the broker posts the message to the endpoint named by `WithDeadLetterEndpoint` and the source message is completed. This covers consumer and topic failures, expired messages, and undecodable messages (which were dropped before 0.2.0). The posted bytes are the original envelope with an added `deadLetter` block that records why (see below).
 
 ```csharp
 services.AddNymBroker()
@@ -1073,7 +1074,33 @@ services.AddNymBroker()
 
 - `StartAsync` throws `InvalidOperationException` if the dead-letter endpoint is `ReadOnly`.
 - Make the dead-letter endpoint `WriteOnly` unless you mean to consume from it in the same broker: a listening dead-letter endpoint feeds its messages straight back into processing, and a consumer that keeps failing would loop.
-- Every dead-lettering is logged at `Warning` with its reason (`DeadLetterReasons`).
+- Every dead-lettering is logged at `Warning` with its reason (`DeadLetterReasons`) and counted in `nymbroker.messages.dead_lettered`.
+
+**The `deadLetter` block.** A dead-lettered envelope gets an optional `deadLetter` object; normal messages are unchanged on the wire. A message that is dead-lettered again gets the block *replaced* by the latest failure.
+
+```json
+{ "id": "…", "messageType": "orders.created", "message": { … },
+  "deadLetter": { "reason": "ConsumerFailed", "description": "InvalidOperationException: stock not available",
+                  "exceptionType": "System.InvalidOperationException", "sourceEndpoint": "OrdersIn",
+                  "deadLetteredAt": "2026-10-05T12:00:00Z", "deliveryCount": null } }
+```
+
+Consumers read it as `context.DeadLetter` (`DeadLetterInfo`), and it survives routing. The description is the exception message capped at 4 096 characters (no stack trace). `deliveryCount` is filled only when the transport knows it (Service Bus). `DeadLetterEnvelope.Annotate(raw, info)` adds the block to any bytes; the Azure Service Bus endpoint uses it when `ReadDeadLetterQueue = true`, so a Service Bus DLQ reader sees the same block (reason `MaxDeliveryCountExceeded`, etc.).
+
+Bytes that are not a JSON object (not JSON, invalid UTF-8, an array) are wrapped in a new envelope of type `nymbroker.undecodable` — `UndecodableMessage { PayloadBase64, PayloadText }`, with `PayloadText` set only for valid UTF-8 — so a dead-letter consumer can handle them with `IConsume<UndecodableMessage>`.
+
+Replay example — consume from the dead-letter endpoint and re-post:
+
+```csharp
+public sealed class ReplayConsumer(INymBroker broker) : IConsume<Order>
+{
+    public async Task ConsumeAsync(Order message, IMessageContext context, CancellationToken ct = default)
+    {
+        if (context.DeadLetter?.Reason == DeadLetterReasons.ConsumerFailed)
+            await broker.PostAsync("Main", message, ct);   // a fresh envelope; a failure again dead-letters it with a new block
+    }
+}
+```
 
 ### Wire Tap
 

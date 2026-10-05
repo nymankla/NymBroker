@@ -84,6 +84,8 @@ If your transport has its own dead-letter queue (a dead-letter exchange, a DLQ s
 | Undecodable, expired, unknown compression | `DeadLetter(reason)`: dead-letter it now | the broker posts to its dead-letter endpoint and returns `Completed` |
 | A route's destination throws | `Retry` | `Retry` |
 
+When your endpoint *reads* a native dead-letter queue, call `DeadLetterEnvelope.Annotate(body, new DeadLetterInfo(reason, description, null, sourceEndpoint, deadLetteredAt, deliveryCount))` on each received body before handing it to the broker. The block (`context.DeadLetter`) is then the same whether the message came from the broker's dead-letter endpoint or the transport's own queue.
+
 So an endpoint **without** a native dead-letter queue only ever sees `Completed` or `Retry`, and failed messages end up on the broker's dead-letter endpoint. Endpoints in this repo: RabbitMQ (reject without requeue, i.e. the queue's dead-letter exchange) and the SQLite / PostgreSQL / SQL Server tables (`Failed` with the reason in the error column) dead-letter natively; Memory and File don't.
 
 ### `EndpointMode`
@@ -634,6 +636,7 @@ Tests run in parallel. Use a unique name, port or table per test, and filter any
 - [ ] `PostAsync` sends the bytes unchanged, is safe to call concurrently, and honours `ct`.
 - [ ] `StartListeningAsync` returns immediately; the loop runs on `Task.Run` with a linked CTS.
 - [ ] Every received message goes through `handler` and is settled by its `ProcessResult`: `Completed` → ack; `Retry` → redeliver (or log as lost if the transport can't); `DeadLetter` → the transport's dead-letter queue with `Reason`/`Description`. A handler exception counts as `Retry`. The loop survives.
+- [ ] An endpoint that reads a native dead-letter queue (like Service Bus's `ReadDeadLetterQueue`) passes each body through `DeadLetterEnvelope.Annotate(body, new DeadLetterInfo(...))` before calling `handler`, so consumers see a uniform `context.DeadLetter`.
 - [ ] `UsesNativeDeadLetter` is `true` (via a `UseNativeDeadLetter` setting, default `true`) only if the transport has its own dead-letter queue.
 - [ ] Messages are acked/completed only for `Completed`.
 - [ ] Poison messages stop being retried eventually (max delivery count or `MaxRetryCount`), with a `Warning` log.

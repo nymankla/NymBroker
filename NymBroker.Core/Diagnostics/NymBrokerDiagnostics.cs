@@ -14,6 +14,9 @@ public static class NymBrokerDiagnostics
     internal static readonly Counter<long> MessagesFailed =
         Meter.CreateCounter<long>("nymbroker.messages.failed", "{message}");
 
+    internal static readonly Counter<long> MessagesDeadLettered =
+        Meter.CreateCounter<long>("nymbroker.messages.dead_lettered", "{message}");
+
     internal static readonly Histogram<double> ProcessingDuration =
         Meter.CreateHistogram<double>("nymbroker.message.processing.duration", "ms");
 }

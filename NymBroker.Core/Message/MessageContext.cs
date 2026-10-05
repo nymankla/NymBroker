@@ -9,5 +9,6 @@ public sealed class MessageContext<T> : IMessageContext<T> where T : class
     public EndpointAddress? Address { get; set; }
     public string? MessageType { get; set; } = MessageTypeName.Get(typeof(T));
     public DateTime Created { get; set; } = DateTime.UtcNow;
+    public DeadLetterInfo? DeadLetter { get; set; }
     public T? Message { get; set; }
 }

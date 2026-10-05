@@ -36,6 +36,7 @@ Start from the matching sample in the guide. Then verify every item in the guide
 
 - `StartListeningAsync` **returns immediately**. The loop runs in `Task.Run(..., CancellationToken.None)` on a linked CTS; `StopListeningAsync` cancels and **awaits** the loop.
 - Settle every message by the handler's `ProcessResult` (guide §1): `Completed` → ack; `Retry` → nack/abandon so it is redelivered (or log it as lost if the transport can't redeliver); `DeadLetter` → the transport's dead-letter queue with `Reason`/`Description`. A handler exception counts as `Retry`. **The loop continues** either way.
+- If the endpoint can read the transport's own dead-letter queue, pass each received body through `DeadLetterEnvelope.Annotate(body, new DeadLetterInfo(...))` before calling the handler, so consumers see a uniform `context.DeadLetter`.
 - `UsesNativeDeadLetter => _settings.UseNativeDeadLetter` (default `true`) **only** if the transport has its own dead-letter queue; otherwise leave the interface default (`false`) and the broker's dead-letter endpoint takes failures.
 - Three catch layers: per message (`when (ex is not OperationCanceledException)`) → `LogError`; `OperationCanceledException` → swallow; anything else → `LogCritical`. Never a silent catch.
 - `PostAsync` sends the bytes unchanged and is safe to call concurrently.

@@ -280,7 +280,7 @@ public sealed partial class NymBrokerImpl
                 else
                 {
                     _logger.LogError(ex, "Topic '{Topic}' failed to deliver message — routing to dead letter", topic.TopicName);
-                    await TryPostToDeadLetterAsync(raw, DeadLetterReasons.TopicDeliveryFailed, ex.Message, ct);
+                    await TryPostToDeadLetterAsync(raw, sourceEndpoint, DeadLetterReasons.TopicDeliveryFailed, ex.Message, ex, ct);
                 }
             }
         }
@@ -313,7 +313,7 @@ public sealed partial class NymBrokerImpl
                 }
 
                 _logger.LogError(ex, "Consumer failed for message type {MessageType} — routing to dead letter", messageType.Name);
-                await TryPostToDeadLetterAsync(raw, DeadLetterReasons.ConsumerFailed, ex.Message, ct);
+                await TryPostToDeadLetterAsync(raw, sourceEndpoint, DeadLetterReasons.ConsumerFailed, ex.Message, ex, ct);
             }
         }
 
@@ -336,14 +336,24 @@ public sealed partial class NymBrokerImpl
         {
             _logger.LogWarning("Message from {Source} is dead-lettered by the endpoint ({Reason}: {Description})",
                 sourceEndpoint, reason, description);
+            RecordDeadLettered(reason, sourceEndpoint, "native");
             return ProcessResult.DeadLetter(reason, description, exception);
         }
 
-        await TryPostToDeadLetterAsync(raw, reason, description, ct);
+        await TryPostToDeadLetterAsync(raw, sourceEndpoint, reason, description, exception, ct);
         return ProcessResult.Completed;
     }
 
-    private async Task TryPostToDeadLetterAsync(byte[] raw, string reason, string? description, CancellationToken ct)
+    private static void RecordDeadLettered(string reason, string? sourceEndpoint, string mode)
+        => NymBrokerDiagnostics.MessagesDeadLettered.Add(1, new TagList
+        {
+            { "reason", reason },
+            { "source", sourceEndpoint ?? "unknown" },
+            { "mode", mode }
+        });
+
+    private async Task TryPostToDeadLetterAsync(byte[] raw, string? sourceEndpoint, string reason, string? description,
+        Exception? exception, CancellationToken ct)
     {
         if (_deadLetterEndpoint == null) return;
         if (!_endpoints.TryGetValue(_deadLetterEndpoint, out var dlq))
@@ -353,7 +363,9 @@ public sealed partial class NymBrokerImpl
         }
         try
         {
-            await dlq.PostAsync(raw, ct);
+            var info = new DeadLetterInfo(reason, description, exception?.GetType().FullName, sourceEndpoint, DateTime.UtcNow);
+            await dlq.PostAsync(DeadLetterEnvelope.Annotate(raw, info), ct);
+            RecordDeadLettered(reason, sourceEndpoint, "broker");
             _logger.LogWarning("Message dead-lettered to endpoint '{Endpoint}' ({Reason}: {Description})", _deadLetterEndpoint, reason, description);
         }
         catch (Exception ex) { _logger.LogError(ex, "Failed to post message to dead letter endpoint '{Endpoint}'", _deadLetterEndpoint); }

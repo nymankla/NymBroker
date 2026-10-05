@@ -9,6 +9,7 @@ using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.Memory;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
+using NymBroker.Core.Serialize;
 
 namespace NymBroker.Tests;
 
@@ -326,16 +327,45 @@ public sealed class AzureServiceBusEndPointTests : IAsyncLifetime
         await ep.StopListeningAsync();
 
         var dlqReader = CreateEndPoint(readDeadLetterQueue: true);
-        var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var received = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         await dlqReader.StartListeningAsync((raw, _) =>
         {
-            received.TrySetResult(Encoding.UTF8.GetString(raw));
+            received.TrySetResult(raw);
             return Task.FromResult(ProcessResult.DeadLetter(DeadLetterReasons.DeserializationFailed, "still bad"));
         }, TestContext.Current.CancellationToken);
 
-        Assert.Equal("to-dlq", await received.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken));
+        var body = await received.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        var ctx = (RawMessageContext)new MessageSerializerJson().Deserialize(body);
+        Assert.Equal(DeadLetterReasons.DeserializationFailed, ctx.DeadLetter!.Reason);
+        Assert.Equal("bad bytes", ctx.DeadLetter.Description);
+        Assert.Equal("to-dlq", Encoding.UTF8.GetString(Convert.FromBase64String(
+            MessageSerializerJson.DeserializeMessage<UndecodableMessage>(ctx)!.PayloadBase64)));
         await WaitUntilAsync(async () => await PeekAsync(SubQueue.DeadLetter) is null);
         await dlqReader.StopListeningAsync();
+    }
+
+    [Fact]
+    public void BuildBody_ForDeadLetterQueue_AnnotatesWithServiceBusReason()
+    {
+        var original = Encoding.UTF8.GetBytes("""{"id":"2f1b8d7e-0000-0000-0000-000000000001","messageType":"x","message":{"v":1}}""");
+        var enqueued = new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
+        var message = ServiceBusModelFactory.ServiceBusReceivedMessage(
+            body: BinaryData.FromBytes(original), deliveryCount: 3, enqueuedTime: enqueued, deadLetterSource: "orders",
+            properties: new Dictionary<string, object>
+            {
+                ["DeadLetterReason"] = "MaxDeliveryCountExceeded",
+                ["DeadLetterErrorDescription"] = "too many"
+            });
+
+        var plain = AzureServiceBusEndPoint.BuildBody(message, false, "Sb");
+        Assert.Equal(original, plain);
+
+        var ctx = new MessageSerializerJson().Deserialize(AzureServiceBusEndPoint.BuildBody(message, true, "Sb"));
+        Assert.Equal("MaxDeliveryCountExceeded", ctx.DeadLetter!.Reason);
+        Assert.Equal("too many", ctx.DeadLetter.Description);
+        Assert.Equal("orders", ctx.DeadLetter.SourceEndpoint);
+        Assert.Equal(3, ctx.DeadLetter.DeliveryCount);
+        Assert.Equal(enqueued.UtcDateTime, ctx.DeadLetter.DeadLetteredAt);
     }
 
     [Fact]

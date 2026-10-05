@@ -34,7 +34,8 @@ public sealed class MessageSerializerJson : IMessageSerializer
             Address = context.Address,
             MessageType = context.MessageType,
             Created = context.Created,
-            Message = messageElement
+            Message = messageElement,
+            DeadLetter = context.DeadLetter
         };
 
         var ms = StreamManager.GetStream("MessageSerializerJson.Serialize");
@@ -55,6 +56,7 @@ public sealed class MessageSerializerJson : IMessageSerializer
             Address = dto.Address,
             MessageType = dto.MessageType,
             Created = dto.Created,
+            DeadLetter = dto.DeadLetter,
             RawMessage = dto.Message
         };
     }
@@ -71,6 +73,7 @@ public sealed class MessageSerializerJson : IMessageSerializer
             Address = dto.Address,
             MessageType = dto.MessageType,
             Created = dto.Created,
+            DeadLetter = dto.DeadLetter,
             RawMessage = dto.Message
         };
     }
@@ -87,6 +90,7 @@ public sealed class MessageSerializerJson : IMessageSerializer
             Address = dto.Address,
             MessageType = dto.MessageType,
             Created = dto.Created,
+            DeadLetter = dto.DeadLetter,
             RawMessage = dto.Message
         };
     }

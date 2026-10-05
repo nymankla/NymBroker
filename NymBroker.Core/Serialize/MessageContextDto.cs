@@ -23,6 +23,10 @@ internal sealed class MessageContextDto
 
     [JsonPropertyName("message")]
     public JsonElement Message { get; set; }
+
+    [JsonPropertyName("deadLetter")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DeadLetterInfo? DeadLetter { get; set; }
 }
 
 /// <summary>Returned by the deserializer; carries the raw message payload for deferred typed deserialization.</summary>
@@ -33,5 +37,6 @@ public sealed class RawMessageContext : IMessageContext
     public EndpointAddress? Address { get; set; }
     public string? MessageType { get; set; }
     public DateTime Created { get; set; }
+    public DeadLetterInfo? DeadLetter { get; set; }
     public JsonElement RawMessage { get; set; }
 }
