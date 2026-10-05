@@ -77,6 +77,7 @@ ProcessResult             ← what the handler returns: Completed | Retry | Dead
 DeadLetterReasons         ← DeserializationFailed, Expired, UnknownCompression, ConsumerFailed, TopicDeliveryFailed
 
 IMessageContext<T>        ← typed envelope (Id, CorrelationId, Address, MessageType, Created)
+DeadLetterInfo            ← why a message was dead-lettered (IMessageContext.DeadLetter); DeadLetterEnvelope.Annotate adds it to bytes
 RawMessageContext          ← internal deserialized form; holds JsonElement RawMessage for deferred typing
 
 INymBroker            ← engine facade (see below)
@@ -114,6 +115,8 @@ See [docs/writing-an-endpoint.md](docs/writing-an-endpoint.md) for how to implem
   "message": { "...business payload..." }
 }
 ```
+
+An optional `deadLetter` object (`DeadLetterInfo`: `reason`, `description` capped at 4 096 chars, `exceptionType`, `sourceEndpoint`, `deadLetteredAt`, `deliveryCount`) is added only when a message is dead-lettered (replaced if dead-lettered again); normal envelopes are byte-for-byte unchanged. It is exposed as `IMessageContext.DeadLetter` and survives routing. `DeadLetterEnvelope.Annotate(raw, info)` adds it to any bytes (preserving unknown properties); bytes that are not a JSON object become a new `nymbroker.undecodable` envelope (`UndecodableMessage`, pre-registered like `SplitMessage`). The broker's `TryPostToDeadLetterAsync` and the Service Bus endpoint (`ReadDeadLetterQueue = true`) use it. Counter `nymbroker.messages.dead_lettered` is tagged `reason`/`source`/`mode` (`broker`|`native`).
 
 `messageType` is resolved from `[MessageName("short.name")]` if present, otherwise the CLR `FullName`. `MessageTypeName.Get(type)` is the single resolver.
 
@@ -348,6 +351,7 @@ No exception is silently swallowed. The policy per layer:
 |---|---|
 | `NymBrokerImpl.ProcessAsync` | Deserialization failure → `LogError`, then dead-lettered (native `DeadLetter` or the broker's dead-letter endpoint). Unresolved type with no route → `LogWarning`. Every dead-lettering → `LogWarning` with its reason. Unexpected exception → `LogError`, returns `Retry`. |
 | `ConsumerDispatcher` | No registered consumer → `LogWarning`. |
+| Dead-letter endpoint posts (`TryPostToDeadLetterAsync`) | Posts `DeadLetterEnvelope.Annotate(raw, info)` so the reason travels with the message; counted in `nymbroker.messages.dead_lettered`; a failing post → `LogError`. |
 | `AggregatorImpl.PurgeExpired` | Purge count logged at `Debug`. |
 | `NymBrokerImpl.StartAsync` | Any startup exception → `LogError`, scheduled actions rolled back, exception re-thrown. |
 | `FileEndPoint.OnFileCreated` | Fire-and-forget handler failure, or a non-`Completed` result → `LogError` (the file is already renamed, no retry; loop continues). |

@@ -7,6 +7,9 @@ public interface IMessageContext
     EndpointAddress? Address { get; set; }
     string? MessageType { get; set; }
     DateTime Created { get; set; }
+
+    /// <summary>Why the message was dead-lettered; null for messages that were not.</summary>
+    DeadLetterInfo? DeadLetter => null;
 }
 
 public interface IMessageContext<T> : IMessageContext where T : class

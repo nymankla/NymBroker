@@ -148,7 +148,11 @@ public sealed class ProcessResultTests
         var result = await h.Broker.ProcessAsync("not json at all", Plain, TestContext.Current.CancellationToken);
 
         Assert.Equal(ProcessResult.Completed, result);
-        Assert.Equal(["not json at all"], await h.DrainDeadLettersAsync());
+        var item = Assert.Single(await h.DrainDeadLettersAsync());
+        var ctx = (RawMessageContext)new MessageSerializerJson().Deserialize(item);
+        Assert.Equal(DeadLetterReasons.DeserializationFailed, ctx.DeadLetter!.Reason);
+        Assert.Equal("not json at all", Encoding.UTF8.GetString(Convert.FromBase64String(
+            MessageSerializerJson.DeserializeMessage<UndecodableMessage>(ctx)!.PayloadBase64)));
     }
 
     // --- Expired ---

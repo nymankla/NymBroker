@@ -2,6 +2,7 @@ using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
+using NymBroker.Core.Message;
 
 namespace NymBroker.AzureServiceBus;
 
@@ -140,7 +141,7 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDispos
         ProcessResult result;
         try
         {
-            result = await handler(message.Body.ToArray(), args.CancellationToken);
+            result = await handler(BuildBody(message, _settings.ReadDeadLetterQueue, _name), args.CancellationToken);
         }
         catch (OperationCanceledException) when (args.CancellationToken.IsCancellationRequested)
         {
@@ -164,6 +165,26 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDispos
             _logger.LogError(ex, "Could not settle message {MessageId} ({Outcome}) on endpoint '{Name}'; it will be redelivered when its lock expires",
                 message.MessageId, result.Outcome, _name);
         }
+    }
+
+    /// <summary>
+    /// The body handed to the broker. Messages read from the dead-letter queue get the <c>deadLetter</c> block
+    /// (reason, description, source, time, delivery count) so consumers see the same <c>context.DeadLetter</c> as for the
+    /// broker's own dead-letter endpoint.
+    /// </summary>
+    internal static byte[] BuildBody(ServiceBusReceivedMessage message, bool readDeadLetterQueue, string endpointName)
+    {
+        var body = message.Body.ToArray();
+        if (!readDeadLetterQueue) return body;
+
+        var info = new DeadLetterInfo(
+            message.DeadLetterReason ?? "Unknown",
+            message.DeadLetterErrorDescription,
+            null,
+            string.IsNullOrEmpty(message.DeadLetterSource) ? endpointName : message.DeadLetterSource,
+            message.EnqueuedTime.UtcDateTime,
+            message.DeliveryCount);
+        return DeadLetterEnvelope.Annotate(body, info);
     }
 
     private Task OnErrorAsync(ProcessErrorEventArgs args)

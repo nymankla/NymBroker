@@ -487,7 +487,7 @@ public sealed class PubSubTests
 
         var deadLetterItems = await DrainAsync(deadLetter);
         Assert.Single(deadLetterItems);
-        Assert.Equal(raw, deadLetterItems[0]);
+        Assert.StartsWith(raw[..^1] + ",\"deadLetter\":{\"reason\":\"TopicDeliveryFailed\"", deadLetterItems[0]);
         Assert.Empty(consumer.Received);
     }
 
@@ -519,7 +519,7 @@ public sealed class PubSubTests
 
         var deadLetterItems = await DrainAsync(deadLetter);
         Assert.Single(deadLetterItems);
-        Assert.Equal(raw, deadLetterItems[0]);
+        Assert.StartsWith(raw[..^1] + ",\"deadLetter\":{\"reason\":\"TopicDeliveryFailed\"", deadLetterItems[0]);
         Assert.Equal(1, subscriber.CallCount);
         Assert.Empty(consumer.Received);
     }

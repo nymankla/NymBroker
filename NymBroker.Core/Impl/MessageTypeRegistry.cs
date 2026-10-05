@@ -12,6 +12,7 @@ public sealed class MessageTypeRegistry
     public MessageTypeRegistry()
     {
         Register(typeof(SplitMessage));
+        Register(typeof(UndecodableMessage));
     }
 
     public void Register(Type messageType)
