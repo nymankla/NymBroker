@@ -1,6 +1,6 @@
 # NymBroker
 
-NymBroker is a .NET 10 message-processing framework based on [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). It decouples producers from handlers: applications post typed messages to endpoints, and the broker deserializes, filters, routes, and dispatches them to consumers or subscribers. Start with the in-process Memory endpoint, then add file, SQLite, PostgreSQL, SQL Server, or RabbitMQ transports as your application grows.
+NymBroker is a .NET 10 message-processing framework based on [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). It decouples producers from handlers: applications post typed messages to endpoints, and the broker deserializes, filters, routes, and dispatches them to consumers or subscribers. Start with the in-process Memory endpoint, then add file, SQLite, PostgreSQL, SQL Server, RabbitMQ, or Azure Service Bus transports as your application grows.
 
 ```
 Source Endpoint → [Wire Tap] → Deserialize → [TTL Check] → Filter → Router → Consumer / Destination Endpoint
@@ -71,7 +71,7 @@ public sealed class OrderConsumer : IConsume<Order>
 
 | Building block | Purpose |
 |---|---|
-| [Endpoints](#endpoints) | Named transport adapters that accept and/or deliver messages. Memory is useful for local work and tests; File, SQLite, PostgreSQL, SQL Server, and RabbitMQ connect other systems. |
+| [Endpoints](#endpoints) | Named transport adapters that accept and/or deliver messages. Memory is useful for local work and tests; File, SQLite, PostgreSQL, SQL Server, RabbitMQ, and Azure Service Bus connect other systems. |
 | [Routes](#routing) | Match message types and conditions, then forward messages to destination endpoints. |
 | [Filters](#filters) | Inspect or modify a message before routing; return `null` to drop it. |
 | [Consumers](#getting-started) | Implement `IConsume<T>` to handle messages of a particular type. Consumers are dispatched through dependency injection. |
@@ -82,7 +82,7 @@ In short: a producer posts to an endpoint, the broker processes the message thro
 
 ## Features
 
-- **Multiple transports** — RabbitMQ, SQLite, PostgreSQL, SQL Server, File system, and in-process Memory endpoint
+- **Multiple transports** — RabbitMQ, Azure Service Bus, SQLite, PostgreSQL, SQL Server, File system, and in-process Memory endpoint
 - **Fluent routing API** — type-safe, composable route conditions
 - **Typed consumers** — implement `IConsume<T>`, optionally handle multiple message types in one class
 - **Publish-Subscribe Channel** — EIP pub/sub; declare topics with typed `ISubscribe<T>` subscribers or endpoint fan-out
@@ -130,6 +130,7 @@ For production dashboards and alerts, monitor message receive rate alongside fai
 | `NymBroker.Sqlite` | Optional SQLite transport via Dapper (add when needed) |
 | `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
 | `NymBroker.SqlServer` | Optional SQL Server transport via Microsoft.Data.SqlClient |
+| `NymBroker.AzureServiceBus` | Optional Azure Service Bus transport via Azure.Messaging.ServiceBus |
 | `NymBroker.Tests` | xUnit tests |
 | [`NymBroker.Sample`](samples/NymBroker.Sample) | Fluent API, Memory/File endpoints, routing, and scheduled actions |
 | [`NymBroker.ConfigSample`](samples/NymBroker.ConfigSample) | Endpoint configuration from JSON |
@@ -137,6 +138,7 @@ For production dashboards and alerts, monitor message receive rate alongside fai
 | [`NymBroker.WebSample`](samples/NymBroker.WebSample) | ASP.NET Core REST API → SQLite queue → consumer |
 | [`NymBroker.PostgresSample`](samples/NymBroker.PostgresSample) | PostgreSQL endpoint and queue processing |
 | [`NymBroker.SqlServerSample`](samples/NymBroker.SqlServerSample) | SQL Server endpoint and queue processing |
+| [`NymBroker.AzureServiceBusSample`](samples/NymBroker.AzureServiceBusSample) | Azure Service Bus endpoint: native dead-lettering and reading the dead-letter queue |
 | [`NymBroker.ConsumerSample`](samples/NymBroker.ConsumerSample) | Long-running cross-process consumer (SQLite / PostgreSQL / RabbitMQ) |
 | [`NymBroker.ProducerSample`](samples/NymBroker.ProducerSample) | Cross-process producer that posts to a shared queue |
 | [`NymBroker.CsvSample`](samples/NymBroker.CsvSample) | Input transformer that converts raw CSV into typed messages |
@@ -547,6 +549,79 @@ services.AddNymBroker()
     .WithSqlServer()
     .AddConsumer<OrderConsumer>()
     .Build();
+```
+
+### Azure Service Bus
+
+Add a reference to `NymBroker.AzureServiceBus` and use the extension method:
+
+```csharp
+using NymBroker.AzureServiceBus;
+
+services.AddNymBroker()
+    .AddAzureServiceBusEndPoint("Orders", new AzureServiceBusSettings
+    {
+        ConnectionString = "<namespace connection string>",
+        QueueName        = "orders"
+    })
+    .AddConsumer<OrderConsumer>()
+    .Build();
+
+// Or with Azure AD (reference Azure.Identity in your app):
+    .AddAzureServiceBusEndPoint("Orders", new AzureServiceBusSettings
+    {
+        FullyQualifiedNamespace = "myns.servicebus.windows.net",
+        Credential              = new DefaultAzureCredential(),
+        TopicName               = "orders",        // send to a topic ...
+        SubscriptionName        = "billing"        // ... receive from one of its subscriptions
+    })
+```
+
+Messages are received with a `ServiceBusProcessor` in peek-lock mode and settled by the broker's result:
+
+| Outcome | Settlement |
+|---|---|
+| Processed | `Complete` |
+| A consumer or topic subscriber fails | `Abandon`: Service Bus redelivers it, and moves it to the dead-letter queue with reason `MaxDeliveryCountExceeded` once the entity's `MaxDeliveryCount` is reached |
+| Can never succeed (undecodable, expired, unknown compression) | `DeadLetter` at once, with the reason (`DeadLetterReasons`) and description |
+
+Read a dead-letter queue with a second endpoint on the same entity and `ReadDeadLetterQueue = true`, for example to repair or replay messages; a consumer that returns normally removes the message from the dead-letter queue. The client, sender and processor are long-lived; transient faults are retried by the SDK.
+
+A message can be at most 256 KB on the Standard tier (up to 100 MB on Premium), so pass `splitThresholdBytes` (for example `200_000`) to `PostAsync` for larger messages.
+
+**`AzureServiceBusSettings` properties:**
+
+| Property | Default | Description |
+|---|---|---|
+| `ConnectionString` | — | Namespace or emulator connection string. Use this **or** `FullyQualifiedNamespace` + `Credential` |
+| `FullyQualifiedNamespace` | — | e.g. `myns.servicebus.windows.net` |
+| `Credential` | — | `TokenCredential` (e.g. `DefaultAzureCredential`); code only, not read from config files |
+| `QueueName` | — | Queue to send to and receive from. Use this **or** `TopicName` |
+| `TopicName` / `SubscriptionName` | — | Send to the topic; receive from the subscription |
+| `ReadDeadLetterQueue` | `false` | Receive from the entity's dead-letter queue |
+| `MaxConcurrentCalls` | `1` | Messages handled in parallel; above 1 gives up ordering |
+| `PrefetchCount` | `0` | Messages fetched ahead |
+| `MaxAutoLockRenewalDuration` | `5 min` | How long a message lock is renewed while the handler runs |
+| `UseNativeDeadLetter` | `true` | Use the entity's dead-letter queue. `false` sends failures to the broker's dead-letter endpoint instead and completes the message |
+
+Invalid combinations (both or neither of the connection options or entity names) throw when the endpoint is registered.
+
+From a JSON config file (call `.WithAzureServiceBus()` after `.LoadConfiguration()`; the type name is case-insensitive):
+
+```json
+{
+  "NymBroker": {
+    "Endpoints": [
+      { "Name": "Orders", "Type": "AzureServiceBus", "Config": { "connectionString": "...", "queueName": "orders" } }
+    ]
+  }
+}
+```
+
+**Local development:** `./scripts/setup-servicebus.ps1` starts the [Service Bus emulator](https://learn.microsoft.com/azure/service-bus-messaging/overview-emulator) in Docker (it stores its state in the `sqlserver` service, which starts with it). Entities are declared in `scripts/servicebus/Config.json`. Its AMQP port is mapped to **5673** so it can run next to RabbitMQ:
+
+```text
+Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
 ```
 
 ### RabbitMQ
@@ -977,13 +1052,13 @@ The transformer runs inside `ProcessAsync`; returning `null` silently drops the 
 
 Failed messages are set aside so they can be inspected or reprocessed without blocking the main flow. Where they go depends on the endpoint the message came from.
 
-**Endpoints with their own dead-letter queue** (`UsesNativeDeadLetter`): RabbitMQ and the SQLite, PostgreSQL and SQL Server endpoints, with `UseNativeDeadLetter = true` (the default). The broker tells the endpoint what to do through the `ProcessResult` it returns, and the transport does the dead-lettering:
+**Endpoints with their own dead-letter queue** (`UsesNativeDeadLetter`): RabbitMQ, Azure Service Bus and the SQLite, PostgreSQL and SQL Server endpoints, with `UseNativeDeadLetter = true` (the default). The broker tells the endpoint what to do through the `ProcessResult` it returns, and the transport does the dead-lettering:
 
-| Failure | Result | RabbitMQ | SQL endpoints |
-|---|---|---|---|
-| A consumer or topic subscriber throws | `Retry` | requeued once, then rejected to the queue's dead-letter exchange | back to `Pending`, `Failed` after `MaxRetryCount` |
-| Undecodable bytes, expired (TTL), unknown compression | `DeadLetter` with a reason | rejected to the dead-letter exchange at once | `Failed` at once, reason in the error column |
-| A route's destination fails | `Retry` | as above | as above |
+| Failure | Result | RabbitMQ | Azure Service Bus | SQL endpoints |
+|---|---|---|---|---|
+| A consumer or topic subscriber throws | `Retry` | requeued once, then rejected to the queue's dead-letter exchange | abandoned; dead-lettered (`MaxDeliveryCountExceeded`) after the entity's `MaxDeliveryCount` | back to `Pending`, `Failed` after `MaxRetryCount` |
+| Undecodable bytes, expired (TTL), unknown compression | `DeadLetter` with a reason | rejected to the dead-letter exchange at once | dead-lettered at once with the reason and description | `Failed` at once, reason in the error column |
+| A route's destination fails | `Retry` | as above | as above | as above |
 
 **All other endpoints** (Memory, File, custom endpoints without a dead-letter queue, or `UseNativeDeadLetter = false`): the broker posts the original bytes to the endpoint named by `WithDeadLetterEndpoint` and the source message is completed. This covers consumer and topic failures, expired messages, and undecodable messages (which were dropped before 0.2.0).
 
@@ -1148,6 +1223,9 @@ dotnet run --project samples/NymBroker.PostgresSample
 # SQL Server endpoint demo (start SQL Server first with ./scripts/setup-sqlserver.ps1)
 dotnet run --project samples/NymBroker.SqlServerSample
 
+# Azure Service Bus endpoint demo (start the emulator first with ./scripts/setup-servicebus.ps1)
+dotnet run --project samples/NymBroker.AzureServiceBusSample
+
 # CSV input transformer demo — posts raw CSV lines, broker converts and dispatches as typed messages
 dotnet run --project samples/NymBroker.CsvSample
 dotnet run --project samples/NymBroker.CsvSample -- "ORD-99,Zara,12.50,low"   # single custom line
@@ -1218,6 +1296,7 @@ A warmup pass runs first to JIT the hot paths before measurements begin. GC is f
 | **Split – no compress** | `Memory` | 200 | Same payload and threshold as above but `compress: false`, so the envelope is split into Base64-chunked `SplitMessage` parts without compression. Isolates the cost/benefit of compression by comparing directly against **Split+Compress – direct**. |
 | **Postgres – direct** | `PgBench` | 1 000 | Messages are inserted into a real PostgreSQL table, then claimed using `FOR UPDATE SKIP LOCKED` and dispatched (`BatchSize=50`, `PollInterval=0`). Skipped automatically when PostgreSQL is not reachable. Measures the overhead of TCP round trips and the CTE-based atomic claim. |
 | **SqlServer – direct** | `MssqlBench` | 1 000 | Messages are inserted into a real SQL Server table (`dbo.nymbroker_bench`, dropped before each run), then claimed with `UPDLOCK, READPAST` and dispatched (`BatchSize=50`, `PollInterval=0`). Skipped automatically when SQL Server is not reachable. Start it with `./scripts/setup-sqlserver.ps1`. |
+| **ServiceBus – direct** | `SbBench` | 1 000 | Messages are sent to the `nymbroker.bench` queue of the Service Bus emulator (drained before the run) and received with a `ServiceBusProcessor` (`MaxConcurrentCalls=1`, `PrefetchCount=100`), each completed after processing. Skipped automatically when the emulator or queue is not reachable. Start it with `./scripts/setup-servicebus.ps1`. |
 
 ### Configuration
 
@@ -1240,7 +1319,7 @@ Endpoint topology is declared in `benchmarksettings.json` (loaded via `LoadConfi
 }
 ```
 
-`FileLoop` uses the same directory for reading and writing (`bench-in`), so posted files are immediately visible to the `FileSystemWatcher`. `PubSubDest` is the fan-out target used by the **PubSub – endpoint** scenario. The `Postgres – direct` and `SqlServer – direct` scenarios add their endpoints directly in code (not via the settings file) and are skipped if their database is unreachable.
+`FileLoop` uses the same directory for reading and writing (`bench-in`), so posted files are immediately visible to the `FileSystemWatcher`. `PubSubDest` is the fan-out target used by the **PubSub – endpoint** scenario. The `Postgres – direct`, `SqlServer – direct` and `ServiceBus – direct` scenarios add their endpoints directly in code (not via the settings file) and are skipped if their database or the emulator is unreachable.
 
 ### Completion tracking
 
@@ -1278,6 +1357,7 @@ Notes on the numbers:
 - **Split+Compress vs Split – no compress** isolate the compression step: with the same 16 KB threshold and ~276 KB compressible payload, compression cuts the part count roughly in half (fewer `SplitMessage` posts and reassembly steps), which is why the compressed variant is both faster and allocates less despite paying the Brotli compress/decompress cost. Allocation is dominated by the Base64-encoded chunk strings, not the framework dispatch path — this is the one scenario where megabyte-scale allocations are expected. For incompressible payloads (already-compressed binary, encrypted blobs), expect the two scenarios to converge since `PostAsync` skips compression whenever it doesn't shrink the payload.
 - **Postgres** runs against a local PostgreSQL instance over TCP (`BatchSize=50`, `PollInterval=0`). The scenario posts one message at a time, so it is bound by the INSERT commit (~1.7 ms each on Docker Desktop; ~420 msg/s in the same run as the SqlServer note below). Consuming is faster: each batch is one round trip and one commit, and a backlog drains at ~9 000 msg/s (`BatchSize=50`), or ~3 000–5 000 msg/s with the default settings.
 - **SqlServer** posts one message at a time, so it is bound by the INSERT: every commit waits for a transaction-log flush, which takes ~3 ms on Docker Desktop's virtual disk. Against the `setup-sqlserver.ps1` container on Windows it measured ~215 msg/s, with Postgres at ~400 msg/s in the same run (neither is in the results above, which come from an earlier run on different storage). Consuming is much faster: draining a backlog runs at ~4 500–6 000 msg/s with `BatchSize=50`, because each batch is one round trip and one commit. Concurrent producers also get more throughput, since SQL Server groups their commits into shared log flushes (~1 900 msg/s with 16 producers). With real server storage, expect higher numbers across the board. Don't enable `DELAYED_DURABILITY` for a real queue to speed up inserts, because it can lose committed messages on a crash.
+- **ServiceBus** measured ~40 msg/s against the local emulator. That is the emulator's latency, not the endpoint: with the SDK alone, each send took ~15 ms and receiving with one message at a time (a complete per message) reached ~37 msg/s. Receiving scales with `MaxConcurrentCalls` (~300 msg/s with 8, at the cost of ordering), and batched sends are far cheaper than one at a time. Expect very different numbers against a real namespace, where latency depends on region and tier.
 
 ## Running tests
 
@@ -1286,11 +1366,12 @@ dotnet test
 dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"   # single class
 ```
 
-The PostgreSQL and SQL Server integration tests are skipped unless their connection-string variables are set. To run them, start the databases with `./scripts/setup-postgres.ps1` and `./scripts/setup-sqlserver.ps1`, then:
+The PostgreSQL, SQL Server and Azure Service Bus integration tests are skipped unless their connection-string variables are set. To run them, start the services with `./scripts/setup-postgres.ps1`, `./scripts/setup-sqlserver.ps1` and `./scripts/setup-servicebus.ps1`, then:
 
 ```powershell
-$env:NYMBROKER_POSTGRES_CS  = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres"
-$env:NYMBROKER_SQLSERVER_CS = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
+$env:NYMBROKER_POSTGRES_CS   = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres"
+$env:NYMBROKER_SQLSERVER_CS  = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
+$env:NYMBROKER_SERVICEBUS_CS = "Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
 dotnet test
 ```
 

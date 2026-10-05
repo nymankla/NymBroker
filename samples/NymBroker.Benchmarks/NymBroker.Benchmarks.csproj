@@ -12,6 +12,7 @@
     <ProjectReference Include="..\..\NymBroker.Sqlite\NymBroker.Sqlite.csproj" />
     <ProjectReference Include="..\..\NymBroker.Postgres\NymBroker.Postgres.csproj" />
     <ProjectReference Include="..\..\NymBroker.SqlServer\NymBroker.SqlServer.csproj" />
+    <ProjectReference Include="..\..\NymBroker.AzureServiceBus\NymBroker.AzureServiceBus.csproj" />
     <ProjectReference Include="..\..\NymBroker.RabbitMq\NymBroker.RabbitMq.csproj" />
   </ItemGroup>
 

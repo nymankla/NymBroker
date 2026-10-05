@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="NymBroker.AzureServiceBus/NymBroker.AzureServiceBus.csproj" />
   <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
   <Project Path="NymBroker.RabbitMq/NymBroker.RabbitMq.csproj" />
   <Project Path="NymBroker.Resilience/NymBroker.Resilience.csproj" />
@@ -6,6 +7,9 @@
   <Project Path="NymBroker.Postgres/NymBroker.Postgres.csproj" />
   <Project Path="NymBroker.SqlServer/NymBroker.SqlServer.csproj" />
   <Project Path="NymBroker.Tests/NymBroker.Tests.csproj" />
+  <Project Path="samples/NymBroker.AzureServiceBusSample/NymBroker.AzureServiceBusSample.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
   <Project Path="samples/NymBroker.Benchmarks/NymBroker.Benchmarks.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>

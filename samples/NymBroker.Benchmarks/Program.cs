@@ -9,6 +9,8 @@ using NymBroker.Sql;
 using NymBroker.Postgres;
 using NymBroker.RabbitMq;
 using NymBroker.SqlServer;
+using NymBroker.AzureServiceBus;
+using Azure.Messaging.ServiceBus;
 using Npgsql;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,10 +21,14 @@ const int    FileCount    = 100;
 const int    SqlCount     = 1_000;
 const int    PgCount      = 1_000;
 const int    MssqlCount   = 1_000;
+const int    SbCount      = 1_000;
 const int    RabbitCount  = 1_000;
 const int    SplitCount   = 200;
 const int    SplitThresholdBytes = 16 * 1024;
 const string PgConnStr    = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
+// Service Bus emulator (scripts/setup-servicebus.ps1); AMQP on 5673 because RabbitMQ owns 5672.
+const string SbConnStr    = "Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
+const string SbQueue      = "nymbroker.bench";
 const string MssqlConnStr = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True";
 const string MssqlTable   = "dbo.nymbroker_bench";
 const string RabbitQueue  = "nymbroker.bench";
@@ -37,6 +43,7 @@ Console.WriteLine($"  File scenario    : {FileCount:N0} messages");
 Console.WriteLine($"  SQL scenario     : {SqlCount:N0} messages");
 Console.WriteLine($"  Postgres scenario: {PgCount:N0} messages");
 Console.WriteLine($"  SQL Server scen. : {MssqlCount:N0} messages");
+Console.WriteLine($"  Service Bus scen.: {SbCount:N0} messages");
 Console.WriteLine($"  RabbitMQ scenarios: {RabbitCount:N0} messages (direct + batch/100)");
 Console.WriteLine($"  Split scenarios  : {SplitCount:N0} messages (threshold={SplitThresholdBytes / 1024} KB)");
 Console.WriteLine();
@@ -148,6 +155,22 @@ else
     Console.WriteLine("  SqlServer – direct       ... skipped (SQL Server not available)");
 }
 
+if (await IsServiceBusAvailableAsync())
+{
+    await DrainServiceBusQueueAsync();
+    results.Add(await RunAsync("ServiceBus – direct", "SbBench", SbCount,
+        configureBuilder: b => b.AddAzureServiceBusEndPoint("SbBench", new AzureServiceBusSettings
+        {
+            ConnectionString = SbConnStr,
+            QueueName        = SbQueue,
+            PrefetchCount    = 100
+        })));
+}
+else
+{
+    Console.WriteLine("  ServiceBus – direct      ... skipped (Service Bus emulator or queue not available)");
+}
+
 if (await IsRabbitMqAvailableAsync())
 {
     await PurgeRabbitQueueAsync();
@@ -220,6 +243,34 @@ async Task CleanSqlServerTableAsync()
     await using var cmd = conn.CreateCommand();
     cmd.CommandText = $"DROP TABLE IF EXISTS {MssqlTable}";
     await cmd.ExecuteNonQueryAsync();
+}
+
+// ─── service bus helpers ─────────────────────────────────────────────────────
+
+async Task<bool> IsServiceBusAvailableAsync()
+{
+    try
+    {
+        // Peeking proves both the emulator and the bench queue (scripts/servicebus/Config.json) exist.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await using var client = new ServiceBusClient(SbConnStr);
+        await using var receiver = client.CreateReceiver(SbQueue);
+        await receiver.PeekMessageAsync(cancellationToken: cts.Token);
+        return true;
+    }
+    catch { return false; }
+}
+
+async Task DrainServiceBusQueueAsync()
+{
+    await using var client = new ServiceBusClient(SbConnStr);
+    foreach (var subQueue in new[] { SubQueue.None, SubQueue.DeadLetter })
+    {
+        await using var receiver = client.CreateReceiver(SbQueue, new ServiceBusReceiverOptions { SubQueue = subQueue });
+        IReadOnlyList<ServiceBusReceivedMessage> batch;
+        while ((batch = await receiver.ReceiveMessagesAsync(200, TimeSpan.FromMilliseconds(500))).Count > 0)
+            foreach (var m in batch) await receiver.CompleteMessageAsync(m);
+    }
 }
 
 // ─── rabbitmq helpers ───────────────────────────────────────────────────────

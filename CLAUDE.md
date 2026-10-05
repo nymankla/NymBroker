@@ -12,7 +12,7 @@ Source Endpoint → Deserialize → Filter → Router → Consumer / Destination
                                     Aggregator / Splitter
 ```
 
-Endpoints: **RabbitMQ**, **SQLite**, **PostgreSQL**, **File**, **Memory** (in-process / tests).
+Endpoints: **RabbitMQ**, **Azure Service Bus**, **SQLite**, **PostgreSQL**, **SQL Server**, **File**, **Memory** (in-process / tests).
 
 ## Commands
 
@@ -26,11 +26,13 @@ dotnet run --project samples/NymBroker.Sample            # fluent API demo
 dotnet run --project samples/NymBroker.ConfigSample      # JSON config demo
 dotnet run --project samples/NymBroker.SqlSample         # SQLite endpoint demo
 dotnet run --project samples/NymBroker.SqlServerSample   # SQL Server endpoint demo (run setup-sqlserver.ps1 first)
+dotnet run --project samples/NymBroker.AzureServiceBusSample   # Service Bus demo incl. dead-letter queue (run setup-servicebus.ps1 first)
 dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 
 # PostgreSQL / SQL Server integration tests (skipped unless the env vars are set)
 $env:NYMBROKER_POSTGRES_CS  = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres"
 $env:NYMBROKER_SQLSERVER_CS = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
+$env:NYMBROKER_SERVICEBUS_CS = "Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
 dotnet test --project NymBroker.Tests -- --filter-class "*EndPointTests"
 
 # Local infrastructure (Docker Desktop required) — services defined in scripts/docker-compose.yml
@@ -39,9 +41,10 @@ dotnet test --project NymBroker.Tests -- --filter-class "*EndPointTests"
 ./scripts/setup-rabbitmq.ps1 -Logs    # tail logs
 ./scripts/setup-postgres.ps1          # PostgreSQL on localhost:5432, db nymbroker (postgres/postgres); same -Stop/-Logs
 ./scripts/setup-sqlserver.ps1         # SQL Server 2022 on localhost,1433, creates db nymbroker (sa / NymBroker!Dev123); same -Stop/-Logs
+./scripts/setup-servicebus.ps1        # Azure Service Bus emulator, AMQP on localhost:5673 (5672 is RabbitMQ); entities in scripts/servicebus/Config.json; same -Stop/-Logs
 ```
 
-Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker compose down`, which stops **all** services in the compose file. `setup-sqlserver.ps1 -Stop` stops only SQL Server.
+Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker compose down`, which stops **all** services in the compose file. `setup-sqlserver.ps1 -Stop` and `setup-servicebus.ps1 -Stop` stop only their own service. The Service Bus emulator stores its state in the `sqlserver` service (it starts with it).
 
 ## Architecture
 
@@ -55,12 +58,14 @@ Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker comp
 | `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses Dapper + `Microsoft.Data.Sqlite`. |
 | `NymBroker.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
 | `NymBroker.SqlServer` | Optional add-on — `SqlServerEndPoint`, `SqlServerSettings`, `AddSqlServerEndPoint`/`WithSqlServer`, config type `SqlServerEndPointType.SqlServer`. Uses `Microsoft.Data.SqlClient`. |
-| `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. PostgreSQL / SQL Server integration tests (`PostgresEndPointTests`, `SqlServerEndPointTests`) run only when `NYMBROKER_POSTGRES_CS` / `NYMBROKER_SQLSERVER_CS` are set; otherwise they are skipped (their health-check tests always run). |
+| `NymBroker.AzureServiceBus` | Optional add-on — `AzureServiceBusEndPoint`, `AzureServiceBusSettings`, `AddAzureServiceBusEndPoint`/`WithAzureServiceBus`, config type `AzureServiceBusEndPointType.AzureServiceBus`. Uses `Azure.Messaging.ServiceBus` (no `Azure.Identity` dependency). |
+| `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. PostgreSQL / SQL Server / Service Bus integration tests (`PostgresEndPointTests`, `SqlServerEndPointTests`, `AzureServiceBusEndPointTests`) run only when `NYMBROKER_POSTGRES_CS` / `NYMBROKER_SQLSERVER_CS` / `NYMBROKER_SERVICEBUS_CS` are set; otherwise they are skipped (their unit and health-check tests always run). |
 | `samples/NymBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
 | `samples/NymBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
 | `samples/NymBroker.SqlSample` | SQLite endpoint demo — posts orders, broker claims and dispatches |
 | `samples/NymBroker.SqlServerSample` | SQL Server endpoint demo — same flow as the Postgres sample; needs `scripts/setup-sqlserver.ps1` |
-| `samples/NymBroker.Benchmarks` | Throughput + allocation benchmark — Memory, File, SQLite and split scenarios always; Postgres, SQL Server and RabbitMQ scenarios when reachable on localhost (skipped otherwise) |
+| `samples/NymBroker.AzureServiceBusSample` | Service Bus demo — a failing order is retried, dead-lettered by Service Bus, then read back via `ReadDeadLetterQueue`; needs `scripts/setup-servicebus.ps1` |
+| `samples/NymBroker.Benchmarks` | Throughput + allocation benchmark — Memory, File, SQLite and split scenarios always; Postgres, SQL Server, Azure Service Bus (emulator queue `nymbroker.bench`) and RabbitMQ scenarios when reachable on localhost (skipped otherwise) |
 
 ### Key Abstractions
 
@@ -91,7 +96,7 @@ IRouteCondition           ← composable predicate evaluated on (IMessageContext
 | Consumer or topic fan-out throws | `Retry(ex)` — the transport redelivers, dead-letters at its limit | post to the dead-letter endpoint, `Completed` |
 | A route's destination throws (or any unexpected exception) | `Retry(ex)` | `Retry(ex)` |
 
-`UsesNativeDeadLetter` is driven by `UseNativeDeadLetter` (default `true`) in `RabbitMqSettings`, `SqliteSettings`, `PostgresSettings`, `SqlServerSettings`; Memory/File return `false`. For split messages the part that completes the group carries the reassembled message's result. `PublishAsync<T>` rethrows a `Retry`'s exception (no transport to redeliver). The processing-duration histogram carries a `result` tag (`completed`/`retry`/`dead_letter`). Helper: `UsesNativeDeadLetter(source)` / `DeadLetterAsync(...)` in `NymBrokerImpl.Processing.cs`.
+`UsesNativeDeadLetter` is driven by `UseNativeDeadLetter` (default `true`) in `RabbitMqSettings`, `AzureServiceBusSettings`, `SqliteSettings`, `PostgresSettings`, `SqlServerSettings`; Memory/File return `false`. For split messages the part that completes the group carries the reassembled message's result. `PublishAsync<T>` rethrows a `Retry`'s exception (no transport to redeliver). The processing-duration histogram carries a `result` tag (`completed`/`retry`/`dead_letter`). Helper: `UsesNativeDeadLetter(source)` / `DeadLetterAsync(...)` in `NymBrokerImpl.Processing.cs`.
 
 `MemoryQueueEndPoint`, `FileEndPoint` and `SqliteEndPoint` also expose a non-interface `ReadAsync` (drains currently available items) — used by tests and samples to inspect what was posted. There is no `IEndPointPoll` interface any more.
 
@@ -239,6 +244,16 @@ services.AddNymBroker()
     .AddConsumer<OrderConsumer>()
     .Build();
 
+// With Azure Service Bus (reference NymBroker.AzureServiceBus):
+services.AddNymBroker()
+    .AddAzureServiceBusEndPoint("Orders", new AzureServiceBusSettings
+    {
+        ConnectionString = "<namespace or emulator connection string>",   // or FullyQualifiedNamespace + Credential
+        QueueName        = "orders"                                       // or TopicName (+ SubscriptionName to receive)
+    })
+    .AddConsumer<OrderConsumer>()
+    .Build();
+
 // With RabbitMQ (reference NymBroker.RabbitMq):
 services.AddNymBroker()
     .AddRabbitMqEndPoint("Rabbit", new RabbitMqSettings { HostName = "localhost", ReadQueueName = "q.in" })
@@ -255,6 +270,7 @@ services.AddNymBroker()
     .WithSql()          // processes Type=Sql entries (from NymBroker.Sqlite)
     .WithPostgres()     // processes Type=Postgres entries
     .WithSqlServer()    // processes Type=SqlServer entries (from NymBroker.SqlServer)
+    .WithAzureServiceBus()  // processes Type=AzureServiceBus entries (from NymBroker.AzureServiceBus)
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
@@ -302,6 +318,18 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config
 - **Inserts** are one autocommit `INSERT` per `PostAsync` (durable on return), so a single producer is bound by the transaction-log flush (~3 ms on Docker Desktop). Concurrent producers benefit from SQL Server's own group commit. Don't use `DELAYED_DURABILITY` for the queue — it can lose committed messages.
 - **Connections**: one pooled `SqlConnection` per operation (`SqlConnection` is not thread-safe).
 
+### Azure Service Bus Endpoint
+
+`AzureServiceBusEndPoint` (namespace `NymBroker.AzureServiceBus`) is push-based: a `ServiceBusProcessor` (peek-lock, `AutoCompleteMessages = false`, `MaxConcurrentCalls` default 1) calls the broker and settles by the `ProcessResult` in `ServiceBusSettlement` (internal, unit-tested through `IServiceBusMessageSettler`):
+
+- `Completed` → `CompleteMessageAsync`; `Retry` (or a handler exception) → `AbandonMessageAsync` — Service Bus redelivers and dead-letters with `MaxDeliveryCountExceeded` at the entity's `MaxDeliveryCount`; `DeadLetter` → `DeadLetterMessageAsync(reason, description)` (truncated to 4 KB).
+- `ReadDeadLetterQueue = true` receives from the DLQ sub-queue; there a `DeadLetter` result **completes** the message (it is already dead-lettered) with a warning.
+- One lazily created `ServiceBusClient` + `ServiceBusSender` per endpoint (thread-safe, long-lived). Transient faults use the SDK's own retry options — no `RetryPolicy` wrapper. `ProcessErrorAsync` logs every processor error.
+- Auth: `ConnectionString`, or `FullyQualifiedNamespace` + `Credential` (`TokenCredential`, code-only, `[JsonIgnore]`). `AzureServiceBusSettings.Validate` runs at registration and in the constructor.
+- `HealthCheck()` peeks the entity (or opens the sender for a send-only topic endpoint) with a 5 s timeout; unhealthy if the processor stopped unexpectedly.
+- `StopListeningAsync` → `StopProcessingAsync` (waits for in-flight handlers); a handler cancelled during shutdown leaves its message unsettled (redelivered after the lock expires).
+- Emulator quirks seen in tests: `ReceiveAndDelete` reads from a DLQ returned nothing (peek-lock works); `DeadLetterSource` is empty. Integration tests share the fixed `nymbroker.tests` queue (MaxDeliveryCount 3) and drain it before each test.
+
 ### Performance Design
 
 - **RecyclableMemoryStream** (`Microsoft.IO.RecyclableMemoryStream`) for all serialization streams.
@@ -328,6 +356,7 @@ No exception is silently swallowed. The policy per layer:
 | `MemoryQueueEndPoint.StartListeningAsync` | Per-message handler failure, or a non-`Completed` result → `LogError` (no redelivery; loop continues). Unexpected loop termination → `LogCritical`. |
 | `SqliteEndPoint` (listener loop) | Per-message handler exception → `LogError`; `Retry` → returned to `Pending` or marked `Failed` after max retries; `DeadLetter` → `Failed` at once + `LogWarning`. Poll error → `LogError` (loop continues). Unexpected termination → `LogCritical`. |
 | `PostgresEndPoint` / `SqlServerEndPoint` (listener loop) | Same as `SqliteEndPoint`, plus `LogWarning` when a message reaches the terminal `Failed` state. Health check failure → `LogError`, `Unhealthy` returned (never throws). A failed finalize-and-claim is retried on the next cycle (transaction rolled back); if writing results on shutdown fails → `LogWarning` (messages redelivered after lease expiry). `PostgresEndPoint`: a failed LISTEN / notification wait → `LogWarning`, falls back to timer polling. |
+| `AzureServiceBusEndPoint` | Handler exception → `LogError`, treated as `Retry`. `Retry` / `DeadLetter` → `LogWarning`. Settle failure (e.g. lost lock) → `LogError` (redelivered after the lock expires). Processor errors (`ProcessErrorAsync`) → `LogError`. Health check failure → `LogError`, `Unhealthy`. |
 | `RabbitMqEndPoint` (message handler) | Handler exception → `LogError`, treated as `Retry`. `Retry` → `LogWarning`, nacked with `requeue: true` (poison after redelivery: `requeue: false`). `DeadLetter` → `LogWarning`, nacked with `requeue: false` (the queue's DLX). |
 | `RabbitMqEndPoint` (listener loop) | Unexpected loop termination → `LogCritical`. `OperationCanceledException` swallowed. |
 

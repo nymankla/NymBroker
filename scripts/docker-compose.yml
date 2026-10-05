@@ -57,6 +57,26 @@ services:
       retries: 20
       start_period: 20s
 
+  servicebus:
+    # Azure Service Bus emulator (EULA: https://github.com/Azure/azure-service-bus-emulator-installer/blob/main/EMULATOR_EULA.txt).
+    # Entities are declared in servicebus/Config.json; the emulator stores state in the sqlserver service above.
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    container_name: messagebroker-servicebus
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    ports:
+      # AMQP is mapped to host port 5673 because RabbitMQ already uses 5672.
+      - "5673:5672"
+      - "5300:5300"
+    environment:
+      SQL_SERVER: sqlserver
+      MSSQL_SA_PASSWORD: "NymBroker!Dev123"
+      ACCEPT_EULA: "Y"
+      EMULATOR_HTTP_PORT: 5300
+    volumes:
+      - ./servicebus/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+
 volumes:
   postgres_data:
   rabbitmq_data:
