@@ -6,8 +6,20 @@ using NymBroker.Core.Endpoint.HealthCheck;
 
 namespace NymBroker.Postgres;
 
+/// <summary>
+/// PostgreSQL queue endpoint. Rows are claimed with a lease (<c>FOR UPDATE SKIP LOCKED</c>, so several instances
+/// can poll one table), dispatched, then marked Completed, returned to Pending, or marked Failed after
+/// <see cref="PostgresSettings.MaxRetryCount"/>.
+/// <para>
+/// While messages are waiting, batches are claimed back to back; a batch's results are written in the same
+/// round trip and transaction that claims the next batch. When the queue is empty the loop waits for a
+/// <c>NOTIFY</c> (if <see cref="PostgresSettings.UseNotifications"/>) or <see cref="PostgresSettings.PollInterval"/>.
+/// </para>
+/// </summary>
 public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
 {
+    private static readonly TimeSpan ShutdownFinalizeTimeout = TimeSpan.FromSeconds(10);
+
     private readonly PostgresSettings _settings;
     private readonly ILogger<PostgresEndPoint> _logger;
     private readonly SemaphoreSlim _schemaLock = new(1, 1);
@@ -16,6 +28,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
     private NpgsqlDataSource? _dataSource;
     private bool _schemaEnsured;
     private CancellationTokenSource? _listeningCts;
+    private Task? _loop;
 
     public EndpointMode Mode { get; }
 
@@ -32,14 +45,19 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = _listeningCts.Token;
 
-        _ = Task.Run(() => RunListenerLoopAsync(handler, token), CancellationToken.None);
+        _loop = Task.Run(() => RunListenerLoopAsync(handler, token), CancellationToken.None);
         return Task.CompletedTask;
     }
 
-    public Task StopListeningAsync()
+    /// <summary>Stops polling and waits for the loop to finish, so no handler runs after this returns.</summary>
+    public async Task StopListeningAsync()
     {
         _listeningCts?.Cancel();
-        return Task.CompletedTask;
+        if (_loop is not null)
+        {
+            await _loop;
+            _loop = null;
+        }
     }
 
     public async Task PostAsync(byte[] message, CancellationToken ct = default)
@@ -48,7 +66,6 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = PostgresQueueSql.InsertMessage(_settings.TableName, _settings.UseNotifications);
         cmd.Parameters.AddWithValue("messageId", Guid.NewGuid());
-        cmd.Parameters.AddWithValue("status", (int)MessageStatus.Pending);
         cmd.Parameters.Add(new NpgsqlParameter<byte[]>("payload", NpgsqlDbType.Bytea) { TypedValue = message });
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -69,8 +86,9 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _listeningCts?.Cancel();
+        await StopListeningAsync();
         _listeningCts?.Dispose();
+        _listeningCts = null;
         if (_dataSource is not null)
         {
             await _dataSource.DisposeAsync();
@@ -90,35 +108,39 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     private async Task RunListenerLoopAsync(Func<byte[], CancellationToken, Task> handler, CancellationToken token)
     {
+        // Results of the last processed batch, written by the next FinalizeAndClaim round trip.
+        var unfinalized = new List<MessageCompletion>();
         NpgsqlConnection? notificationConnection = null;
         try
         {
-            if (_settings.UseNotifications)
-                notificationConnection = await OpenNotificationConnectionAsync(token);
-
             while (!token.IsCancellationRequested)
             {
-                var processed = 0;
+                var claimedCount = 0;
                 try
                 {
-                    var messages = await ClaimMessagesAsync(token);
-                    processed = messages.Count;
-                    if (processed > 0)
-                        await ProcessClaimedMessagesAsync(messages, handler, token);
+                    var messages = await FinalizeAndClaimAsync(unfinalized, token);
+                    unfinalized.Clear();   // committed together with the claim
+                    claimedCount = messages.Count;
+                    await ProcessClaimedMessagesAsync(messages, handler, unfinalized, token);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
-                    return;
+                    break;
                 }
                 catch (Exception ex)
                 {
+                    // The batch rolled back, so 'unfinalized' is retried on the next cycle. If the leases expire
+                    // first, the attempt_count guard turns that late finalize into a no-op.
                     _logger.LogError(ex, "Poll error on endpoint '{Name}'", _name);
                 }
 
-                notificationConnection = await WaitForNextCycleAsync(notificationConnection, processed, token);
+                // Drain without waiting while there is work; wait for NOTIFY / PollInterval only when idle.
+                if (claimedCount == 0)
+                    notificationConnection = await WaitForNextCycleAsync(notificationConnection, token);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
         {
             _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", _name);
         }
@@ -127,11 +149,13 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
             if (notificationConnection is not null)
                 await notificationConnection.DisposeAsync();
         }
+
+        await FinalizeOnShutdownAsync(unfinalized);
     }
 
-    private async Task ProcessClaimedMessagesAsync(List<ClaimedMessage> messages, Func<byte[], CancellationToken, Task> handler, CancellationToken ct)
+    private async Task ProcessClaimedMessagesAsync(List<ClaimedMessage> messages, Func<byte[], CancellationToken, Task> handler,
+        List<MessageCompletion> completions, CancellationToken ct)
     {
-        var completions = new List<MessageCompletion>(messages.Count);
         foreach (var message in messages)
         {
             try
@@ -141,101 +165,136 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                completions.Add(MessageCompletion.FromFailure(
-                    message,
-                    message.AttemptCount >= _settings.MaxRetryCount ? MessageStatus.Failed : MessageStatus.Pending,
-                    ex.Message));
+                var terminal = message.AttemptCount >= _settings.MaxRetryCount;
+                completions.Add(MessageCompletion.FromFailure(message, terminal ? MessageStatus.Failed : MessageStatus.Pending, ex.Message));
                 _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
-                if (message.AttemptCount >= _settings.MaxRetryCount)
+                if (terminal)
                     _logger.LogWarning("Message {MessageId} on endpoint '{Name}' marked Failed after {Attempts} attempts (terminal state); last error: {Error}",
                         message.MessageId, _name, message.AttemptCount, ex.Message);
             }
         }
-
-        await FinalizeClaimedMessagesAsync(completions, ct);
     }
 
-    private async Task FinalizeClaimedMessagesAsync(List<MessageCompletion> completions, CancellationToken ct)
+    /// <summary>
+    /// Finalizes the previous batch and claims the next one in a single <see cref="NpgsqlBatch"/>: one round trip,
+    /// executed by PostgreSQL as one implicit transaction (one commit / WAL flush per batch).
+    /// </summary>
+    private async Task<List<ClaimedMessage>> FinalizeAndClaimAsync(List<MessageCompletion> unfinalized, CancellationToken ct)
     {
-        if (completions.Count == 0)
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var batch = conn.CreateBatch();
+
+        if (unfinalized.Count > 0)
+            batch.BatchCommands.Add(CreateFinalizeCommand(unfinalized));
+
+        var claim = new NpgsqlBatchCommand(PostgresQueueSql.ClaimMessages(_settings.TableName));
+        claim.Parameters.Add(new NpgsqlParameter<int>("batchSize", _settings.BatchSize));
+        claim.Parameters.Add(new NpgsqlParameter<int>("leaseTimeout", GetLeaseTimeoutSeconds()));
+        batch.BatchCommands.Add(claim);
+
+        var claimed = new List<ClaimedMessage>();
+        await using var reader = await batch.ExecuteReaderAsync(ct);
+        do
+        {
+            // The finalize UPDATE returns no rows; the claim's RETURNING rows are the only result set with fields.
+            if (reader.FieldCount == 0)
+                continue;
+
+            while (await reader.ReadAsync(ct))
+            {
+                claimed.Add(new ClaimedMessage
+                {
+                    QueueId = reader.GetInt64(0),
+                    MessageId = reader.GetGuid(1),
+                    Payload = reader.GetFieldValue<byte[]>(2),
+                    AttemptCount = reader.GetInt32(3)
+                });
+            }
+        }
+        while (await reader.NextResultAsync(ct));
+
+        return claimed;
+    }
+
+    /// <summary>
+    /// Writes the results of messages already handled when the listener stopped, using a fresh token because the
+    /// listening token is cancelled. Messages claimed but not yet handled stay InProgress and are redelivered
+    /// once their lease expires.
+    /// </summary>
+    private async Task FinalizeOnShutdownAsync(List<MessageCompletion> unfinalized)
+    {
+        if (unfinalized.Count == 0)
             return;
 
-        await using var conn = await OpenConnectionAsync(ct);
-
-        var completedIds = completions
-            .Where(static completion => completion.Status == MessageStatus.Completed)
-            .Select(static completion => completion.QueueId)
-            .ToArray();
-        if (completedIds.Length > 0)
-            await ExecuteCompletedUpdateAsync(conn, completedIds, ct);
-
-        var retry = completions.Where(static completion => completion.Status == MessageStatus.Pending).ToList();
-        if (retry.Count > 0)
-            await ExecuteErroredUpdateAsync(conn, retry, MessageStatus.Pending, ct);
-
-        var failed = completions.Where(static completion => completion.Status == MessageStatus.Failed).ToList();
-        if (failed.Count > 0)
-            await ExecuteErroredUpdateAsync(conn, failed, MessageStatus.Failed, ct);
+        try
+        {
+            using var cts = new CancellationTokenSource(ShutdownFinalizeTimeout);
+            await using var conn = await OpenConnectionAsync(cts.Token);
+            await using var batch = conn.CreateBatch();
+            batch.BatchCommands.Add(CreateFinalizeCommand(unfinalized));
+            await batch.ExecuteNonQueryAsync(cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not record results of {Count} message(s) on endpoint '{Name}' during shutdown; they will be redelivered after their lease expires",
+                unfinalized.Count, _name);
+        }
     }
 
-    private async Task ExecuteCompletedUpdateAsync(NpgsqlConnection conn, long[] queueIds, CancellationToken ct)
+    private NpgsqlBatchCommand CreateFinalizeCommand(List<MessageCompletion> completions)
     {
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = PostgresQueueSql.FinalizeCompleted(_settings.TableName);
-        cmd.Parameters.Add(new NpgsqlParameter<long[]>("queueIds", NpgsqlDbType.Array | NpgsqlDbType.Bigint) { TypedValue = queueIds });
-        cmd.Parameters.AddWithValue("completedStatus", (int)MessageStatus.Completed);
-        cmd.Parameters.AddWithValue("inProgressStatus", (int)MessageStatus.InProgress);
-        await cmd.ExecuteNonQueryAsync(ct);
-    }
-
-    private async Task ExecuteErroredUpdateAsync(NpgsqlConnection conn, List<MessageCompletion> completions, MessageStatus status, CancellationToken ct)
-    {
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = PostgresQueueSql.FinalizeWithErrors(_settings.TableName);
+        var cmd = new NpgsqlBatchCommand(PostgresQueueSql.FinalizeMessages(_settings.TableName));
         cmd.Parameters.Add(new NpgsqlParameter<long[]>("queueIds", NpgsqlDbType.Array | NpgsqlDbType.Bigint)
         {
-            TypedValue = completions.Select(static completion => completion.QueueId).ToArray()
+            TypedValue = completions.Select(static c => c.QueueId).ToArray()
+        });
+        cmd.Parameters.Add(new NpgsqlParameter<int[]>("attempts", NpgsqlDbType.Array | NpgsqlDbType.Integer)
+        {
+            TypedValue = completions.Select(static c => c.AttemptCount).ToArray()
+        });
+        cmd.Parameters.Add(new NpgsqlParameter<int[]>("statuses", NpgsqlDbType.Array | NpgsqlDbType.Integer)
+        {
+            TypedValue = completions.Select(static c => (int)c.Status).ToArray()
         });
         cmd.Parameters.Add(new NpgsqlParameter<string?[]>("errors", NpgsqlDbType.Array | NpgsqlDbType.Text)
         {
-            TypedValue = completions.Select(static completion => completion.Error).ToArray()
+            TypedValue = completions.Select(static c => c.Error).ToArray()
         });
-        cmd.Parameters.AddWithValue("status", (int)status);
-        cmd.Parameters.AddWithValue("failedStatus", (int)MessageStatus.Failed);
-        cmd.Parameters.AddWithValue("inProgressStatus", (int)MessageStatus.InProgress);
-        await cmd.ExecuteNonQueryAsync(ct);
+        return cmd;
     }
 
-    private async Task<NpgsqlConnection?> WaitForNextCycleAsync(NpgsqlConnection? notificationConnection, int processed, CancellationToken token)
+    /// <summary>
+    /// Called only after an empty poll. Waits for a NOTIFY (or <see cref="PostgresSettings.PollInterval"/>, whichever
+    /// comes first). If the LISTEN connection cannot be opened or fails, falls back to a plain delay and retries
+    /// LISTEN on the next idle cycle instead of terminating the loop.
+    /// </summary>
+    private async Task<NpgsqlConnection?> WaitForNextCycleAsync(NpgsqlConnection? notificationConnection, CancellationToken token)
     {
-        var delayMs = processed == 0
-            ? (int)Math.Max(1, _settings.PollInterval.TotalMilliseconds)
-            : (int)_settings.PollInterval.TotalMilliseconds;
-        if (delayMs <= 0)
-            return notificationConnection;
-
+        var delay = TimeSpan.FromMilliseconds(Math.Max(1, _settings.PollInterval.TotalMilliseconds));
         if (!_settings.UseNotifications)
         {
-            await Task.Delay(delayMs, token);
+            await Task.Delay(delay, token);
             return notificationConnection;
         }
 
-        notificationConnection ??= await OpenNotificationConnectionAsync(token);
-        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-        waitCts.CancelAfter(delayMs);
         try
         {
+            notificationConnection ??= await OpenNotificationConnectionAsync(token);
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            waitCts.CancelAfter(delay);
             await notificationConnection.WaitAsync(waitCts.Token);
             return notificationConnection;
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
-            return notificationConnection;
+            return notificationConnection;   // poll interval elapsed without a notification
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Notification wait failed on endpoint '{Name}', falling back to timer-based polling", _name);
-            await notificationConnection.DisposeAsync();
+            if (notificationConnection is not null)
+                await notificationConnection.DisposeAsync();
+            await Task.Delay(delay, token);
             return null;
         }
     }
@@ -243,19 +302,35 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
     private async Task<NpgsqlConnection> OpenNotificationConnectionAsync(CancellationToken ct)
     {
         var conn = await OpenConnectionAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = PostgresQueueSql.Listen(_settings.TableName);
-        await cmd.ExecuteNonQueryAsync(ct);
-        return conn;
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = PostgresQueueSql.Listen(_settings.TableName);
+            await cmd.ExecuteNonQueryAsync(ct);
+            return conn;
+        }
+        catch
+        {
+            await conn.DisposeAsync();
+            throw;
+        }
     }
 
     private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken ct)
     {
         var dataSource = await EnsureDataSourceAsync(ct);
         var conn = await dataSource.OpenConnectionAsync(ct);
-        if (_settings.AutoCreateTable)
-            await EnsureSchemaAsync(conn, ct);
-        return conn;
+        try
+        {
+            if (_settings.AutoCreateTable)
+                await EnsureSchemaAsync(conn, ct);
+            return conn;
+        }
+        catch
+        {
+            await conn.DisposeAsync();
+            throw;
+        }
     }
 
     private async Task<NpgsqlDataSource> EnsureDataSourceAsync(CancellationToken ct)
@@ -302,46 +377,15 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
-    private async Task<List<ClaimedMessage>> ClaimMessagesAsync(CancellationToken ct)
-    {
-        await using var conn = await OpenConnectionAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.Transaction = tx;
-        cmd.CommandText = PostgresQueueSql.ClaimMessages(_settings.TableName);
-        cmd.Parameters.AddWithValue("pendingStatus", (int)MessageStatus.Pending);
-        cmd.Parameters.AddWithValue("inProgressStatus", (int)MessageStatus.InProgress);
-        cmd.Parameters.AddWithValue("batchSize", _settings.BatchSize);
-        cmd.Parameters.AddWithValue("leaseTimeout", GetLeaseTimeoutSeconds());
-
-        var claimed = new List<ClaimedMessage>();
-        await using (var reader = await cmd.ExecuteReaderAsync(ct))
-        {
-            while (await reader.ReadAsync(ct))
-            {
-                claimed.Add(new ClaimedMessage
-                {
-                    QueueId = reader.GetInt64(0),
-                    MessageId = reader.GetGuid(1),
-                    Payload = reader.GetFieldValue<byte[]>(2),
-                    AttemptCount = reader.GetInt32(3)
-                });
-            }
-        }
-
-        await tx.CommitAsync(ct);
-        return claimed;
-    }
-
     private int GetLeaseTimeoutSeconds()
         => (int)Math.Max(1, Math.Ceiling(_settings.LeaseTimeout.TotalSeconds));
 
     private enum MessageStatus
     {
-        Pending = 0,
-        InProgress = 1,
-        Completed = 2,
-        Failed = 3
+        Pending = PostgresQueueSql.Pending,
+        InProgress = PostgresQueueSql.InProgress,
+        Completed = PostgresQueueSql.Completed,
+        Failed = PostgresQueueSql.Failed
     }
 
     private sealed class ClaimedMessage
@@ -355,13 +399,14 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
     private sealed class MessageCompletion
     {
         public long QueueId { get; private init; }
+        public int AttemptCount { get; private init; }
         public MessageStatus Status { get; private init; }
         public string? Error { get; private init; }
 
         public static MessageCompletion Completed(ClaimedMessage message)
-            => new() { QueueId = message.QueueId, Status = MessageStatus.Completed };
+            => new() { QueueId = message.QueueId, AttemptCount = message.AttemptCount, Status = MessageStatus.Completed };
 
         public static MessageCompletion FromFailure(ClaimedMessage message, MessageStatus status, string? error)
-            => new() { QueueId = message.QueueId, Status = status, Error = error };
+            => new() { QueueId = message.QueueId, AttemptCount = message.AttemptCount, Status = status, Error = error };
     }
 }

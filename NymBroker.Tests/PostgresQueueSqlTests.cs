@@ -39,14 +39,23 @@ public sealed class PostgresQueueSqlTests
     }
 
     [Fact]
-    public void CreateSchema_UsesByteaPayload_AndIndexes()
+    public void CreateSchema_UsesByteaPayload_AndPartialActiveIndex()
     {
         var sql = PostgresQueueSql.CreateSchema("public.orders");
 
         Assert.Contains("payload          BYTEA       NOT NULL", sql);
         Assert.Contains("CREATE TABLE IF NOT EXISTS \"public\".\"orders\"", sql);
-        Assert.Contains("CREATE INDEX IF NOT EXISTS \"ix_public_orders_status_created\"", sql);
-        Assert.Contains("CREATE INDEX IF NOT EXISTS \"ix_public_orders_status_locked_until\"", sql);
+        Assert.Contains("CREATE INDEX IF NOT EXISTS \"ix_public_orders_active\"", sql);
+        Assert.Contains("ON \"public\".\"orders\"(created_at_utc, queue_id)", sql);
+        Assert.Contains("WHERE status IN (0, 1);", sql);
+    }
+
+    [Fact]
+    public void CreateSchema_DropsLegacyStatusIndexes_InTheTablesSchema()
+    {
+        Assert.Contains("DROP INDEX IF EXISTS \"public\".\"ix_public_orders_status_created\";", PostgresQueueSql.CreateSchema("public.orders"));
+        Assert.Contains("DROP INDEX IF EXISTS \"public\".\"ix_public_orders_status_locked_until\";", PostgresQueueSql.CreateSchema("public.orders"));
+        Assert.Contains("DROP INDEX IF EXISTS \"ix_orders_status_created\";", PostgresQueueSql.CreateSchema("orders"));
     }
 
     [Theory]
@@ -57,37 +66,35 @@ public sealed class PostgresQueueSqlTests
         var sql = PostgresQueueSql.InsertMessage("orders", notifyListeners);
 
         Assert.Contains("INSERT INTO \"orders\"", sql);
-        Assert.Contains("@payload", sql);
+        Assert.Contains("(@messageId, 0, NOW(), 0, @payload)", sql);
         Assert.Equal(notifyListeners, sql.Contains("NOTIFY \"nymbroker_orders_changed\""));
     }
 
     [Fact]
-    public void ClaimMessages_UsesSkipLocked_AndReturnsPayload()
+    public void ClaimMessages_UsesSkipLocked_LiteralStatusesMatchingPartialIndex_AndReturnsPayload()
     {
         var sql = PostgresQueueSql.ClaimMessages("orders");
 
         Assert.Contains("FOR UPDATE SKIP LOCKED", sql);
+        // Literals (not parameters) so the planner can prove the partial index predicate.
+        Assert.Contains("WHERE status IN (0, 1)", sql);
+        Assert.Contains("AND (status = 0 OR locked_until_utc <= NOW())", sql);
+        Assert.Contains("ORDER BY created_at_utc, queue_id", sql);
         Assert.Contains("RETURNING m.queue_id, m.message_id, m.payload, m.attempt_count", sql);
         Assert.Contains("@leaseTimeout * INTERVAL '1 second'", sql);
     }
 
     [Fact]
-    public void FinalizeCompleted_UsesArrayParameter()
+    public void FinalizeMessages_WritesMixedOutcomesInOneStatement_GuardedByAttempt()
     {
-        var sql = PostgresQueueSql.FinalizeCompleted("orders");
+        var sql = PostgresQueueSql.FinalizeMessages("orders");
 
-        Assert.Contains("WHERE queue_id = ANY(@queueIds)", sql);
-        Assert.Contains("completed_at_utc = NOW()", sql);
-    }
-
-    [Fact]
-    public void FinalizeWithErrors_UsesUnnestForBatchedUpdates()
-    {
-        var sql = PostgresQueueSql.FinalizeWithErrors("orders");
-
-        Assert.Contains("FROM unnest(@queueIds, @errors)", sql);
-        Assert.Contains("last_error = source.error", sql);
-        Assert.Contains("CASE WHEN @status = @failedStatus THEN NOW() ELSE NULL END", sql);
+        Assert.Contains("FROM unnest(@queueIds, @attempts, @statuses, @errors) AS source(queue_id, attempt, status, error)", sql);
+        Assert.Contains("SET status = source.status", sql);
+        Assert.Contains("completed_at_utc = CASE WHEN source.status = 2 THEN NOW() ELSE NULL END", sql);
+        Assert.Contains("failed_at_utc = CASE WHEN source.status = 3 THEN NOW() ELSE NULL END", sql);
+        Assert.Contains("AND target.status = 1", sql);
+        Assert.Contains("AND target.attempt_count = source.attempt", sql);
     }
 
     [Fact]

@@ -28,9 +28,10 @@ dotnet run --project samples/NymBroker.SqlSample         # SQLite endpoint demo
 dotnet run --project samples/NymBroker.SqlServerSample   # SQL Server endpoint demo (run setup-sqlserver.ps1 first)
 dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
 
-# SQL Server integration tests (skipped unless the env var is set)
+# PostgreSQL / SQL Server integration tests (skipped unless the env vars are set)
+$env:NYMBROKER_POSTGRES_CS  = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres"
 $env:NYMBROKER_SQLSERVER_CS = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
-dotnet test --project NymBroker.Tests -- --filter-class "*SqlServer*"
+dotnet test --project NymBroker.Tests -- --filter-class "*EndPointTests"
 
 # Local infrastructure (Docker Desktop required) — services defined in scripts/docker-compose.yml
 ./scripts/setup-rabbitmq.ps1          # start + wait for healthy
@@ -54,7 +55,7 @@ Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker comp
 | `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses Dapper + `Microsoft.Data.Sqlite`. |
 | `NymBroker.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
 | `NymBroker.SqlServer` | Optional add-on — `SqlServerEndPoint`, `SqlServerSettings`, `AddSqlServerEndPoint`/`WithSqlServer`, config type `SqlServerEndPointType.SqlServer`. Uses `Microsoft.Data.SqlClient`. |
-| `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. SQL Server integration tests (`SqlServerEndPointTests`) run only when `NYMBROKER_SQLSERVER_CS` is set; otherwise they are skipped. |
+| `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. PostgreSQL / SQL Server integration tests (`PostgresEndPointTests`, `SqlServerEndPointTests`) run only when `NYMBROKER_POSTGRES_CS` / `NYMBROKER_SQLSERVER_CS` are set; otherwise they are skipped (their health-check tests always run). |
 | `samples/NymBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
 | `samples/NymBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
 | `samples/NymBroker.SqlSample` | SQLite endpoint demo — posts orders, broker claims and dispatches |
@@ -265,18 +266,26 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config
 
 ### PostgreSQL Endpoint
 
-`PostgresEndPoint` (namespace `NymBroker.Postgres`) uses the same message lifecycle as SQLite. Claiming uses `SELECT … FOR UPDATE SKIP LOCKED` so multiple application instances can poll the same table concurrently without a process-wide lock.
+`PostgresEndPoint` (namespace `NymBroker.Postgres`) uses the same message lifecycle as SQLite. Claiming uses `SELECT … FOR UPDATE SKIP LOCKED` so multiple application instances can poll the same table concurrently without a process-wide lock. Measured on the `setup-postgres.ps1` container, the 0.1.5 rework took backlog drain with default settings from ~80 to ~3 000–5 000 msg/s, with `BatchSize=50` from ~4 000 to ~9 000 msg/s, and with 300k completed rows from ~1 600 to ~10 500 msg/s.
+
+- **Polling**: back to back while batches come back non-empty. Only after an empty poll does it wait for `NOTIFY` / `PollInterval`. (≤ 0.1.4 waited after *every* batch, capping default settings at `BatchSize / PollInterval` ≈ 100 msg/s.)
+- **One round trip and one commit per batch**: `FinalizeAndClaimAsync` sends the finalize of batch N and the claim of batch N+1 as one `NpgsqlBatch`, which PostgreSQL executes as one implicit transaction.
+- **Finalize** (`PostgresQueueSql.FinalizeMessages`) writes mixed outcomes in one `UPDATE … FROM unnest(@queueIds, @attempts, @statuses, @errors)`, guarded by `status = InProgress AND attempt_count = source.attempt` so a poller whose lease expired cannot overwrite a re-claimed row.
+- **Schema**: one partial index `(created_at_utc, queue_id) WHERE status IN (0, 1)`. Claim predicates inline the status **literals** — the planner can only use a partial index when it can prove the predicate at plan time (not with parameters; Npgsql auto-prepares). `CreateSchema` drops the two full status indexes created by ≤ 0.1.4 (`ix_<table>_status_created`, `ix_<table>_status_locked_until`) on existing tables.
+- **Shutdown**: `StopListeningAsync` awaits the loop, which writes the results of already-handled messages with a fresh 10 s token (`FinalizeOnShutdownAsync`).
+- **LISTEN failures** (startup or later) fall back to timer polling with a `LogWarning` and retry on the next idle cycle; ≤ 0.1.4 let an unreachable database at startup kill the listener loop.
+- **Inserts** are one autocommit `INSERT` (+ `NOTIFY`) per `PostAsync`, bound by the WAL flush (~1.7 ms on Docker Desktop). Removing `NOTIFY` was measured and gained little.
 
 ### SQL Server Endpoint
 
-`SqlServerEndPoint` (namespace `NymBroker.SqlServer`) has the same lifecycle, leases, retry/`Failed` handling and logging as `PostgresEndPoint`, but the SQL is written for SQL Server rather than ported. Each choice below was measured against the straight port (`scripts/setup-sqlserver.ps1` container): backlog drain went from ~3 000 to ~4 500–6 000 msg/s, and from ~2 500 to ~5 000 msg/s with 300k completed rows in the table.
+`SqlServerEndPoint` (namespace `NymBroker.SqlServer`) has the same lifecycle, leases, retry/`Failed` handling, logging and loop structure (back-to-back drain, finalize + claim in one round trip, shutdown finalize) as `PostgresEndPoint`, but the SQL is written for SQL Server. Each choice below was measured against the straight port (`scripts/setup-sqlserver.ps1` container): backlog drain went from ~3 000 to ~4 500–6 000 msg/s, and from ~2 500 to ~5 000 msg/s with 300k completed rows in the table.
 
 - **One round trip and one commit per batch** (`SqlServerQueueSql.FinalizeAndClaim`): the results of batch N are written in the same T-SQL batch as the claim of batch N+1. The transaction is inside the SQL text (`SET XACT_ABORT ON; BEGIN TRANSACTION … COMMIT`), not `SqlConnection.BeginTransaction`, which would cost two extra round trips.
 - **Claiming** uses an updatable CTE with `WITH (UPDLOCK, READPAST, ROWLOCK)` (the SQL Server equivalent of `SKIP LOCKED`) and `OUTPUT inserted.*`, ordered by `queue_id`.
 - **Finalize** reads `{id, attempt, status, error}` items from one JSON `NVARCHAR(MAX)` parameter with `OPENJSON` (SQL Server 2016+). It must drive the join (`FROM OPENJSON(...) INNER LOOP JOIN <table> WITH (FORCESEEK)`): without the hints the optimizer cannot estimate `OPENJSON`'s row count and scans the whole table (~8× more CPU). The guard `status = InProgress AND attempt_count = source.attempt` stops a poller whose lease expired from overwriting a re-claimed row.
 - **Schema**: clustered PK on the IDENTITY `queue_id`; a single **filtered index** `(queue_id) INCLUDE (status, locked_until_utc) WHERE status IN (0, 1)`, so claiming stays cheap as Completed/Failed rows accumulate. `message_id` has no unique index (it is a per-insert GUID nobody looks up, and a random-GUID index costs a page-scattered write per insert). Status values are **inlined literals**, not parameters — SQL Server only uses a filtered index when it can match the predicate at compile time.
 - **Polling**: back to back while batches come back non-empty; `PollInterval` only applies after an empty poll. No `LISTEN/NOTIFY` equivalent.
-- **Shutdown**: `StopListeningAsync` awaits the loop, which then writes the results of already-handled messages with a fresh 10 s token (`FinalizeOnShutdownAsync`). Claimed-but-unhandled messages wait for lease expiry. `PostgresEndPoint` only cancels.
+- **Shutdown**: `StopListeningAsync` awaits the loop, which then writes the results of already-handled messages with a fresh 10 s token (`FinalizeOnShutdownAsync`). Claimed-but-unhandled messages wait for lease expiry.
 - **Inserts** are one autocommit `INSERT` per `PostAsync` (durable on return), so a single producer is bound by the transaction-log flush (~3 ms on Docker Desktop). Concurrent producers benefit from SQL Server's own group commit. Don't use `DELAYED_DURABILITY` for the queue — it can lose committed messages.
 - **Connections**: one pooled `SqlConnection` per operation (`SqlConnection` is not thread-safe).
 
@@ -305,7 +314,7 @@ No exception is silently swallowed. The policy per layer:
 | `FileEndPoint.ReadAndArchiveAsync` | IOException after retries → `LogWarning`, file skipped. |
 | `MemoryQueueEndPoint.StartListeningAsync` | Per-message handler failure → `LogError` (loop continues). Unexpected loop termination → `LogCritical`. |
 | `SqliteEndPoint` (listener loop) | Per-message handler failure → `LogError`, message returned to `Pending` or marked `Failed` after max retries. Poll error → `LogError` (loop continues). Unexpected termination → `LogCritical`. |
-| `PostgresEndPoint` / `SqlServerEndPoint` (listener loop) | Same as `SqliteEndPoint`, plus `LogWarning` when a message reaches the terminal `Failed` state. Health check failure → `LogError`, `Unhealthy` returned (never throws). `SqlServerEndPoint` only: a failed finalize-and-claim is retried on the next cycle (transaction rolled back); if writing results on shutdown fails → `LogWarning` (messages redelivered after lease expiry). |
+| `PostgresEndPoint` / `SqlServerEndPoint` (listener loop) | Same as `SqliteEndPoint`, plus `LogWarning` when a message reaches the terminal `Failed` state. Health check failure → `LogError`, `Unhealthy` returned (never throws). A failed finalize-and-claim is retried on the next cycle (transaction rolled back); if writing results on shutdown fails → `LogWarning` (messages redelivered after lease expiry). `PostgresEndPoint`: a failed LISTEN / notification wait → `LogWarning`, falls back to timer polling. |
 | `RabbitMqEndPoint` (message handler) | Handler failure → `LogError`, message nacked with `requeue: true`. |
 | `RabbitMqEndPoint` (listener loop) | Unexpected loop termination → `LogCritical`. `OperationCanceledException` swallowed. |
 

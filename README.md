@@ -381,6 +381,12 @@ services.AddNymBroker()
 
 Messages use the same lifecycle as the SQLite endpoint (`Pending -> InProgress -> Completed/Failed`), but claiming is implemented with PostgreSQL row locking using `FOR UPDATE SKIP LOCKED`. That allows concurrent consumers across multiple application instances without a process-wide lock.
 
+- **Drains back to back:** while messages are waiting, batches are claimed one after another. When the queue is empty, the endpoint waits for a `NOTIFY` (sent by `PostAsync` when `UseNotifications` is on) or `PollInterval`, whichever comes first.
+- **One round trip and one commit per batch:** the results of a batch are written in the same `NpgsqlBatch` (one implicit transaction) that claims the next one.
+- **Stays fast as the table grows:** a partial index covers only Pending and InProgress rows, so a claim reads just the batch it takes, however large the backlog or the number of completed rows.
+- **Safe late writes:** results are only written if the row is still InProgress with the same attempt number, so a poller whose lease expired can't overwrite a row another poller has claimed since.
+- **Clean shutdown:** `StopListeningAsync` waits for the poll loop and writes the results of messages already handled; claimed but unhandled messages are redelivered when their lease expires.
+
 **Schema** (auto-created when `AutoCreateTable = true`):
 
 ```sql
@@ -394,9 +400,15 @@ CREATE TABLE nymbroker_messages (
     failed_at_utc    TIMESTAMPTZ NULL,
     attempt_count    INTEGER     NOT NULL DEFAULT 0,
     last_error       TEXT        NULL,
-    payload          TEXT        NOT NULL
+    payload          BYTEA       NOT NULL
 );
+-- Only Pending/InProgress rows are indexed, so claiming stays cheap as the table grows.
+CREATE INDEX ix_nymbroker_messages_active
+    ON nymbroker_messages(created_at_utc, queue_id)
+    WHERE status IN (0, 1);
 ```
+
+Tables created by NymBroker 0.1.4 or earlier had two full indexes on `status` instead. With `AutoCreateTable = true`, the endpoint adds the partial index and drops those two on first connect.
 
 **`PostgresSettings` properties:**
 
@@ -406,9 +418,10 @@ CREATE TABLE nymbroker_messages (
 | `TableName` | `nymbroker_messages` | Table to read/write |
 | `BatchSize` | `10` | Max rows read per poll cycle |
 | `AutoCreateTable` | `true` | Create table + indexes on first connect |
-| `PollInterval` | `100 ms` | Delay between poll cycles; `TimeSpan.Zero` = poll immediately after a full batch |
+| `PollInterval` | `100 ms` | How long to wait after a poll that found no messages (cut short by a `NOTIFY` when `UseNotifications` is on); while messages are waiting, batches are claimed back to back |
 | `LeaseTimeout` | `5 min` | How long a claimed message stays leased before it can be reclaimed |
 | `MaxRetryCount` | `5` | Number of failed attempts before a message is marked `Failed` |
+| `UseNotifications` | `true` | `PostAsync` sends a `NOTIFY` so idle listeners wake immediately instead of waiting out `PollInterval` |
 
 From a JSON config file (call `.WithPostgres()` after `.LoadConfiguration()`):
 
@@ -1248,7 +1261,7 @@ Notes on the numbers:
 - **File** allocation is ~93 KB/msg. The write side uses `File.WriteAllBytesAsync`; the read side deserializes via `File.ReadAllBytesAsync`. The dominant cost is file system round-trips and the `.processed` rename.
 - **SQL** runs against an in-memory SQLite database (`BatchSize=100`, `PollInterval=0`). Each message costs one INSERT plus a SELECT and UPDATE (optimistic claim). ~1 000 msg/s is the ceiling for single-connection `:memory:` SQLite; a file-backed database will be lower.
 - **Split+Compress vs Split – no compress** isolate the compression step: with the same 16 KB threshold and ~276 KB compressible payload, compression cuts the part count roughly in half (fewer `SplitMessage` posts and reassembly steps), which is why the compressed variant is both faster and allocates less despite paying the Brotli compress/decompress cost. Allocation is dominated by the Base64-encoded chunk strings, not the framework dispatch path — this is the one scenario where megabyte-scale allocations are expected. For incompressible payloads (already-compressed binary, encrypted blobs), expect the two scenarios to converge since `PostAsync` skips compression whenever it doesn't shrink the payload.
-- **Postgres** runs against a local PostgreSQL instance over TCP (`BatchSize=50`, `PollInterval=0`). Each message costs one INSERT (post) plus a CTE `FOR UPDATE SKIP LOCKED` claim plus a finalize UPDATE — three round trips. ~1 200 msg/s reflects TCP latency; throughput scales with batch size and connection pooling in multi-instance deployments.
+- **Postgres** runs against a local PostgreSQL instance over TCP (`BatchSize=50`, `PollInterval=0`). The scenario posts one message at a time, so it is bound by the INSERT commit (~1.7 ms each on Docker Desktop; ~420 msg/s in the same run as the SqlServer note below). Consuming is faster: each batch is one round trip and one commit, and a backlog drains at ~9 000 msg/s (`BatchSize=50`), or ~3 000–5 000 msg/s with the default settings.
 - **SqlServer** posts one message at a time, so it is bound by the INSERT: every commit waits for a transaction-log flush, which takes ~3 ms on Docker Desktop's virtual disk. Against the `setup-sqlserver.ps1` container on Windows it measured ~215 msg/s, with Postgres at ~400 msg/s in the same run (neither is in the results above, which come from an earlier run on different storage). Consuming is much faster: draining a backlog runs at ~4 500–6 000 msg/s with `BatchSize=50`, because each batch is one round trip and one commit. Concurrent producers also get more throughput, since SQL Server groups their commits into shared log flushes (~1 900 msg/s with 16 producers). With real server storage, expect higher numbers across the board. Don't enable `DELAYED_DURABILITY` for a real queue to speed up inserts, because it can lose committed messages on a crash.
 
 ## Running tests
@@ -1258,11 +1271,12 @@ dotnet test
 dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"   # single class
 ```
 
-SQL Server integration tests are skipped unless `NYMBROKER_SQLSERVER_CS` is set. To run them, start SQL Server with `./scripts/setup-sqlserver.ps1` and then:
+The PostgreSQL and SQL Server integration tests are skipped unless their connection-string variables are set. To run them, start the databases with `./scripts/setup-postgres.ps1` and `./scripts/setup-sqlserver.ps1`, then:
 
 ```powershell
+$env:NYMBROKER_POSTGRES_CS  = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres"
 $env:NYMBROKER_SQLSERVER_CS = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
-dotnet test --project NymBroker.Tests -- --filter-class "*SqlServer*"
+dotnet test
 ```
 
 ## Design constraints
