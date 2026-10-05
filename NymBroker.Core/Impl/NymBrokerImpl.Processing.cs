@@ -243,7 +243,25 @@ public sealed partial class NymBrokerImpl
             }
 
             using var stream = _serializer.Serialize(context);
-            await destEndpoint.PostAsync(StreamToBytes(stream), ct);
+            var tags = new TagList
+            {
+                { "source", context.Address?.From ?? "unknown" },
+                { "destination", route.DestinationEndpoint },
+                { "message_type", raw2.MessageType ?? messageType?.FullName ?? typeof(IAnyMessage).FullName! },
+                { "via", "route" }
+            };
+            try
+            {
+                await destEndpoint.PostAsync(StreamToBytes(stream), ct);
+                tags.Add("outcome", "success");
+                NymBrokerDiagnostics.MessagesRouted.Add(1, tags);
+            }
+            catch
+            {
+                tags.Add("outcome", "failure");
+                NymBrokerDiagnostics.MessagesRouted.Add(1, tags);
+                throw;
+            }
             _logger.LogInformation(
                 "Routed message type {MessageType} from {Source} to {Destination}",
                 raw2.MessageType ?? messageType?.FullName ?? typeof(IAnyMessage).FullName,
@@ -397,7 +415,26 @@ public sealed partial class NymBrokerImpl
                 continue;
             }
             using var stream = _serializer.Serialize(context);
-            await endpoint.PostAsync(StreamToBytes(stream), ct);
+            var tags = new TagList
+            {
+                { "source", context.Address?.From ?? "unknown" },
+                { "destination", endpointName },
+                { "message_type", context.MessageType ?? (message != null ? MessageTypeName.Get(message.GetType()) : "unknown") },
+                { "via", "topic" },
+                { "topic", topic.TopicName }
+            };
+            try
+            {
+                await endpoint.PostAsync(StreamToBytes(stream), ct);
+                tags.Add("outcome", "success");
+                NymBrokerDiagnostics.MessagesRouted.Add(1, tags);
+            }
+            catch
+            {
+                tags.Add("outcome", "failure");
+                NymBrokerDiagnostics.MessagesRouted.Add(1, tags);
+                throw;
+            }
             _logger.LogInformation("Topic '{Topic}' delivered to endpoint '{Endpoint}'", topic.TopicName, endpointName);
         }
 
