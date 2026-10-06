@@ -118,7 +118,7 @@ Endpoints (and simple topics) can come from JSON, while consumers, subscribers a
       { "Name": "Drop",  "Type": "File", "Config": { "readPath": "in", "postPath": "out" } },
       { "Name": "Mssql", "Type": "SqlServer", "Config": { "connectionString": "…", "tableName": "dbo.orders_queue" } },
       { "Name": "Bus",   "Type": "AzureServiceBus", "Config": { "connectionString": "…", "queueName": "orders" } },
-      { "Name": "Out",   "Type": "Memory", "Mode": 2 }
+      { "Name": "Out",   "Type": "Memory", "Mode": "WriteOnly" }
     ],
     "Topics": [
       { "TopicName": "orders.events", "MessageType": "order.created", "SubscriberEndpoints": [ "Drop" ] }
@@ -138,6 +138,6 @@ services.AddNymBroker()
 
 - `Type` is matched case-insensitively. Built-in types: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `RabbitMq`; add-ons define `SqlServer` and `AzureServiceBus`. An entry is only registered if the matching `With…()` is called — otherwise it is ignored, and posting to it fails with "No endpoint registered".
 - `Config` holds the endpoint's settings in camelCase.
-- `Mode` must currently be a **number**: `0` = `ReadWrite`, `1` = `ReadOnly`, `2` = `WriteOnly`. A string such as `"WriteOnly"` makes the whole file fail to load ([#46](https://github.com/nymankla/NymBroker/issues/46)).
+- `Mode` is a name, case-insensitive (`"ReadWrite"`, `"ReadOnly"`, `"WriteOnly"`), or a number (`0`, `1`, `2`). Omitted means `ReadWrite`. An unknown value makes the configuration fail to load with a `JsonException`.
 - Secrets such as a Service Bus `TokenCredential` cannot come from the file; register those endpoints in code.
 - To read from `appsettings.json` / `IConfiguration` instead of a file: `.ApplyConfiguration(BrokerConfigurationReader.Read(configuration))`.
