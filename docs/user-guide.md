@@ -47,6 +47,7 @@ flowchart LR
 | [Sending messages](sending-messages.md) | `PostAsync`, batch posting, large messages (split + compression), publishing |
 | [Routing and publish/subscribe](routing-and-pubsub.md) | Routes and conditions, topics and subscribers, what decides where a message goes |
 | [Endpoints and configuration](endpoints-and-configuration.md) | Every endpoint type, endpoint modes, configuring in code or from `queuesettings.json` |
+| [Delivery guarantees](delivery-guarantees.md) | At-least-once limits, ordering, crash behavior and endpoint capabilities |
 | [Reliability](reliability.md) | Retries, dead-lettering (native and broker), the dead-letter reason, TTL, wire tap, duplicate detection |
 | [Retry policy](resilience.md) | `RetryPolicy` options, backoff and jitter, how the File and RabbitMQ endpoints use it |
 | [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, scheduled actions |
