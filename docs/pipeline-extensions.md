@@ -22,7 +22,7 @@ Built-in filters, added on the builder:
 
 | Builder method | What it does |
 |---|---|
-| `AddIdempotentReceiver(ttl)` | drops messages whose `id` was already processed within `ttl` (in memory, per process; `AddSqlServerIdempotency` for a durable store shared by all instances) — claimed before routing, completed or released (on `Retry`) after — see [Reliability](reliability.md#duplicate-detection) |
+| `AddIdempotentReceiver(ttl)` | drops messages whose `id` was already processed within `ttl` (in memory, per process; `AddSqlServerIdempotency` / `AddPostgresIdempotency` for a durable store shared by all instances) — claimed before routing, completed or released (on `Retry`) after — see [Reliability](reliability.md#duplicate-detection) |
 | `AddMessageLoggingFilter()` | logs every message (id, type, source, created, payload) at `Debug` level |
 
 ## Input transformers
