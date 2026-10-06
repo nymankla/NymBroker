@@ -106,7 +106,7 @@ In short: a producer posts to an endpoint, the broker processes the message thro
 - **Publish-Subscribe Channel** — EIP pub/sub; declare topics with typed `ISubscribe<T>` subscribers or endpoint fan-out
 - **Dead Letter Channel** — failed, expired and undecodable messages go to the transport's own dead-letter queue (RabbitMQ DLX, `Failed` rows in the SQL endpoints) or, for transports without one, to a configured dead-letter endpoint
 - **Wire Tap** — copy every raw message to a secondary endpoint before processing; zero impact on normal flow
-- **Idempotent Receiver** — deduplicate messages by ID with a TTL-based in-memory store or shared durable SQL Server/PostgreSQL stores
+- **Idempotent Receiver** — deduplicate messages by ID with a TTL-based in-memory store or shared durable SQL Server/PostgreSQL stores, or a restart-safe single-host SQLite store
 - **Message Expiration (TTL)** — discard messages older than a configured age; optionally forward them to the dead-letter endpoint
 - **Scheduled actions** — interval-based or Cron expression (via [Cronos](https://github.com/HangfireIO/Cronos))
 - **JSON config file** — declare endpoint topology in `queuesettings.json`; consumers and routes stay in code
@@ -172,6 +172,7 @@ See [docs/observability.md](docs/observability.md#health-checks) for the aggrega
 | `NymBroker.SqlServer` | Optional SQL Server transport via Microsoft.Data.SqlClient |
 | `NymBroker.Idempotency.SqlServer` | Optional durable idempotency store (idempotent receiver) in a SQL Server table — `AddSqlServerIdempotency` |
 | `NymBroker.Idempotency.Postgres` | Optional durable idempotency store (idempotent receiver) in a PostgreSQL table — `AddPostgresIdempotency` |
+| `NymBroker.Idempotency.Sqlite` | Optional durable idempotency store (idempotent receiver) in a SQLite table, restart-safe on one host — `AddSqliteIdempotency` |
 | `NymBroker.AzureServiceBus` | Optional Azure Service Bus transport via Azure.Messaging.ServiceBus |
 | `NymBroker.Tests` | xUnit tests |
 | [`NymBroker.Sample`](samples/NymBroker.Sample) | Fluent API, Memory/File endpoints, routing, and scheduled actions |
@@ -1216,6 +1217,9 @@ services.AddNymBroker()
 services.AddNymBroker()
     .AddSqlServerIdempotency(new SqlServerIdempotencySettings { ConnectionString = "...", TableName = "dbo.nymbroker_idempotency" })
     …
+
+// Or SQLite, restart-safe on ONE host only (package NymBroker.Idempotency.Sqlite):
+//   .AddSqliteIdempotency(new SqliteIdempotencySettings { ConnectionString = "Data Source=idempotency.db" })
 
 // Or use PostgreSQL (package NymBroker.Idempotency.Postgres):
 services.AddNymBroker()
