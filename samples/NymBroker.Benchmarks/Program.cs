@@ -122,15 +122,19 @@ var results = new List<BenchmarkResult>
 if (await IsPostgresAvailableAsync())
 {
     await CleanPgTableAsync();
+    var pgSettings = new PostgresSettings
+    {
+        ConnectionString = PgConnStr,
+        TableName        = "nymbroker_bench",
+        BatchSize        = 50,
+        AutoCreateTable  = true,
+        PollInterval     = TimeSpan.Zero
+    };
     results.Add(await RunAsync("Postgres – direct", "PgBench", PgCount,
-        configureBuilder: b => b.AddPostgresEndPoint("PgBench", new PostgresSettings
-        {
-            ConnectionString = PgConnStr,
-            TableName        = "nymbroker_bench",
-            BatchSize        = 50,
-            AutoCreateTable  = true,
-            PollInterval     = TimeSpan.Zero
-        })));
+        configureBuilder: b => b.AddPostgresEndPoint("PgBench", pgSettings)));
+    await CleanPgTableAsync();
+    results.Add(await RunAsync("Postgres – batch/100", "PgBench", PgCount, postBatchSize: 100,
+        configureBuilder: b => b.AddPostgresEndPoint("PgBench", pgSettings)));
 }
 else
 {
@@ -140,15 +144,19 @@ else
 if (await IsSqlServerAvailableAsync())
 {
     await CleanSqlServerTableAsync();
+    var mssqlSettings = new SqlServerSettings
+    {
+        ConnectionString = MssqlConnStr,
+        TableName        = MssqlTable,
+        BatchSize        = 50,
+        AutoCreateTable  = true,
+        PollInterval     = TimeSpan.Zero
+    };
     results.Add(await RunAsync("SqlServer – direct", "MssqlBench", MssqlCount,
-        configureBuilder: b => b.AddSqlServerEndPoint("MssqlBench", new SqlServerSettings
-        {
-            ConnectionString = MssqlConnStr,
-            TableName        = MssqlTable,
-            BatchSize        = 50,
-            AutoCreateTable  = true,
-            PollInterval     = TimeSpan.Zero
-        })));
+        configureBuilder: b => b.AddSqlServerEndPoint("MssqlBench", mssqlSettings)));
+    await CleanSqlServerTableAsync();
+    results.Add(await RunAsync("SqlServer – batch/100", "MssqlBench", MssqlCount, postBatchSize: 100,
+        configureBuilder: b => b.AddSqlServerEndPoint("MssqlBench", mssqlSettings)));
 }
 else
 {
@@ -158,13 +166,17 @@ else
 if (await IsServiceBusAvailableAsync())
 {
     await DrainServiceBusQueueAsync();
+    var sbSettings = new AzureServiceBusSettings
+    {
+        ConnectionString = SbConnStr,
+        QueueName        = SbQueue,
+        PrefetchCount    = 100
+    };
     results.Add(await RunAsync("ServiceBus – direct", "SbBench", SbCount,
-        configureBuilder: b => b.AddAzureServiceBusEndPoint("SbBench", new AzureServiceBusSettings
-        {
-            ConnectionString = SbConnStr,
-            QueueName        = SbQueue,
-            PrefetchCount    = 100
-        })));
+        configureBuilder: b => b.AddAzureServiceBusEndPoint("SbBench", sbSettings)));
+    await DrainServiceBusQueueAsync();
+    results.Add(await RunAsync("ServiceBus – batch/100", "SbBench", SbCount, postBatchSize: 100,
+        configureBuilder: b => b.AddAzureServiceBusEndPoint("SbBench", sbSettings)));
 }
 else
 {
@@ -349,7 +361,8 @@ async Task<BenchmarkResult> RunAsync(
     string? fileDir = null,
     Func<int, BenchmarkMessage>? messageFactory = null,
     int? splitThresholdBytes = null,
-    bool compress = true)
+    bool compress = true,
+    int? postBatchSize = null)
 {
     var isWarmup = name.StartsWith('_');
     if (!isWarmup) Console.Write($"  {name,-24} ... ");
@@ -392,14 +405,26 @@ async Task<BenchmarkResult> RunAsync(
     var sw         = Stopwatch.StartNew();
 
     var payload = new string('X', 32);
+    var pending = new List<BenchmarkMessage>(postBatchSize ?? 0);
     for (var i = 0; i < count; i++)
     {
         var msg = messageFactory != null ? messageFactory(i) : new BenchmarkMessage(i, payload);
         if (usePubSub)
             await broker.PublishAsync(msg);
+        else if (postBatchSize.HasValue)
+        {
+            pending.Add(msg);
+            if (pending.Count == postBatchSize.Value)
+            {
+                await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
+                pending.Clear();
+            }
+        }
         else
             await broker.PostAsync(endpoint, msg, splitThresholdBytes: splitThresholdBytes, compress: compress);
     }
+    if (pending.Count > 0)
+        await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
 
     try { await completion.WaitAsync(TimeSpan.FromSeconds(30)); }
     catch (TimeoutException)

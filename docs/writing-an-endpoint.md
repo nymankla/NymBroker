@@ -26,6 +26,9 @@ public interface IEndPoint
     EndpointMode Mode => EndpointMode.ReadWrite;          // ReadWrite | ReadOnly | WriteOnly
     Task PostAsync(byte[] message, CancellationToken ct = default);
     IHealthCheckResult HealthCheck();
+
+    // Optional: send several envelopes, in order. The default calls PostAsync for each.
+    Task PostBatchAsync(IReadOnlyList<byte[]> messages, CancellationToken ct = default);
 }
 
 public interface IEndPointEventDriven : IEndPoint
@@ -51,6 +54,7 @@ public readonly record struct ProcessResult(ProcessOutcome Outcome, string? Reas
 | `StartAsync` (host start), if the endpoint is `IEndPointEventDriven` and not `WriteOnly` | `StartListeningAsync(handler, ct)` | Start receiving **in the background** and return quickly. Call `handler(bytes, ct)` once per received message and **settle the message by the `ProcessResult` it returns**. |
 | `StopAsync` (host stop) | `StopListeningAsync()` | Stop receiving. Let in-flight messages finish. |
 | Health probes / your own code | `HealthCheck()` | Report whether the transport is usable. Never throw. |
+| `broker.PostBatchAsync` / topic fan-out of `PublishBatchAsync` | `PostBatchAsync(envelopes, ct)` | Optional override: send all envelopes in order, in as few round trips as the transport allows. Each is still received on its own. |
 
 The `handler` the broker passes in is `ProcessAsync(raw, endpointName, ct)`. The source name is already bound to it, so routes like `.WhenFrom("MyEndpoint")` work without any extra code.
 
@@ -634,6 +638,7 @@ Tests run in parallel. Use a unique name, port or table per test, and filter any
 - [ ] Implements `IEndPointEventDriven` if it receives anything (pull transports run their poll loop inside it); a pure sink implements `IEndPoint` with `Mode => WriteOnly`.
 - [ ] Constructor takes `string name`, a settings object, `ILogger<T>` and `EndpointMode mode = EndpointMode.ReadWrite`.
 - [ ] `PostAsync` sends the bytes unchanged, is safe to call concurrently, and honours `ct`.
+- [ ] If the transport can send many messages per round trip or transaction, override `PostBatchAsync`: preserve order, keep each envelope separate, and document whether a batch is atomic.
 - [ ] `StartListeningAsync` returns immediately; the loop runs on `Task.Run` with a linked CTS.
 - [ ] Every received message goes through `handler` and is settled by its `ProcessResult`: `Completed` → ack; `Retry` → redeliver (or log as lost if the transport can't); `DeadLetter` → the transport's dead-letter queue with `Reason`/`Description`. A handler exception counts as `Retry`. The loop survives.
 - [ ] An endpoint that reads a native dead-letter queue (like Service Bus's `ReadDeadLetterQueue`) passes each body through `DeadLetterEnvelope.Annotate(body, new DeadLetterInfo(...))` before calling `handler`, so consumers see a uniform `context.DeadLetter`.

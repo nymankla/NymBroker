@@ -79,6 +79,26 @@ internal static class PostgresQueueSql
     }
 
     /// <summary>
+    /// Inserts a batch in one statement (one transaction, one NOTIFY). <c>WITH ORDINALITY ... ORDER BY</c> keeps the
+    /// batch order, so queue ids — and therefore delivery order — follow it.
+    /// </summary>
+    internal static string InsertMessages(string tableName, bool notifyListeners)
+    {
+        var table = QuoteQualifiedIdentifier(tableName);
+        var notify = notifyListeners
+            ? $"; NOTIFY {QuoteSimpleIdentifier(GetNotificationChannel(tableName))}"
+            : string.Empty;
+
+        return $"""
+            INSERT INTO {table}
+                (message_id, status, created_at_utc, attempt_count, payload)
+            SELECT u.message_id, {Pending}, NOW(), 0, u.payload
+            FROM unnest(@messageIds, @payloads) WITH ORDINALITY AS u(message_id, payload, ord)
+            ORDER BY u.ord{notify}
+            """;
+    }
+
+    /// <summary>
     /// Claims up to <c>@batchSize</c> Pending (or lease-expired) rows. <c>FOR UPDATE SKIP LOCKED</c> lets several
     /// instances poll one table; the predicate matches the partial index, so the ordered index scan stops after
     /// <c>@batchSize</c> rows instead of reading and sorting the whole backlog.

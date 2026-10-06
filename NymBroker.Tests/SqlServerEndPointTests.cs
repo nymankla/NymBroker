@@ -240,6 +240,61 @@ public sealed class SqlServerEndPointTests : IAsyncLifetime
         Assert.All(seen.Values, n => Assert.Equal(1, n));
     }
 
+    // --- PostBatchAsync: one insert, order preserved, delivered one by one ---
+
+    [Fact]
+    public async Task PostBatch_InsertsAllRows_AndTheyAreDeliveredOneByOne_InOrder()
+    {
+        RequireSqlServer();
+        var ep = CreateEndPoint();
+        var sent = new[] { "first", "second", "third", "fourth" };
+        var received = new ConcurrentQueue<byte[]>();
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await ep.PostBatchAsync(sent.Select(s => Encoding.UTF8.GetBytes(s)).ToList(), TestContext.Current.CancellationToken);
+        await ep.StartListeningAsync((raw, _) =>
+        {
+            received.Enqueue(raw);
+            if (received.Count == sent.Length) done.TrySetResult();
+            return Task.FromResult(ProcessResult.Completed);
+        }, TestContext.Current.CancellationToken);
+
+        await done.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        await ep.StopListeningAsync();
+
+        Assert.Equal(sent, received.Select(b => Encoding.UTF8.GetString(b)));
+    }
+
+    [Fact]
+    public async Task PostBatch_IsAtomic_AFailingRowInsertsNothing()
+    {
+        RequireSqlServer();
+        var ep = CreateEndPoint();
+        Assert.True(ep.HealthCheck().IsHealthy);   // creates the table
+        // "boom" is the only 4-byte payload in the batch.
+        await ExecuteAsync($"ALTER TABLE {_tableName} ADD CONSTRAINT ck_no_boom CHECK (DATALENGTH(payload) <> 4)");
+
+        await Assert.ThrowsAnyAsync<Exception>(() => ep.PostBatchAsync(
+            ["first"u8.ToArray(), "boom"u8.ToArray(), "second"u8.ToArray()], TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, await CountAsync("1 = 1"));
+    }
+
+    [Fact]
+    public async Task PostBatch_BinaryPayloads_RoundTripUnchanged()
+    {
+        RequireSqlServer();
+        var ep = CreateEndPoint();
+        var payload = Enumerable.Range(0, 1024).Select(i => (byte)i).ToArray();   // every byte value, incl. 0 and invalid UTF-8
+        var received = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await ep.PostBatchAsync([payload], TestContext.Current.CancellationToken);
+        await ep.StartListeningAsync((raw, _) => { received.TrySetResult(raw); return Task.FromResult(ProcessResult.Completed); },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(payload, await received.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken));
+    }
+
     // --- helpers ---
 
     private static void RequireSqlServer()

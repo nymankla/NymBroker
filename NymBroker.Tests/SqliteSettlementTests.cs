@@ -104,6 +104,39 @@ public sealed class SqliteSettlementTests : IDisposable
         }
     }
 
+    // --- PostBatchAsync: one transaction, order preserved ---
+
+    [Fact]
+    public async Task PostBatch_InsertsAllRows_InOrder()
+    {
+        await using var ep = CreateEndPoint(maxRetryCount: 5);
+        var sent = new[] { "first", "second", "third" };
+
+        await ep.PostBatchAsync(sent.Select(s => Encoding.UTF8.GetBytes(s)).ToList(), TestContext.Current.CancellationToken);
+
+        var read = new List<string>();
+        await foreach (var item in ep.ReadAsync(TestContext.Current.CancellationToken)) read.Add(item);
+        Assert.Equal(sent, read);
+    }
+
+    [Fact]
+    public async Task PostBatch_IsAtomic_AFailingRowInsertsNothing()
+    {
+        await using var ep = CreateEndPoint(maxRetryCount: 5);
+        await ep.PostAsync("setup"u8.ToArray(), TestContext.Current.CancellationToken);   // creates the table
+        await using (var conn = new SqliteConnection(ConnectionString))
+        {
+            await conn.OpenAsync(TestContext.Current.CancellationToken);
+            await conn.ExecuteAsync("DELETE FROM NymBrokerMessages");
+            await conn.ExecuteAsync("CREATE TRIGGER no_boom BEFORE INSERT ON NymBrokerMessages WHEN NEW.Payload = 'boom' BEGIN SELECT RAISE(ABORT, 'boom'); END");
+        }
+
+        await Assert.ThrowsAnyAsync<Exception>(() => ep.PostBatchAsync(
+            ["ok-1"u8.ToArray(), "boom"u8.ToArray(), "ok-2"u8.ToArray()], TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, await ScalarAsync<int>("SELECT COUNT(1) FROM NymBrokerMessages"));
+    }
+
     // --- helpers ---
 
     private SqliteEndPoint CreateEndPoint(int maxRetryCount) => new("settle", new SqliteSettings

@@ -655,6 +655,43 @@ Start RabbitMQ with the provided Docker Compose file:
 ./scripts/setup-rabbitmq.ps1 -Logs    # tail logs
 ```
 
+## Batch posting
+
+Post or publish many messages in one call. Each message still gets its **own envelope** (own id, routing, TTL, dead-letter reason) and receivers get them **one by one**, exactly as if they had been posted separately. Consumers, subscribers, filters and dead-lettering need no changes, and one bad message is retried or dead-lettered on its own. The gain is on the sending side: the endpoint can send the whole batch in one round trip or transaction.
+
+```csharp
+// One endpoint call for all of them; order is preserved.
+await broker.PostBatchAsync("Orders", orders);
+
+// Same CorrelationId on every envelope, so the batch can be traced.
+await broker.PostBatchAsync("Orders", orders, correlationId: Guid.NewGuid());
+
+// Large messages are still split per message; the parts go in the same batch.
+await broker.PostBatchAsync("Orders", orders, splitThresholdBytes: 200_000);
+
+// Publish: by type, each message goes through routes, topics and consumers in turn.
+await broker.PublishBatchAsync(events);
+
+// Publish to a named topic: one batch per subscriber endpoint; ISubscribe<T> subscribers receive them one by one.
+await broker.PublishBatchAsync("orders.events", events);
+```
+
+They are separate methods rather than `PostAsync` overloads on purpose: `PostAsync(endpoint, list)` would bind to `PostAsync<T>` with `T = List<…>` and post the whole list as **one** message.
+
+How each transport sends a batch:
+
+| Endpoint | Batch send | Atomic? |
+|---|---|---|
+| SQL Server | one `INSERT … SELECT FROM OPENJSON` | yes |
+| PostgreSQL | one `INSERT … SELECT FROM unnest`, one `NOTIFY` per batch | yes |
+| SQLite | one transaction | yes |
+| Azure Service Bus | as few `ServiceBusMessageBatch`es as their size allows | per Service Bus batch (a large post is split into several) |
+| RabbitMQ, File, Memory | one message at a time (the default) | no |
+
+If a non-atomic batch fails partway, `PostBatchAsync` throws and some messages may already have been sent; use `AddIdempotentReceiver()` if you retry. An empty batch does nothing; a `null` element throws `ArgumentException` before anything is sent; unknown and read-only endpoints throw as `PostAsync` does.
+
+Custom endpoints can override `IEndPoint.PostBatchAsync(IReadOnlyList<byte[]>)`; the default posts the messages one at a time.
+
 ## Endpoint modes
 
 Every endpoint has an `EndpointMode` that controls whether it can read, write, or both:
@@ -1326,6 +1363,7 @@ A warmup pass runs first to JIT the hot paths before measurements begin. GC is f
 | **Postgres – direct** | `PgBench` | 1 000 | Messages are inserted into a real PostgreSQL table, then claimed using `FOR UPDATE SKIP LOCKED` and dispatched (`BatchSize=50`, `PollInterval=0`). Skipped automatically when PostgreSQL is not reachable. Measures the overhead of TCP round trips and the CTE-based atomic claim. |
 | **SqlServer – direct** | `MssqlBench` | 1 000 | Messages are inserted into a real SQL Server table (`dbo.nymbroker_bench`, dropped before each run), then claimed with `UPDLOCK, READPAST` and dispatched (`BatchSize=50`, `PollInterval=0`). Skipped automatically when SQL Server is not reachable. Start it with `./scripts/setup-sqlserver.ps1`. |
 | **ServiceBus – direct** | `SbBench` | 1 000 | Messages are sent to the `nymbroker.bench` queue of the Service Bus emulator (drained before the run) and received with a `ServiceBusProcessor` (`MaxConcurrentCalls=1`, `PrefetchCount=100`), each completed after processing. Skipped automatically when the emulator or queue is not reachable. Start it with `./scripts/setup-servicebus.ps1`. |
+| **Postgres / SqlServer / ServiceBus – batch/100** | same as `… – direct` | 1 000 | The same messages posted with `PostBatchAsync` in batches of 100 instead of one `PostAsync` each. Shows the send-side gain of batch posting. |
 
 ### Configuration
 
@@ -1387,6 +1425,7 @@ Notes on the numbers:
 - **Postgres** runs against a local PostgreSQL instance over TCP (`BatchSize=50`, `PollInterval=0`). The scenario posts one message at a time, so it is bound by the INSERT commit (~1.7 ms each on Docker Desktop; ~420 msg/s in the same run as the SqlServer note below). Consuming is faster: each batch is one round trip and one commit, and a backlog drains at ~9 000 msg/s (`BatchSize=50`), or ~3 000–5 000 msg/s with the default settings.
 - **SqlServer** posts one message at a time, so it is bound by the INSERT: every commit waits for a transaction-log flush, which takes ~3 ms on Docker Desktop's virtual disk. Against the `setup-sqlserver.ps1` container on Windows it measured ~215 msg/s, with Postgres at ~400 msg/s in the same run (neither is in the results above, which come from an earlier run on different storage). Consuming is much faster: draining a backlog runs at ~4 500–6 000 msg/s with `BatchSize=50`, because each batch is one round trip and one commit. Concurrent producers also get more throughput, since SQL Server groups their commits into shared log flushes (~1 900 msg/s with 16 producers). With real server storage, expect higher numbers across the board. Don't enable `DELAYED_DURABILITY` for a real queue to speed up inserts, because it can lose committed messages on a crash.
 - **ServiceBus** measured ~40 msg/s against the local emulator. That is the emulator's latency, not the endpoint: with the SDK alone, each send took ~15 ms and receiving with one message at a time (a complete per message) reached ~37 msg/s. Receiving scales with `MaxConcurrentCalls` (~300 msg/s with 8, at the cost of ordering), and batched sends are far cheaper than one at a time. Expect very different numbers against a real namespace, where latency depends on region and tier.
+- **batch/100** (same run on the local containers): Postgres 544 → 9 009 msg/s and SQL Server 321 → 5 434 msg/s, with allocations down from ~20 KB to ~6–7 KB per message — the insert becomes one statement and one commit per 100 messages. ServiceBus stays at ~38 msg/s end to end: the send gets cheaper, but the scenario is bound by receiving one message at a time with a complete per message (raise `MaxConcurrentCalls` for that).
 
 ## Running tests
 

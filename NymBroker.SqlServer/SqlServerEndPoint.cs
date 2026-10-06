@@ -74,6 +74,21 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>All messages in one INSERT ... SELECT FROM OPENJSON (one round trip, one commit); atomic, order preserved.</summary>
+    public async Task PostBatchAsync(IReadOnlyList<byte[]> messages, CancellationToken ct = default)
+    {
+        if (messages.Count == 0) return;
+
+        // System.Text.Json writes byte[] as base64, which OPENJSON decodes back into VARBINARY.
+        var items = JsonSerializer.Serialize(messages.Select(static (payload, index) => new BatchItem(index, payload)), FinalizeJsonOptions);
+
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = SqlServerQueueSql.InsertMessages(_settings.TableName);
+        cmd.Parameters.Add("@items", SqlDbType.NVarChar, -1).Value = items;
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public IHealthCheckResult HealthCheck()
     {
         try
@@ -295,6 +310,8 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     private int GetLeaseTimeoutSeconds()
         => (int)Math.Max(1, Math.Ceiling(_settings.LeaseTimeout.TotalSeconds));
+
+    private sealed record BatchItem(int I, byte[] P);
 
     private sealed record FinalizeItem(long Id, int Attempt, int Status, string? Error);
 

@@ -82,6 +82,23 @@ internal static class SqlServerQueueSql
     }
 
     /// <summary>
+    /// Inserts a batch in one statement (atomic). <c>@items</c> is a JSON array of <c>{"i": index, "p": base64 payload}</c>;
+    /// OPENJSON decodes base64 into VARBINARY. <c>ORDER BY i</c> makes IDENTITY values — and delivery order — follow the batch.
+    /// </summary>
+    internal static string InsertMessages(string tableName)
+    {
+        var table = QuoteQualifiedIdentifier(tableName);
+        return $"""
+            SET NOCOUNT ON;
+            INSERT INTO {table}
+                (message_id, status, created_at_utc, attempt_count, payload)
+            SELECT NEWID(), {Pending}, SYSUTCDATETIME(), 0, items.payload
+            FROM OPENJSON(@items) WITH (i INT '$.i', payload VARBINARY(MAX) '$.p') AS items
+            ORDER BY items.i;
+            """;
+    }
+
+    /// <summary>
     /// One round trip, one commit: finalizes the previous batch (when <c>@items</c> is not NULL) and claims the
     /// next one. <c>@items</c> is a JSON array of <c>{"id", "attempt", "status", "error"}</c> objects.
     /// The finalize only touches rows still InProgress with the same attempt number, so a late finalize never

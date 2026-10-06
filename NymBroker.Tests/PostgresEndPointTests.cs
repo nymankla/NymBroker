@@ -311,6 +311,45 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         Assert.All(seen.Values, n => Assert.Equal(1, n));
     }
 
+    // --- PostBatchAsync: one insert, order preserved, delivered one by one ---
+
+    [Fact]
+    public async Task PostBatch_InsertsAllRows_AndTheyAreDeliveredOneByOne_InOrder()
+    {
+        RequirePostgres();
+        var ep = CreateEndPoint();
+        var sent = new[] { "first", "second", "third", "fourth" };
+        var received = new ConcurrentQueue<byte[]>();
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await ep.PostBatchAsync(sent.Select(s => Encoding.UTF8.GetBytes(s)).ToList(), TestContext.Current.CancellationToken);
+        await ep.StartListeningAsync((raw, _) =>
+        {
+            received.Enqueue(raw);
+            if (received.Count == sent.Length) done.TrySetResult();
+            return Task.FromResult(ProcessResult.Completed);
+        }, TestContext.Current.CancellationToken);
+
+        await done.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        await ep.StopListeningAsync();
+
+        Assert.Equal(sent, received.Select(b => Encoding.UTF8.GetString(b)));
+    }
+
+    [Fact]
+    public async Task PostBatch_IsAtomic_AFailingRowInsertsNothing()
+    {
+        RequirePostgres();
+        var ep = CreateEndPoint();
+        Assert.True(ep.HealthCheck().IsHealthy);   // creates the table
+        await ExecuteAsync($"ALTER TABLE {_tableName} ADD CONSTRAINT no_boom CHECK (payload <> 'boom'::bytea)");
+
+        await Assert.ThrowsAnyAsync<Exception>(() => ep.PostBatchAsync(
+            ["ok-1"u8.ToArray(), "boom"u8.ToArray(), "ok-2"u8.ToArray()], TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, await CountAsync("true"));
+    }
+
     // --- helpers ---
 
     private static void RequirePostgres()

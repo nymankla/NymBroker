@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.DependencyInjection;
@@ -432,6 +433,42 @@ public sealed class AzureServiceBusEndPointTests : IAsyncLifetime
         var brokerDlq = (MemoryQueueEndPoint)sp.GetRequiredKeyedService<IEndPoint>("DLQ");
         await foreach (var _ in brokerDlq.ReadAsync(TestContext.Current.CancellationToken))
             Assert.Fail("The broker's dead-letter endpoint should stay empty for a native dead-letter source.");
+    }
+
+    [Fact]
+    public async Task PostBatch_LargerThanOneServiceBusBatch_IsChunked_AndArrivesInOrder()
+    {
+        RequireServiceBus();
+        var ep = CreateEndPoint();
+        // 30 x 20 KB = ~600 KB: more than one 256 KB Service Bus batch.
+        var sent = Enumerable.Range(0, 30).Select(i => Encoding.UTF8.GetBytes($"{i:D2}:" + new string('x', 20_000))).ToList();
+        var received = new ConcurrentQueue<string>();
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await ep.PostBatchAsync(sent, TestContext.Current.CancellationToken);
+        await ep.StartListeningAsync((raw, _) =>
+        {
+            received.Enqueue(Encoding.UTF8.GetString(raw, 0, 2));
+            if (received.Count == sent.Count) done.TrySetResult();
+            return Task.FromResult(ProcessResult.Completed);
+        }, TestContext.Current.CancellationToken);
+
+        await done.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+        await ep.StopListeningAsync();
+
+        Assert.Equal(Enumerable.Range(0, 30).Select(i => $"{i:D2}"), received);
+    }
+
+    [Fact]
+    public async Task PostBatch_MessageLargerThanABatch_Throws_WithSplitHint()
+    {
+        RequireServiceBus();
+        var ep = CreateEndPoint();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ep.PostBatchAsync([new byte[2_000_000]], TestContext.Current.CancellationToken));
+
+        Assert.Contains("splitThresholdBytes", ex.Message);
     }
 
     // =====================================================================

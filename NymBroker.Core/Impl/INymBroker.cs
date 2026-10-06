@@ -69,11 +69,33 @@ public interface INymBroker
     Task StartAsync(CancellationToken ct = default);
     Task StopAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Serialize and post several messages to one endpoint in a single endpoint call (<see cref="IEndPoint.PostBatchAsync"/>).
+    /// Each message gets its own envelope and is received and settled on its own; order is preserved.
+    /// <paramref name="splitThresholdBytes"/> / <paramref name="compress"/> apply per message, as in <c>PostAsync</c>.
+    /// <paramref name="correlationId"/>, when given, is set on every envelope so the batch can be traced.
+    /// Whether the batch is atomic depends on the transport (see the endpoint's documentation).
+    /// </summary>
+    Task PostBatchAsync<T>(string endpointName, IEnumerable<T> messages, CancellationToken ct = default,
+        int? splitThresholdBytes = null, bool compress = true, Guid? correlationId = null) where T : class;
+
     /// <summary>Publish a message to all topics matching its CLR type.</summary>
     Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class;
 
     /// <summary>Publish a message directly to a named topic, bypassing type-based topic matching.</summary>
     Task PublishAsync<T>(string topicName, T message, CancellationToken ct = default) where T : class;
+
+    /// <summary>
+    /// Publish several messages, one at a time through the same path as <see cref="PublishAsync{T}(T, CancellationToken)"/>
+    /// (routes, topics and consumers are evaluated per message). Not atomic: a failure surfaces after the messages before it.
+    /// </summary>
+    Task PublishBatchAsync<T>(IEnumerable<T> messages, CancellationToken ct = default) where T : class;
+
+    /// <summary>
+    /// Publish several messages to a named topic. Copies for each subscriber endpoint are sent with one
+    /// <see cref="IEndPoint.PostBatchAsync"/> call; <c>ISubscribe&lt;T&gt;</c> subscribers receive the messages one by one.
+    /// </summary>
+    Task PublishBatchAsync<T>(string topicName, IEnumerable<T> messages, CancellationToken ct = default) where T : class;
 
     /// <summary>
     /// Process raw UTF-8 JSON bytes arriving from an endpoint. Called by endpoint listeners, which settle the message

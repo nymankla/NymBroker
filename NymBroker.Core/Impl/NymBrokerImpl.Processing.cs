@@ -59,6 +59,68 @@ public sealed partial class NymBrokerImpl
         await FanOutTopicAsync(topic, message, context, ct);
     }
 
+    public async Task PostBatchAsync<T>(string endpointName, IEnumerable<T> messages, CancellationToken ct = default,
+        int? splitThresholdBytes = null, bool compress = true, Guid? correlationId = null) where T : class
+    {
+        var batch = ToBatchList(messages);
+        var endpoint = ResolvePostTarget(endpointName);   // unknown / read-only throw before anything is sent
+        if (batch.Count == 0) return;
+
+        var wire = new List<byte[]>(batch.Count);
+        foreach (var message in batch)
+        {
+            var context = new MessageContext<T>
+            {
+                Message = message,
+                Address = EndpointAddress.Create(endpointName)
+            };
+            if (correlationId.HasValue) context.CorrelationId = correlationId.Value;
+
+            using var stream = _serializer.Serialize(context);
+            wire.AddRange(ToWireMessages(endpointName, StreamToBytes(stream), splitThresholdBytes, compress));
+        }
+
+        await endpoint.PostBatchAsync(wire, ct);
+        _logger.LogDebug("Posted a batch of {Count} message(s) ({WireCount} envelope(s)) to endpoint '{Endpoint}'",
+            batch.Count, wire.Count, endpointName);
+    }
+
+    public async Task PublishBatchAsync<T>(IEnumerable<T> messages, CancellationToken ct = default) where T : class
+    {
+        // Routes, topic predicates and consumers are evaluated per message, exactly as PublishAsync does.
+        foreach (var message in ToBatchList(messages))
+            await PublishAsync(message, ct);
+    }
+
+    public async Task PublishBatchAsync<T>(string topicName, IEnumerable<T> messages, CancellationToken ct = default) where T : class
+    {
+        var batch = ToBatchList(messages);
+        var topic = _topics.FirstOrDefault(t => string.Equals(t.TopicName, topicName, StringComparison.OrdinalIgnoreCase));
+        if (topic == null)
+        {
+            _logger.LogWarning("No topic registered with name '{TopicName}'", topicName);
+            return;
+        }
+        if (batch.Count == 0) return;
+
+        var contexts = batch.Select(m => (IMessageContext)new MessageContext<T> { Message = m }).ToList();
+        await DeliverToTopicEndpointsAsync(topic, contexts, MessageTypeName.Get(typeof(T)), ct);
+
+        // Subscribers receive the messages one by one.
+        if (topic.SubscriberDispatchers.Count > 0)
+            for (var i = 0; i < batch.Count; i++)
+                await _subscriberDispatcher.DispatchAsync(topic.SubscriberDispatchers, batch[i], contexts[i], ct);
+    }
+
+    private static List<T> ToBatchList<T>(IEnumerable<T> messages) where T : class
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        var list = messages.ToList();
+        if (list.Any(static m => m is null))
+            throw new ArgumentException("A batch cannot contain null messages.", nameof(messages));
+        return list;
+    }
+
     public Task<ProcessResult> ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default)
         => ProcessAsync(Encoding.UTF8.GetBytes(raw), sourceEndpoint, ct);
 
@@ -402,6 +464,20 @@ public sealed partial class NymBrokerImpl
         IMessageContext context,
         CancellationToken ct)
     {
+        await DeliverToTopicEndpointsAsync(topic, [context],
+            context.MessageType ?? (message != null ? MessageTypeName.Get(message.GetType()) : "unknown"), ct);
+
+        if (message != null && topic.SubscriberDispatchers.Count > 0)
+            await _subscriberDispatcher.DispatchAsync(topic.SubscriberDispatchers, message, context, ct);
+    }
+
+    /// <summary>
+    /// Sends a copy of each message to every subscriber endpoint of the topic: one <c>PostAsync</c> for a single message,
+    /// one <see cref="IEndPoint.PostBatchAsync"/> per endpoint for several. The routed counter is recorded per message.
+    /// </summary>
+    private async Task DeliverToTopicEndpointsAsync(TopicContext topic, IReadOnlyList<IMessageContext> contexts,
+        string messageType, CancellationToken ct)
+    {
         foreach (var endpointName in topic.SubscriberEndpoints)
         {
             if (!_endpoints.TryGetValue(endpointName, out var endpoint))
@@ -414,35 +490,62 @@ public sealed partial class NymBrokerImpl
                 _logger.LogWarning("Topic '{Topic}' cannot deliver to read-only endpoint '{Endpoint}'", topic.TopicName, endpointName);
                 continue;
             }
-            using var stream = _serializer.Serialize(context);
+
+            var wire = new List<byte[]>(contexts.Count);
+            foreach (var context in contexts)
+            {
+                using var stream = _serializer.Serialize(context);
+                wire.Add(StreamToBytes(stream));
+            }
+
             var tags = new TagList
             {
-                { "source", context.Address?.From ?? "unknown" },
+                { "source", contexts[0].Address?.From ?? "unknown" },
                 { "destination", endpointName },
-                { "message_type", context.MessageType ?? (message != null ? MessageTypeName.Get(message.GetType()) : "unknown") },
+                { "message_type", messageType },
                 { "via", "topic" },
                 { "topic", topic.TopicName }
             };
             try
             {
-                await endpoint.PostAsync(StreamToBytes(stream), ct);
+                if (wire.Count == 1)
+                    await endpoint.PostAsync(wire[0], ct);
+                else
+                    await endpoint.PostBatchAsync(wire, ct);
                 tags.Add("outcome", "success");
-                NymBrokerDiagnostics.MessagesRouted.Add(1, tags);
+                NymBrokerDiagnostics.MessagesRouted.Add(wire.Count, tags);
             }
             catch
             {
                 tags.Add("outcome", "failure");
-                NymBrokerDiagnostics.MessagesRouted.Add(1, tags);
+                NymBrokerDiagnostics.MessagesRouted.Add(wire.Count, tags);
                 throw;
             }
-            _logger.LogInformation("Topic '{Topic}' delivered to endpoint '{Endpoint}'", topic.TopicName, endpointName);
+            _logger.LogInformation("Topic '{Topic}' delivered {Count} message(s) to endpoint '{Endpoint}'", topic.TopicName, wire.Count, endpointName);
         }
-
-        if (message != null && topic.SubscriberDispatchers.Count > 0)
-            await _subscriberDispatcher.DispatchAsync(topic.SubscriberDispatchers, message, context, ct);
     }
 
     private async Task PostToEndpointAsync(string name, byte[] message, int? splitThresholdBytes, bool compress, CancellationToken ct)
+    {
+        var endpoint = ResolvePostTarget(name);
+        foreach (var wire in ToWireMessages(name, message, splitThresholdBytes, compress))
+            await endpoint.PostAsync(wire, ct);
+    }
+
+    private IEndPoint ResolvePostTarget(string name)
+    {
+        if (!_endpoints.TryGetValue(name, out var endpoint))
+            throw new InvalidOperationException($"No endpoint registered with name '{name}'.");
+        if (endpoint.Mode == EndpointMode.ReadOnly)
+            throw new InvalidOperationException($"Endpoint '{name}' is read-only and cannot receive posted messages.");
+        return endpoint;
+    }
+
+    /// <summary>
+    /// The envelope(s) to send for one serialized message: the message itself, or — when it exceeds
+    /// <paramref name="splitThresholdBytes"/> — its (optionally compressed) <see cref="SplitMessage"/> parts, in order.
+    /// </summary>
+    private List<byte[]> ToWireMessages(string name, byte[] message, int? splitThresholdBytes, bool compress)
     {
         if (splitThresholdBytes.HasValue && message.Length > splitThresholdBytes.Value)
         {
@@ -487,6 +590,7 @@ public sealed partial class NymBrokerImpl
                 "Splitting message of {Size} bytes ({PayloadSize} bytes after compression) into {Count} part(s) for endpoint '{Endpoint}' (threshold={Threshold} bytes, compression={Compression})",
                 message.Length, payload.Length, parts.Count, name, splitThresholdBytes.Value, compressionName ?? "none");
 
+            var wire = new List<byte[]>(parts.Count);
             foreach (var part in parts)
             {
                 var partContext = new MessageContext<SplitMessage>
@@ -495,21 +599,12 @@ public sealed partial class NymBrokerImpl
                     Address = EndpointAddress.Create(name)
                 };
                 using var partStream = _serializer.Serialize(partContext);
-                await PostToEndpointAsync(name, StreamToBytes(partStream), null, false, ct);
+                wire.Add(StreamToBytes(partStream));
             }
-            return;
+            return wire;
         }
 
-        await PostToEndpointAsync(name, message, ct);
-    }
-
-    private async Task PostToEndpointAsync(string name, byte[] message, CancellationToken ct)
-    {
-        if (!_endpoints.TryGetValue(name, out var endpoint))
-            throw new InvalidOperationException($"No endpoint registered with name '{name}'.");
-        if (endpoint.Mode == EndpointMode.ReadOnly)
-            throw new InvalidOperationException($"Endpoint '{name}' is read-only and cannot receive posted messages.");
-        await endpoint.PostAsync(message, ct);
+        return [message];
     }
 
     private static byte[] StreamToBytes(Stream stream)

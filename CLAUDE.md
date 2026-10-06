@@ -125,12 +125,22 @@ An optional `deadLetter` object (`DeadLetterInfo`: `reason`, `description` cappe
 ```csharp
 broker.PostAsync<T>(endpoint, message)              // serialize + send
 broker.PostAsync(endpoint, stream)                  // send pre-serialized
+broker.PostBatchAsync<T>(endpoint, messages, …, correlationId?) // many envelopes, one IEndPoint.PostBatchAsync call (#45)
+broker.PublishBatchAsync<T>(messages) / (topicName, messages)   // per-message publish / one batch per topic endpoint
 // Both overloads take a trailing `int? splitThresholdBytes = null` and `bool compress = true`:
 // when a threshold is set and the serialized envelope exceeds it, the message is transparently
 // split into SplitMessage parts (via ISplitter) and posted individually; ProcessAsync reassembles
 // them on arrival. When compress is also true, the envelope is compressed (ICompressor, Brotli by
 // default) before splitting whenever that actually shrinks it — offsets Base64's ~33% overhead for
 // compressible (text/JSON) payloads. See "Aggregator / Splitter" below.
+//
+// Batches: every message keeps its own envelope and is received and settled one by one; only the send is batched.
+// IEndPoint.PostBatchAsync(IReadOnlyList<byte[]>) is a default interface method (sequential PostAsync), overridden by
+// SqlServer (INSERT…SELECT FROM OPENJSON, base64 → VARBINARY), Postgres (INSERT…SELECT FROM unnest WITH ORDINALITY, one
+// NOTIFY), SQLite (one transaction) — all atomic and order-preserving — and Azure Service Bus (ServiceBusMessageBatch
+// chunks, atomic per chunk). RabbitMQ/File/Memory use the default. Split thresholds apply per message (NymBrokerImpl
+// .ToWireMessages, shared with PostAsync). Named PostBatchAsync, not a PostAsync overload: PostAsync(endpoint, list)
+// would bind to PostAsync<T> with T = List<…>.
 
 // Routing (all return IRouteBuilder<T> or RouteContext)
 broker.Route<Order>()...Build()                     // typed route

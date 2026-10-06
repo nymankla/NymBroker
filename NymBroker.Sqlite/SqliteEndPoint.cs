@@ -129,6 +129,32 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     // ── IEndPoint ───────────────────────────────────────────────────────────
 
+    private string InsertSql =>
+        $"INSERT INTO {_settings.TableName} (MessageId, Status, CreatedAtUtc, AttemptCount, Payload) VALUES (@MessageId, @Status, unixepoch(), 0, @Payload)";
+
+    /// <summary>All messages in one transaction (atomic, order preserved).</summary>
+    public async Task PostBatchAsync(IReadOnlyList<byte[]> messages, CancellationToken ct = default)
+    {
+        if (messages.Count == 0) return;
+
+        var rows = messages
+            .Select(static m => new { MessageId = Guid.NewGuid().ToString(), Status = (int)MessageStatus.Pending, Payload = Encoding.UTF8.GetString(m) })
+            .ToList();
+
+        await _dbLock.WaitAsync(ct);
+        try
+        {
+            var conn = await EnsureConnectionAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await conn.ExecuteAsync(InsertSql, rows, tx);
+            await tx.CommitAsync(ct);
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
     public async Task PostAsync(byte[] message, CancellationToken ct = default)
     {
         var payload = Encoding.UTF8.GetString(message);
@@ -137,8 +163,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         try
         {
             var conn = await EnsureConnectionAsync(ct);
-            await conn.ExecuteAsync(
-                $"INSERT INTO {_settings.TableName} (MessageId, Status, CreatedAtUtc, AttemptCount, Payload) VALUES (@MessageId, @Status, unixepoch(), 0, @Payload)",
+            await conn.ExecuteAsync(InsertSql,
                 new { MessageId = Guid.NewGuid().ToString(), Status = (int)MessageStatus.Pending, Payload = payload });
         }
         finally

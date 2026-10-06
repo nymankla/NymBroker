@@ -40,6 +40,7 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - `UsesNativeDeadLetter => _settings.UseNativeDeadLetter` (default `true`) **only** if the transport has its own dead-letter queue; otherwise leave the interface default (`false`) and the broker's dead-letter endpoint takes failures.
 - Three catch layers: per message (`when (ex is not OperationCanceledException)`) → `LogError`; `OperationCanceledException` → swallow; anything else → `LogCritical`. Never a silent catch.
 - `PostAsync` sends the bytes unchanged and is safe to call concurrently.
+- Override `PostBatchAsync(IReadOnlyList<byte[]>)` when the transport can batch (one statement / transaction / client batch); keep order and one envelope per message, and document atomicity. Otherwise rely on the default (sequential `PostAsync`).
 - `HealthCheck()` has a timeout and never throws.
 - Retries use `NymBroker.Resilience.RetryPolicy` (one per endpoint, `OnRetry` logs). **Never add Polly.**
 - Constructor: `(string name, TSettings settings, ILogger<T> logger, EndpointMode mode = EndpointMode.ReadWrite)`.

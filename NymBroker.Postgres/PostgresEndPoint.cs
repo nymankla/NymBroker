@@ -73,6 +73,25 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>All messages in one INSERT (one transaction, one NOTIFY); atomic, order preserved.</summary>
+    public async Task PostBatchAsync(IReadOnlyList<byte[]> messages, CancellationToken ct = default)
+    {
+        if (messages.Count == 0) return;
+
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = PostgresQueueSql.InsertMessages(_settings.TableName, _settings.UseNotifications);
+        cmd.Parameters.Add(new NpgsqlParameter<Guid[]>("messageIds", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+        {
+            TypedValue = messages.Select(static _ => Guid.NewGuid()).ToArray()
+        });
+        cmd.Parameters.Add(new NpgsqlParameter<byte[][]>("payloads", NpgsqlDbType.Array | NpgsqlDbType.Bytea)
+        {
+            TypedValue = messages as byte[][] ?? messages.ToArray()
+        });
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public IHealthCheckResult HealthCheck()
     {
         try

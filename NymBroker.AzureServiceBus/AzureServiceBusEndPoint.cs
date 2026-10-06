@@ -45,7 +45,49 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDispos
     public bool UsesNativeDeadLetter => _settings.UseNativeDeadLetter;
 
     public Task PostAsync(byte[] message, CancellationToken ct = default)
-        => _sender.Value.SendMessageAsync(new ServiceBusMessage(message) { ContentType = "application/json" }, ct);
+        => _sender.Value.SendMessageAsync(CreateMessage(message), ct);
+
+    /// <summary>
+    /// Sends the messages in as few <see cref="ServiceBusMessageBatch"/>es as their size allows, in order. Each Service Bus
+    /// batch is atomic; when a batch is full a new one is started, so a large post is atomic per chunk, not as a whole.
+    /// </summary>
+    public async Task PostBatchAsync(IReadOnlyList<byte[]> messages, CancellationToken ct = default)
+    {
+        if (messages.Count == 0) return;
+
+        var sender = _sender.Value;
+        var batch = await sender.CreateMessageBatchAsync(ct);
+        try
+        {
+            foreach (var body in messages)
+            {
+                var message = CreateMessage(body);
+                if (batch.TryAddMessage(message))
+                    continue;
+
+                if (batch.Count > 0)
+                {
+                    await sender.SendMessagesAsync(batch, ct);
+                    batch.Dispose();
+                    batch = await sender.CreateMessageBatchAsync(ct);
+                    if (batch.TryAddMessage(message))
+                        continue;
+                }
+
+                throw new InvalidOperationException(
+                    $"A message of {body.Length} bytes does not fit in a Service Bus batch (max {batch.MaxSizeInBytes} bytes) on endpoint '{_name}'. Post it with splitThresholdBytes.");
+            }
+
+            if (batch.Count > 0)
+                await sender.SendMessagesAsync(batch, ct);
+        }
+        finally
+        {
+            batch.Dispose();
+        }
+    }
+
+    private static ServiceBusMessage CreateMessage(byte[] body) => new(body) { ContentType = "application/json" };
 
     public async Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
