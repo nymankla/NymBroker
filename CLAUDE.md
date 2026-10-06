@@ -57,6 +57,7 @@ Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker comp
 | `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses Dapper + `Microsoft.Data.Sqlite`. |
 | `NymBroker.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
 | `NymBroker.SqlServer` | Optional add-on — `SqlServerEndPoint`, `SqlServerSettings`, `AddSqlServerEndPoint`/`WithSqlServer`, config type `SqlServerEndPointType.SqlServer`. Uses `Microsoft.Data.SqlClient`. |
+| `NymBroker.Idempotency.SqlServer` | Optional add-on (#55) — durable `IIdempotencyStore` in a SQL Server table: `SqlServerIdempotencyStore`, `SqlServerIdempotencySettings`, `AddSqlServerIdempotency`, plus a hosted cleanup service. Independent of `NymBroker.SqlServer`. PostgreSQL (#56) / SQLite (#57) stores follow the same pattern — see the `write-idempotency-store` skill. |
 | `NymBroker.AzureServiceBus` | Optional add-on — `AzureServiceBusEndPoint`, `AzureServiceBusSettings`, `AddAzureServiceBusEndPoint`/`WithAzureServiceBus`, config type `AzureServiceBusEndPointType.AzureServiceBus`. Uses `Azure.Messaging.ServiceBus` (no `Azure.Identity` dependency). |
 | `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. PostgreSQL / SQL Server / Service Bus integration tests (`PostgresEndPointTests`, `SqlServerEndPointTests`, `AzureServiceBusEndPointTests`) run only when `NYMBROKER_POSTGRES_CS` / `NYMBROKER_SQLSERVER_CS` / `NYMBROKER_SERVICEBUS_CS` are set; otherwise they are skipped (their unit and health-check tests always run). |
 | `samples/NymBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
@@ -202,6 +203,10 @@ broker.Route<Order>()
 3. `Type.AssemblyQualifiedName`
 
 `SplitMessage` is pre-registered. All types used in routes or consumers are registered automatically at config time.
+
+### Idempotent Receiver
+
+`IIdempotencyStore` is async and two-phase (#55): `TryClaimAsync` → `Claimed | Duplicate | InProgress`, then `CompleteAsync` (remember for the TTL) or `ReleaseAsync` (forget an open claim; never a completed one). A claim is a lease. The broker (`NymBrokerImpl.Idempotency.cs`, `ProcessIdempotentlyAsync`) wraps routing/topics/consumer (`RouteAndDispatchAsync`) after decoding, filters and split reassembly — split parts are never claimed. `Duplicate` → `Completed` + `nymbroker.messages.duplicates`; `InProgress` → `Retry`; claim throws → `LogError` + `Retry` (fail closed); a `Retry` result or exception → release, anything else → complete (with `CancellationToken.None`; failure → `LogError`, lease expires). `Guid.Empty` IDs skip the check. There is no `IdempotentFilter` any more (it marked IDs before processing, losing redelivered retries). Register with `AddIdempotentReceiver(ttl)` (in-memory), `(IIdempotencyStore)`, `<TStore>()` or `(Func<IServiceProvider, IIdempotencyStore>)` — database packages call the factory overload; one store per broker.
 
 ### Scheduled Actions
 
@@ -364,10 +369,11 @@ No exception is silently swallowed. The policy per layer:
 |---|---|
 | `NymBrokerImpl.ProcessAsync` | Deserialization failure → `LogError`, then dead-lettered (native `DeadLetter` or the broker's dead-letter endpoint). Unresolved type with no route → `LogWarning`. Every dead-lettering → `LogWarning` with its reason. Unexpected exception → `LogError`, returns `Retry`. |
 | `ConsumerDispatcher` | No registered consumer → `LogWarning`. |
-| Observability | `nymbroker.messages.received`, `nymbroker.messages.routed`, `nymbroker.messages.consumed`, `nymbroker.messages.failed`, `nymbroker.messages.dead_lettered`, and `nymbroker.message.processing.duration` are emitted on the `NymBroker` meter. Each `CheckHealthAsync` also records `nymbroker.health.checks` (counter, tag `status`), `nymbroker.health.endpoint.failures` (counter, tags `endpoint`/`critical`/`reason` = `unhealthy`\|`timeout`\|`error`) and the gauges `nymbroker.health.status` (0/1/2) and `nymbroker.health.endpoint.healthy` (1/0). |
+| Observability | `nymbroker.messages.received`, `nymbroker.messages.routed`, `nymbroker.messages.consumed`, `nymbroker.messages.failed`, `nymbroker.messages.dead_lettered`, `nymbroker.messages.duplicates`, and `nymbroker.message.processing.duration` are emitted on the `NymBroker` meter. Each `CheckHealthAsync` also records `nymbroker.health.checks` (counter, tag `status`), `nymbroker.health.endpoint.failures` (counter, tags `endpoint`/`critical`/`reason` = `unhealthy`\|`timeout`\|`error`) and the gauges `nymbroker.health.status` (0/1/2) and `nymbroker.health.endpoint.healthy` (1/0). |
 | Dead-letter endpoint posts (`TryPostToDeadLetterAsync`) | Posts `DeadLetterEnvelope.Annotate(raw, info)` so the reason travels with the message; counted in `nymbroker.messages.dead_lettered`; a failing post → `LogError`. |
 | `AggregatorImpl.PurgeExpired` | Purge count logged at `Debug`. |
 | `NymBrokerImpl.StartAsync` | Any startup exception → `LogError`, scheduled actions rolled back, exception re-thrown. |
+| Idempotent receiver (`ProcessIdempotentlyAsync`) | Claim fails → `LogError`, `Retry`. Complete / release fails → `LogError` (result unchanged; lease expires). Duplicate → `Debug`. `SqlServerIdempotencyCleanupService`: delete failure → `LogError`, retried next interval. |
 | `NymBrokerImpl.CheckHealthAsync` | Never throws (caller cancellation aside). An endpoint `HealthCheck()` that throws → `LogWarning`, reported `Unhealthy` with the exception message; one that misses the timeout → `LogWarning`, reported `Unhealthy`. Result logged at `Debug`. |
 | `FileEndPoint.OnFileCreated` | Fire-and-forget handler failure, or a non-`Completed` result → `LogError` (the file is already renamed, no retry; loop continues). |
 | `FileEndPoint.ProcessExistingFilesAsync` | Per-file handler failure → `LogError` (remaining files still processed). Structural failure (e.g. directory gone) → `LogError` on outer Task.Run. |

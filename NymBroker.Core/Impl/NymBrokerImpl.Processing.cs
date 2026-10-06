@@ -290,6 +290,16 @@ public sealed partial class NymBrokerImpl
             return await ProcessAsync(reassembledJson, sourceEndpoint, ct);
         }
 
+        // ── Idempotent receiver ───────────────────────────────────────────────
+        // Claimed after reassembly, so a split message is claimed once by its own ID, not per part.
+        return await ProcessIdempotentlyAsync(context.Id, sourceEndpoint, recordFailure,
+            () => RouteAndDispatchAsync(raw, sourceEndpoint, context, raw2, messageType, nativeDeadLetter, recordFailure, ct), ct);
+    }
+
+    /// <summary>Routes, fans out to topics and dispatches to the consumer — the part of processing an idempotency claim covers.</summary>
+    private async Task<ProcessResult> RouteAndDispatchAsync(byte[] raw, string? sourceEndpoint, IMessageContext context,
+        RawMessageContext raw2, Type? messageType, bool nativeDeadLetter, Action<Exception?> recordFailure, CancellationToken ct)
+    {
         var msgElement = raw2.RawMessage;
 
         // ── Route to destination endpoints ────────────────────────────────────

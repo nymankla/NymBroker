@@ -134,6 +134,7 @@ The broker emits these measurements:
 | `nymbroker.messages.consumed` | `NymBroker` | Consumer and topic-subscriber invocations, tagged with `source`, `message_type`, `consumer`, `kind` (`consumer`/`subscriber`), and `outcome` (`success`/`failure`) |
 | `nymbroker.messages.failed` | `NymBroker` | Processing failures, including deserialization and consumer failures |
 | `nymbroker.messages.dead_lettered` | `NymBroker` | Dead-lettered messages, tagged with `reason` (`DeadLetterReasons` or a transport reason), `source` endpoint and `mode` (`broker`: posted to the dead-letter endpoint; `native`: the broker returned `ProcessResult.DeadLetter`) |
+| `nymbroker.messages.duplicates` | `NymBroker` | Duplicates dropped by the idempotent receiver, tagged with `source` |
 | `nymbroker.message.processing.duration` | `NymBroker` | Processing latency in milliseconds, tagged with `outcome` (`success`/`failure`) and `result` (`completed`/`retry`/`dead_letter`, the `ProcessResult` returned to the endpoint) |
 | `nymbroker.health.checks` | `NymBroker` | Health checks run (`CheckHealthAsync`), tagged with `status` (`healthy`/`degraded`/`unhealthy`) |
 | `nymbroker.health.endpoint.failures` | `NymBroker` | Endpoints reported unhealthy by a health check, tagged with `endpoint`, `critical` and `reason` (`unhealthy`/`timeout`/`error`) |
@@ -169,6 +170,7 @@ See [docs/observability.md](docs/observability.md#health-checks) for the aggrega
 | `NymBroker.Sqlite` | Optional SQLite transport via Dapper (add when needed) |
 | `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
 | `NymBroker.SqlServer` | Optional SQL Server transport via Microsoft.Data.SqlClient |
+| `NymBroker.Idempotency.SqlServer` | Optional durable idempotency store (idempotent receiver) in a SQL Server table — `AddSqlServerIdempotency` |
 | `NymBroker.AzureServiceBus` | Optional Azure Service Bus transport via Azure.Messaging.ServiceBus |
 | `NymBroker.Tests` | xUnit tests |
 | [`NymBroker.Sample`](samples/NymBroker.Sample) | Fluent API, Memory/File endpoints, routing, and scheduled actions |
@@ -1200,17 +1202,22 @@ Multiple taps are supported — call `.AddWireTap()` once per endpoint. `StartAs
 
 ### Idempotent Receiver
 
-Drop duplicate messages using an in-memory TTL store keyed on the message `id` field. A duplicate within the TTL window is silently discarded; an entry whose TTL has expired allows the same ID to be processed again.
+Drop duplicate messages, keyed on the message `id` field. A duplicate within the TTL window is discarded; an entry whose TTL has expired allows the same ID to be processed again.
 
 ```csharp
 services.AddNymBroker()
     .AddMemoryEndPoint("Main")
     .AddConsumer<OrderConsumer>()
-    .AddIdempotentReceiver(TimeSpan.FromHours(1))   // omit TimeSpan to use the default 24-hour TTL
+    .AddIdempotentReceiver(TimeSpan.FromHours(1))   // in memory, per process; omit TimeSpan for the default 24-hour TTL
     .Build();
+
+// Durable and shared by every instance (package NymBroker.Idempotency.SqlServer):
+services.AddNymBroker()
+    .AddSqlServerIdempotency(new SqlServerIdempotencySettings { ConnectionString = "...", TableName = "dbo.nymbroker_idempotency" })
+    …
 ```
 
-The store is registered as `IIdempotencyStore` in the DI container and applied as a pipeline filter before routing and consumer dispatch.
+The broker claims the ID before routing and consumer dispatch (after reassembling split messages), completes the claim when the message was handled, and releases it when processing returns `Retry`, so the transport's redelivery is processed. A message claimed by another, still running delivery returns `Retry`; a failing store returns `Retry` too. Custom stores implement the two-phase `IIdempotencyStore` (`TryClaimAsync` / `CompleteAsync` / `ReleaseAsync`) and register with `AddIdempotentReceiver(store)` or `AddIdempotentReceiver<TStore>()`. Details: [Reliability → Duplicate detection](docs/reliability.md#duplicate-detection).
 
 ### Message Expiration (TTL)
 

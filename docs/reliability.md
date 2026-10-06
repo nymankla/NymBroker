@@ -126,7 +126,40 @@ services.AddNymBroker()
     …
 ```
 
-The ids are remembered **in memory, per process**: it protects against redelivery to the same instance within the window, not across several instances or restarts.
+With `AddIdempotentReceiver(ttl)` the ids are remembered **in memory, per process**: it protects against redelivery to the same instance within the window, not across several instances or restarts. For that, use a database store, which every instance shares through one table:
+
+```csharp
+// dotnet add package NymBroker.Idempotency.SqlServer
+services.AddNymBroker()
+    .AddSqlServerIdempotency(new SqlServerIdempotencySettings
+    {
+        ConnectionString = "...",
+        TableName        = "dbo.nymbroker_idempotency",   // created automatically (AutoCreateTable = true)
+        Ttl              = TimeSpan.FromHours(24),        // how long a processed id is remembered
+        LeaseTimeout     = TimeSpan.FromMinutes(5),       // how long a claim survives a crashed process
+        CleanupInterval  = TimeSpan.FromMinutes(10)       // a hosted service deletes expired rows; Zero disables it
+    })
+    …
+```
+
+PostgreSQL ([#56](https://github.com/nymankla/NymBroker/issues/56)) and SQLite ([#57](https://github.com/nymankla/NymBroker/issues/57)) stores are planned. Any other store: implement `IIdempotencyStore` and register it with `AddIdempotentReceiver(store)` or `AddIdempotentReceiver<TStore>()`.
+
+### How it works
+
+The broker claims the message id after decoding (and after reassembling a split message — its parts are not claimed), before routes, topics and consumers run:
+
+| Claim | What happens |
+|---|---|
+| new | The message is processed. If processing ends in `Retry` (or throws), the claim is **released**, so the transport's redelivery is processed. Any other result (`Completed`, `DeadLetter`, also after the broker posted it to its dead-letter endpoint) **completes** the claim, and the id is remembered for the TTL. |
+| already processed within the TTL | Dropped as a duplicate: `Completed`, counted in `nymbroker.messages.duplicates`. |
+| claimed by another delivery that is still running | `Retry`: the transport redelivers it later, when the other delivery has finished. |
+| the store fails | `Retry`, logged as an error. The broker never processes a message without the duplicate check. |
+
+A claim is a lease (`LeaseTimeout`): if the process dies after claiming, the claim expires and the message can be processed again. A store that fails to complete or release a claim is logged; the lease then expires — worst case, one extra delivery.
+
+Before [#55](https://github.com/nymankla/NymBroker/issues/55) the id was recorded *before* processing, so a message whose consumer failed and was redelivered by the transport was then dropped as a duplicate and lost.
+
+**Limits.** This is duplicate detection for at-least-once delivery, not exactly-once processing. The consumer's side effects are not in the store's transaction: if the process dies after the consumer succeeded but before the claim is completed, the message is processed again once the lease expires. Messages without an id (`Guid.Empty`, e.g. from an input transformer) are not checked.
 
 ## Message expiry (TTL)
 
