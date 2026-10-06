@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using NymBroker.Core.Endpoint;
 using Microsoft.Extensions.Logging;
 
@@ -49,11 +48,9 @@ public sealed partial class NymBrokerImpl
                     throw new InvalidOperationException(
                         $"Wire tap endpoint '{tapName}' is read-only and cannot receive messages.");
 
-            var startedScheduledActions = ImmutableList<ScheduledActionHandle>.Empty;
             try
             {
-                foreach (var scheduledAction in _scheduledActions)
-                    startedScheduledActions = startedScheduledActions.Add(await scheduledAction(ct));
+                StartScheduledActions(ct);
 
                 foreach (var (name, endpoint) in _endpoints)
                 {
@@ -70,7 +67,6 @@ public sealed partial class NymBrokerImpl
                     }
                 }
 
-                _activeScheduledActions = startedScheduledActions;
                 _started = true;
                 _startGate.TrySetResult();
                 _logger.LogInformation("Broker started");
@@ -78,8 +74,7 @@ public sealed partial class NymBrokerImpl
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Broker failed to start — rolling back scheduled actions");
-                foreach (var scheduledAction in startedScheduledActions)
-                    await scheduledAction.DisposeAsync();
+                await StopScheduledActionsAsync();
 
                 throw;
             }
@@ -98,10 +93,7 @@ public sealed partial class NymBrokerImpl
             if (!_started)
                 return;
 
-            foreach (var scheduledAction in _activeScheduledActions)
-                await scheduledAction.DisposeAsync();
-
-            _activeScheduledActions = ImmutableList<ScheduledActionHandle>.Empty;
+            await StopScheduledActionsAsync();
 
             foreach (var kvp in _endpoints.Where(kvp => kvp.Value is IEndPointEventDriven))
             {
