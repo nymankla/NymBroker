@@ -17,9 +17,21 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogge
 
     private static readonly ConcurrentDictionary<Type, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>> DispatchCache = new();
 
+    /// <summary>
+    /// Registers the consumer (DI key) for a message type. Registering the same key again is a no-op; a different key
+    /// for a type that already has a consumer throws, instead of silently replacing it.
+    /// </summary>
     public void RegisterConsumer(Type messageType, string serviceKey)
     {
-        _consumerKeys = _consumerKeys.SetItem(messageType, serviceKey);
+        ImmutableInterlocked.Update(ref _consumerKeys, keys =>
+        {
+            if (keys.TryGetValue(messageType, out var existing))
+            {
+                if (existing == serviceKey) return keys;
+                throw Factory.NymBrokerBuilder.DuplicateConsumer(messageType, existing, serviceKey);
+            }
+            return keys.Add(messageType, serviceKey);
+        });
     }
 
     public async Task DispatchAsync(Type messageType, object message, IMessageContext context, CancellationToken ct)

@@ -76,7 +76,7 @@ services.AddNymBroker()
 
 Rules to know:
 
-- **One consumer per message type.** If two registered consumers handle the same type, the last one registered wins, silently ([#49](https://github.com/nymankla/NymBroker/issues/49)). To have several independent handlers for one message, use a topic with `ISubscribe<T>` subscribers ([Routing and publish/subscribe](routing-and-pubsub.md#topics-and-subscribers)).
+- **One consumer per message type.** Registering a second, different consumer for a type that already has one throws `InvalidOperationException` at `AddConsumer<T>()`, naming both consumers. Registering the same consumer twice is harmless. Two different consumer classes with the same class name (in different namespaces) also throw, because consumers are registered by class name. To have several independent handlers for one message, use a topic with `ISubscribe<T>` subscribers ([Routing and publish/subscribe](routing-and-pubsub.md#topics-and-subscribers)).
 - **A fresh DI scope per message.** Each dispatch creates its own `IServiceScope`, so consumers can depend on scoped services such as an EF Core `DbContext`. Consumers are registered as transient.
 - **Routes and topics come first.** A message that matches a route or a topic is forwarded there and is **not** given to the consumer. See [what decides where a message goes](routing-and-pubsub.md#what-decides-where-a-message-goes).
 - **Throwing means "failed".** If `ConsumeAsync` throws, the message is retried by its transport and eventually dead-lettered (or sent to the broker's dead-letter endpoint). Return normally only when the message is fully handled. See [Reliability](reliability.md).
