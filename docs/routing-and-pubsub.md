@@ -65,21 +65,35 @@ broker.Route()
 | `.WhenMessageIsOlderThan(age)` | `created` is more than `age` ago |
 | `.And(a, b)` / `.Or(a, b)` | both / either of two condition objects match |
 
-A route has **one** source filter (`WhenFrom` / `WhenNotFrom`) and **one** content condition. `When`, `WhenMessageIsOlderThan`, `And` and `Or` each *replace* the content condition, so `.When(a).When(b)` only checks `b` ([#47](https://github.com/nymankla/NymBroker/issues/47) proposes combining them). To combine content conditions, build them as objects and pass them to `And` / `Or`:
+Conditions in a chain must **all** match: each `When`, `WhenMessageIsOlderThan`, `And` and `Or` is AND-ed with the ones before it, together with the source filter. A route has one source filter, so a second `WhenFrom` / `WhenNotFrom` replaces the first.
+
+```csharp
+// large AND high-priority AND older than a minute
+broker.Route<OrderCreated>()
+    .To("Review")
+    .When(m => m.GetProperty("amount").GetDecimal() > 10_000m)
+    .When(m => m.GetProperty("priority").GetString() == "high")
+    .WhenMessageIsOlderThan(TimeSpan.FromMinutes(1))
+    .Build();
+```
+
+For OR, pass condition objects to `Or` (and `And` to nest them); the result is AND-ed with the rest of the chain:
 
 ```csharp
 using NymBroker.Core.Route;
 
+// (large OR high-priority) AND received on "WebOrders"
 broker.Route<OrderCreated>()
     .To("Review")
+    .WhenFrom("WebOrders")
     .Or(new JsonRouteCondition(m => m.GetProperty("amount").GetDecimal() > 10_000m),
-        new AndRouteCondition(
-            new JsonRouteCondition(m => m.GetProperty("priority").GetString() == "high"),
-            new MessageAgeRouteCondition(TimeSpan.FromMinutes(1))))
+        new JsonRouteCondition(m => m.GetProperty("priority").GetString() == "high"))
     .Build();
 ```
 
-The condition classes (`JsonRouteCondition`, `FromRouteCondition`, `NotFromRouteCondition`, `MessageAgeRouteCondition`, `AndRouteCondition`, `OrRouteCondition`) implement `IRouteCondition`; implement it yourself for custom logic. For full control, subclass `RouteContext`, override `Evaluate(messageType, context, payload)`, and register it with `broker.Route(() => new MyRouteContext()).To("Destination").Build()`.
+> Before 0.3.3 each condition **replaced** the previous one, so `.When(a).When(b)` only checked `b` ([#47](https://github.com/nymankla/NymBroker/issues/47)). If you relied on that, keep only the last condition.
+
+The condition classes (`JsonRouteCondition`, `FromRouteCondition`, `NotFromRouteCondition`, `MessageAgeRouteCondition`, `AndRouteCondition`, `OrRouteCondition`) implement `IRouteCondition`; implement it yourself for custom logic. For full control, subclass `RouteContext`, override `Evaluate(messageType, context, payload)`, and register it with `broker.Route(() => new MyRouteContext()).To("Destination").Build()`. A `Condition` set on such a context is AND-ed with any conditions added in the chain.
 
 ### Avoid routing loops
 
@@ -101,7 +115,7 @@ services.AddNymBroker()
         .SubscribeTo("Audit")                    // post a copy to an endpoint
         .SubscribeWith<BillingSubscriber>()      // call in-process subscribers
         .SubscribeWith<EmailSubscriber>()
-        .When(msg => msg.GetProperty("amount").GetDecimal() > 0)   // optional; one condition per topic (#47)
+        .When(msg => msg.GetProperty("amount").GetDecimal() > 0)   // optional; several When calls must all match
         .Build()                                 // back to the broker builder
     .Build();
 

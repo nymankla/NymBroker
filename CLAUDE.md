@@ -171,7 +171,7 @@ broker.ProcessAsync(raw, sourceEndpoint, ct)        // entry point for endpoint 
 | `AndRouteCondition` | `.And(lhs, rhs)` |
 | `OrRouteCondition` | `.Or(lhs, rhs)` |
 
-Predicates receive the **message payload** element (not the full envelope). `IAnyMessage` routes match every type.
+Predicates receive the **message payload** element (not the full envelope). `IAnyMessage` routes match every type. Chained content conditions (`When`, `WhenMessageIsOlderThan`, `And`, `Or`; topics' `When`) are AND-ed via `RouteConditions.Combine`, also with a `Condition` preset on a factory-created `RouteContext` (#47; before 0.3.3 each replaced the previous). `WhenFrom`/`WhenNotFrom` are single fields.
 
 ```csharp
 broker.Route<Order>()

@@ -20,12 +20,14 @@ internal sealed class RouteBuilder<T> : IRouteBuilder<T> where T : class
     }
 
     public IRouteBuilder<T> To(string endpointName) { _destination = endpointName; return this; }
-    public IRouteBuilder<T> When(Func<JsonElement, bool> condition) { _condition = new JsonRouteCondition(condition); return this; }
+    // Content conditions accumulate: every When / WhenMessageIsOlderThan / And / Or is AND-ed with the ones before it,
+    // so a fluent chain means "all of these".
+    public IRouteBuilder<T> When(Func<JsonElement, bool> condition) => AddCondition(new JsonRouteCondition(condition));
     public IRouteBuilder<T> WhenFrom(string sourceEndpoint) { _source = sourceEndpoint; return this; }
     public IRouteBuilder<T> WhenNotFrom(string sourceEndpoint) { _excludedSource = sourceEndpoint; return this; }
-    public IRouteBuilder<T> WhenMessageIsOlderThan(TimeSpan age) { _condition = new MessageAgeRouteCondition(age); return this; }
-    public IRouteBuilder<T> And(IRouteCondition lhs, IRouteCondition rhs) { _condition = new AndRouteCondition(lhs, rhs); return this; }
-    public IRouteBuilder<T> Or(IRouteCondition lhs, IRouteCondition rhs) { _condition = new OrRouteCondition(lhs, rhs); return this; }
+    public IRouteBuilder<T> WhenMessageIsOlderThan(TimeSpan age) => AddCondition(new MessageAgeRouteCondition(age));
+    public IRouteBuilder<T> And(IRouteCondition lhs, IRouteCondition rhs) => AddCondition(new AndRouteCondition(lhs, rhs));
+    public IRouteBuilder<T> Or(IRouteCondition lhs, IRouteCondition rhs) => AddCondition(new OrRouteCondition(lhs, rhs));
     public IRouteBuilder<T> Transform(string fileName) { _transform = fileName; return this; }
 
     public RouteContext Build()
@@ -41,10 +43,17 @@ internal sealed class RouteBuilder<T> : IRouteBuilder<T> where T : class
         routeContext.DestinationEndpoint = _destination;
         routeContext.SourceEndpoint = _source ?? routeContext.SourceEndpoint;
         routeContext.ExcludedSourceEndpoint = _excludedSource ?? routeContext.ExcludedSourceEndpoint;
-        routeContext.Condition = _condition ?? routeContext.Condition;
+        // A condition already on a factory-created context is kept and AND-ed with the builder's conditions.
+        routeContext.Condition = RouteConditions.Combine(routeContext.Condition, _condition);
         routeContext.Transform = _transform ?? routeContext.Transform;
 
         _register(routeContext);
         return routeContext;
+    }
+
+    private RouteBuilder<T> AddCondition(IRouteCondition condition)
+    {
+        _condition = RouteConditions.Combine(_condition, condition);
+        return this;
     }
 }

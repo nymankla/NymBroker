@@ -37,3 +37,13 @@ public sealed class OrRouteCondition(IRouteCondition lhs, IRouteCondition rhs) :
     public bool Evaluate(IMessageContext context, JsonElement messageElement)
         => lhs.Evaluate(context, messageElement) || rhs.Evaluate(context, messageElement);
 }
+
+/// <summary>Helpers for building condition chains in the fluent route and topic builders.</summary>
+internal static class RouteConditions
+{
+    /// <summary>AND-s two optional conditions; null means "no condition".</summary>
+    internal static IRouteCondition? Combine(IRouteCondition? existing, IRouteCondition? added)
+        => existing is null ? added
+         : added is null ? existing
+         : new AndRouteCondition(existing, added);
+}

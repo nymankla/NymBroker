@@ -822,6 +822,8 @@ broker.Route<StockPriceMessage>()
 | `.And(lhs, rhs)` | Both conditions must be true |
 | `.Or(lhs, rhs)` | Either condition must be true |
 
+Chained conditions must all match: every `When`, `WhenMessageIsOlderThan`, `And` and `Or` is AND-ed with the ones before it (topics' `When` likewise). Before 0.3.3 each one replaced the previous.
+
 ## Publish-Subscribe Channel
 
 Topics implement the [Publish-Subscribe Channel](https://www.enterpriseintegrationpatterns.com/patterns/messaging/PublishSubscribeChannel.html) EIP pattern. A single message fans out to every subscriber simultaneously; each receives its own independent copy.

@@ -37,8 +37,9 @@ internal sealed class TopicBuilder<T> : ITopicBuilder<T> where T : class
         return this;
     }
 
-    public ITopicBuilder<T> When(IRouteCondition condition) { _condition = condition; return this; }
-    public ITopicBuilder<T> When(Func<JsonElement, bool> condition) { _condition = new JsonRouteCondition(condition); return this; }
+    // Conditions accumulate: each When is AND-ed with the ones before it.
+    public ITopicBuilder<T> When(IRouteCondition condition) { _condition = RouteConditions.Combine(_condition, condition); return this; }
+    public ITopicBuilder<T> When(Func<JsonElement, bool> condition) => When(new JsonRouteCondition(condition));
 
     public NymBrokerBuilder Build()
     {
