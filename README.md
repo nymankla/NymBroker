@@ -719,6 +719,8 @@ Every endpoint has an `EndpointMode` that controls whether it can read, write, o
 | `ReadOnly` | Listener is started; `PostAsync` and routing to this endpoint throw at runtime |
 | `WriteOnly` | No listener is started; the endpoint is only used for posting messages |
 
+In `queuesettings.json` set `"Mode"` as a name (case-insensitive, e.g. `"WriteOnly"`) or a number (`0` ReadWrite, `1` ReadOnly, `2` WriteOnly); an unknown value fails the load with a `JsonException`.
+
 Pass the mode as the last argument to any `Add*EndPoint` method:
 
 ```csharp
