@@ -67,6 +67,23 @@ public sealed class OrderConsumer : IConsume<Order>
 
 `AddConsumer<T>()` registers the handler, `AddMemoryEndPoint()` creates a local queue, and `PostAsync()` sends a message to it. The host starts the broker listener; press **Ctrl+C** to stop.
 
+## Documentation
+
+The **[user guide](docs/user-guide.md)** explains the API step by step, with diagrams:
+
+| Page | Covers |
+|---|---|
+| [Getting started](docs/getting-started.md) | packages, a first broker, hosting and shutdown |
+| [Messages and consumers](docs/messages-and-consumers.md) | message types, the envelope, `IConsume<T>`, `IMessageContext` |
+| [Sending messages](docs/sending-messages.md) | `PostAsync`, batch posting, large messages, publishing |
+| [Routing and publish/subscribe](docs/routing-and-pubsub.md) | routes, conditions, topics, subscribers |
+| [Endpoints and configuration](docs/endpoints-and-configuration.md) | every endpoint type, modes, `queuesettings.json` |
+| [Reliability](docs/reliability.md) | retries, dead-lettering, TTL, wire tap, duplicate detection |
+| [Pipeline extensions](docs/pipeline-extensions.md) | filters, input transformers, scheduled actions |
+| [Observability](docs/observability.md) | metrics, traces, logging, health checks |
+
+Adding a transport? See [Writing an endpoint](docs/writing-an-endpoint.md). The rest of this README is a feature reference.
+
 ## Core concepts
 
 | Building block | Purpose |
