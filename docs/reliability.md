@@ -142,7 +142,7 @@ services.AddNymBroker()
     …
 ```
 
-PostgreSQL ([#56](https://github.com/nymankla/NymBroker/issues/56)) and SQLite ([#57](https://github.com/nymankla/NymBroker/issues/57)) stores are planned. Any other store: implement `IIdempotencyStore` and register it with `AddIdempotentReceiver(store)` or `AddIdempotentReceiver<TStore>()`.
+For PostgreSQL, reference `NymBroker.Idempotency.Postgres` and use `.AddPostgresIdempotency(new PostgresIdempotencySettings { ConnectionString = "...", TableName = "nymbroker_idempotency" })`. Both database stores support `Ttl`, `LeaseTimeout`, automatic schema creation, and a hosted cleanup service; set `CleanupInterval = TimeSpan.Zero` to disable cleanup. Any other store: implement `IIdempotencyStore` and register it with `AddIdempotentReceiver(store)` or `AddIdempotentReceiver<TStore>()`.
 
 ### How it works
 
