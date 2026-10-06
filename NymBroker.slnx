@@ -7,6 +7,7 @@
   <Project Path="NymBroker.SqlServer/NymBroker.SqlServer.csproj" />
   <Project Path="NymBroker.Idempotency.SqlServer/NymBroker.Idempotency.SqlServer.csproj" />
   <Project Path="NymBroker.Idempotency.Postgres/NymBroker.Idempotency.Postgres.csproj" />
+  <Project Path="NymBroker.Idempotency.Sqlite/NymBroker.Idempotency.Sqlite.csproj" />
   <Project Path="NymBroker.Tests/NymBroker.Tests.csproj" />
   <Project Path="samples/NymBroker.AzureServiceBusSample/NymBroker.AzureServiceBusSample.csproj">
     <Build Solution="Debug|*" Project="false" />

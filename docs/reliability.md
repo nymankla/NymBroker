@@ -142,7 +142,7 @@ services.AddNymBroker()
     …
 ```
 
-For PostgreSQL, reference `NymBroker.Idempotency.Postgres` and use `.AddPostgresIdempotency(new PostgresIdempotencySettings { ConnectionString = "...", TableName = "nymbroker_idempotency" })`. Both database stores support `Ttl`, `LeaseTimeout`, automatic schema creation, and a hosted cleanup service; set `CleanupInterval = TimeSpan.Zero` to disable cleanup. Any other store: implement `IIdempotencyStore` and register it with `AddIdempotentReceiver(store)` or `AddIdempotentReceiver<TStore>()`.
+For PostgreSQL, reference `NymBroker.Idempotency.Postgres` and use `.AddPostgresIdempotency(new PostgresIdempotencySettings { ConnectionString = "...", TableName = "nymbroker_idempotency" })`. For SQLite, reference `NymBroker.Idempotency.Sqlite` and use `.AddSqliteIdempotency(new SqliteIdempotencySettings { ConnectionString = "Data Source=idempotency.db" })`. SQLite gives restart-safe deduplication on **one host** (processes on the same machine may share the file); it is not meant for several instances on different machines — use SQL Server or PostgreSQL for that. All database stores support `Ttl`, `LeaseTimeout`, automatic schema creation, and a hosted cleanup service; set `CleanupInterval = TimeSpan.Zero` to disable cleanup. Any other store: implement `IIdempotencyStore` and register it with `AddIdempotentReceiver(store)` or `AddIdempotentReceiver<TStore>()`.
 
 ### How it works
 
