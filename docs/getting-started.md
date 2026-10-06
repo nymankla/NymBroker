@@ -15,6 +15,9 @@
 | `NymBroker.Endpoint.SqlServer` | SQL Server queue table | `AddSqlServerEndPoint`, `WithSqlServer` |
 | `NymBroker.Endpoint.RabbitMq` | RabbitMQ queues | `AddRabbitMqEndPoint`, `WithRabbitMq` |
 | `NymBroker.Endpoint.AzureServiceBus` | Azure Service Bus queues and topics | `AddAzureServiceBusEndPoint`, `WithAzureServiceBus` |
+| `NymBroker.Idempotency.SqlServer` | Durable duplicate detection shared by all instances | `AddSqlServerIdempotency` |
+| `NymBroker.Idempotency.Postgres` | Durable duplicate detection shared by all instances | `AddPostgresIdempotency` |
+| `NymBroker.Idempotency.Sqlite` | Restart-safe duplicate detection on one host | `AddSqliteIdempotency` |
 
 Inside this repository, reference the projects directly; `scripts/pack.ps1` builds the NuGet packages into `artifacts/nupkg`.
 

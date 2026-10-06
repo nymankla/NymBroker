@@ -40,6 +40,7 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - `UsesNativeDeadLetter => _settings.UseNativeDeadLetter` (default `true`) **only** if the transport has its own dead-letter queue; otherwise leave the interface default (`false`) and the broker's dead-letter endpoint takes failures.
 - Three catch layers: per message (`when (ex is not OperationCanceledException)`) → `LogError`; `OperationCanceledException` → swallow; anything else → `LogCritical`. Never a silent catch.
 - `PostAsync` sends the bytes unchanged and is safe to call concurrently.
+- **Pull loops drain back to back**: wait `PollInterval` only after an empty poll. For a database-backed queue, claim a batch in one statement, write batch N's outcomes in the same transaction as batch N+1's claim (guarded by the claimed attempt number), and prepare statements once. Copy the shape of `SqliteEndPoint` / `PostgresEndPoint` (guide §5, "Drain back to back" and "batch the round trips").
 - Override `PostBatchAsync(IReadOnlyList<byte[]>)` when the transport can batch (one statement / transaction / client batch); keep order and one envelope per message, and document atomicity. Otherwise rely on the default (sequential `PostAsync`).
 - `HealthCheck()` has a timeout and never throws.
 - Retries use `NymBroker.Core.Resilience.RetryPolicy` (one per endpoint, `OnRetry` logs; options in `docs/resilience.md`). **Never add Polly.**
@@ -50,7 +51,7 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - Ensure proper disposal of resources and handle exceptions gracefully to maintain system stability.
 - Follow consistent naming conventions and code style to improve readability and maintainability.
 
-For a new project, mirror `NymBroker.Endpoint.RabbitMq/`: a csproj that references only `NymBroker.Core` plus the client package, with `PackageId`/`PackageDescription` set; `<Transport>Settings.cs`; `<Transport>EndPoint.cs`; `NymBrokerBuilder<Transport>Extensions.cs`. Add the project to `NymBroker.slnx`; `scripts/pack.ps1` picks up `NymBroker.*` projects automatically.
+For a new project, mirror `NymBroker.Endpoint.RabbitMq/`. The folder, project file, `PackageId` and namespace are all `NymBroker.Endpoint.<Transport>`. The project has a csproj that references only `NymBroker.Core` plus the client package, with `PackageId`/`PackageDescription` set; `<Transport>Settings.cs`; `<Transport>EndPoint.cs`; `NymBrokerBuilder<Transport>Extensions.cs`. Add the project to `NymBroker.slnx`; `scripts/pack.ps1` picks up `NymBroker.*` projects automatically.
 
 ## 4. Register
 
@@ -65,7 +66,14 @@ Config-file support: add a `WithX()` extension that matches entries with `ep.IsT
 
 ## 5. Test
 
-Add `NymBroker.Tests/<Transport>EndPointTests.cs`. No external infrastructure: use a fake client, loopback or `:memory:`. Make tests parallel-safe with unique names, ports and tables. Cover:
+Add `NymBroker.Tests/<Transport>EndPointTests.cs` and reference the project from `NymBroker.Tests.csproj`. The default run needs no external infrastructure: use a fake client, loopback, `:memory:` or a temp file.
+
+Tests against a real server are **env-gated**, like `PostgresEndPointTests`:
+- `NYMBROKER_<TRANSPORT>_CS` plus `Assert.SkipUnless(...)`, so the tests are skipped, not failed, when it's unset;
+- a unique table or queue per test, cleaned up in `DisposeAsync`;
+- a `scripts/setup-<transport>.ps1` and a docker-compose service to start the server locally.
+
+Make all tests parallel-safe with unique names, ports and tables. Cover:
 
 1. A posted message reaches the handler with the bytes unchanged.
 2. Each `ProcessResult` settles correctly (`Completed` → ack, `Retry` → redelivered, `DeadLetter` → dead-lettered with the reason); a throwing handler counts as `Retry`; the next message is still processed.
@@ -73,10 +81,11 @@ Add `NymBroker.Tests/<Transport>EndPointTests.cs`. No external infrastructure: u
 4. After `StopListeningAsync` returns, the handler is never called again.
 5. `HealthCheck()` reports a failed client as unhealthy without throwing.
 
-Then run `dotnet build` (must have 0 warnings) and `dotnet test`.
+Then run `dotnet build` (must have 0 warnings) and `dotnet test`, both without the env var and, if you added integration tests, with it set. Also build every sample, since some are excluded from the solution's Debug build.
 
 ## 6. Document
 
 - Add the project to the CLAUDE.md solution table, and add its rows to the "Error Handling / Logging Guarantees" table.
-- Add a usage snippet to the CLAUDE.md "Factory / DI" section and to `README.md`.
+- Add a usage snippet to the CLAUDE.md "Factory / DI" section and to `README.md` (its Endpoints section and its "Solution layout" table).
+- Add the package to the package table in `docs/getting-started.md`, and a section for it in `docs/endpoints-and-configuration.md`.
 - If the endpoint revealed something the guide doesn't cover, update `docs/writing-an-endpoint.md` too.

@@ -90,7 +90,7 @@ If your transport has its own dead-letter queue (a dead-letter exchange, a DLQ s
 
 When your endpoint *reads* a native dead-letter queue, call `DeadLetterEnvelope.Annotate(body, new DeadLetterInfo(reason, description, null, sourceEndpoint, deadLetteredAt, deliveryCount))` on each received body before handing it to the broker. The block (`context.DeadLetter`) is then the same whether the message came from the broker's dead-letter endpoint or the transport's own queue.
 
-So an endpoint **without** a native dead-letter queue only ever sees `Completed` or `Retry`, and failed messages end up on the broker's dead-letter endpoint. Endpoints in this repo: RabbitMQ (reject without requeue, i.e. the queue's dead-letter exchange) and the SQLite / PostgreSQL / SQL Server tables (`Failed` with the reason in the error column) dead-letter natively; Memory and File don't.
+So an endpoint **without** a native dead-letter queue only ever sees `Completed` or `Retry`, and failed messages end up on the broker's dead-letter endpoint. Endpoints in this repo: RabbitMQ (reject without requeue, i.e. the queue's dead-letter exchange), Azure Service Bus (`DeadLetterMessageAsync` with the reason) and the SQLite / PostgreSQL / SQL Server tables (`Failed` with the reason in the error column) dead-letter natively; Memory and File don't.
 
 ### `EndpointMode`
 
@@ -477,6 +477,15 @@ What this sample adds beyond Sample B:
 - **Handle poison messages.** Repeated `Retry`s should eventually stop. Rely on the queue's max-delivery-count / dead-letter feature if it has one. Otherwise, check `DeliveryCount` and mark the message failed yourself, the way the SQL endpoints use `MaxRetryCount`, and log at `Warning` when you do.
 - **Retry with `RetryPolicy`.** Use `RetryPolicy` (`NymBroker.Core.Resilience`) for transient send and reconnect failures. Build one policy per endpoint and reuse it; `OnRetry` must log. Don't add Polly. See [Retry policy](resilience.md) for every option. If the client SDK already retries transient faults (the Azure SDKs do, as in `AzureServiceBusEndPoint`), don't wrap it in a second retry loop.
 - **Keep the health check bounded.** `HealthCheck()` is synchronous, so put a timeout on the probe and catch everything. A health check must never throw.
+- **Drain back to back.** Wait `PollInterval` only after a poll that returned nothing. Waiting after every batch caps throughput at `BatchSize / PollInterval`: about 100 msg/s with the defaults.
+- **For a database-backed queue, batch the round trips.** The SQL endpoints in this repo (`SqliteEndPoint`, `PostgresEndPoint`, `SqlServerEndPoint`) all use the same patterns:
+  - claim a batch in one statement;
+  - write the outcomes of batch N in the **same transaction** as the claim of batch N+1, which costs one commit per batch instead of one per message;
+  - guard each outcome update with the attempt number it was claimed with, so a poller whose lease expired can't overwrite a row that was claimed again;
+  - prepare statements once;
+  - use literal (not parameterized) status values when the table has a filtered or partial index.
+
+  When the loop stops, write the outcomes of messages already handled with `CancellationToken.None`. Measured gains were 10× to 1 000× over a per-message design; see CLAUDE.md, *SQLite / PostgreSQL / SQL Server Endpoint*.
 
 > **Concurrency:** this loop dispatches one message at a time, which keeps ordering and is the right default. If you add parallel dispatch (for example a `SemaphoreSlim(n)`), document that ordering is no longer guaranteed. If your client isn't thread-safe, serialize access to it the way `SqliteEndPoint` does with `_dbLock`.
 
@@ -534,7 +543,7 @@ The hosted service starts the broker, and the broker starts your listener. You d
 
 ### Where to put it
 
-- **In this repo:** create a `NymBroker.Endpoint.<Transport>` project (namespace `NymBroker.Endpoint.<Transport>`) that references only `NymBroker.Core` plus the transport's client library, the same layout as `NymBroker.Endpoint.RabbitMq`, `NymBroker.Endpoint.Sqlite` and `NymBroker.Endpoint.Postgres`. Add it to `scripts/pack.ps1` so it ships with the other packages.
+- **In this repo:** create a `NymBroker.Endpoint.<Transport>` project (namespace `NymBroker.Endpoint.<Transport>`) that references only `NymBroker.Core` plus the transport's client library, the same layout as `NymBroker.Endpoint.RabbitMq`, `NymBroker.Endpoint.Sqlite` and `NymBroker.Endpoint.Postgres`. The folder, project file, `PackageId` and namespace all use that name. Add the project to `NymBroker.slnx` and reference it from `NymBroker.Tests`. `scripts/pack.ps1` packs every `NymBroker.*` project automatically, so it ships with the other packages without further changes.
 - **In your own app or package:** reference the `NymBroker` package and copy the same pattern. Everything you need (`NymBrokerBuilder.Services`, `RegisterEndpoint`, `LoadedConfiguration`) is public.
 
 ---
@@ -597,7 +606,15 @@ How the pieces fit:
 
 ## 8. Testing
 
-Endpoint tests live in `NymBroker.Tests` and must not need external infrastructure: no RabbitMQ, no Postgres, no real file I/O. Inject a fake for the client (as `IRemoteQueueClient` allows in Sample C), or use a local-only resource such as a loopback socket or SQLite `:memory:`.
+Endpoint tests live in `NymBroker.Tests`. The default test run must not need external infrastructure, so inject a fake for the client (as `IRemoteQueueClient` allows in Sample C), or use a local-only resource such as a loopback socket, SQLite `:memory:` or a temp file.
+
+Tests against a real server are welcome, but **env-gated**, like `PostgresEndPointTests`, `SqlServerEndPointTests` and `AzureServiceBusEndPointTests`:
+- Read a connection string from a `NYMBROKER_<TRANSPORT>_CS` environment variable.
+- Start each test with `Assert.SkipUnless(!string.IsNullOrWhiteSpace(cs), "Set NYMBROKER_<TRANSPORT>_CS …")`, so tests are skipped (not failed) when the variable is not set.
+- Use a unique table, queue or topic per test, so tests can run in parallel, and clean it up in `DisposeAsync`.
+- Add a `scripts/setup-<transport>.ps1` (a service in `scripts/docker-compose.yml`) so the server can be started locally.
+
+Tests that need no server, such as settings validation, a health check against an unreachable address, or SQL text, always run.
 
 **Round-trip through the endpoint:**
 
