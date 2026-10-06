@@ -35,6 +35,7 @@ public sealed class NymBrokerBuilder
     private string? _deadLetterEndpoint;
     private TimeSpan? _maxMessageAge;
     private readonly BrokerHealthCheckOptions _healthCheckOptions = new();
+    private bool _idempotentReceiver;
     private bool _built;
 
     /// <summary>Exposes the DI container for endpoint extension packages (e.g. NymBroker.RabbitMq).</summary>
@@ -163,12 +164,35 @@ public sealed class NymBrokerBuilder
         return this;
     }
 
-    /// <summary>Register an idempotent receiver that drops duplicate message IDs within the TTL window.</summary>
+    /// <summary>
+    /// Register an idempotent receiver with the in-memory store: duplicate message IDs within the TTL window are
+    /// dropped (per process). For a durable store shared by several instances use a database store package
+    /// (e.g. <c>AddSqlServerIdempotency</c>) or <see cref="AddIdempotentReceiver(IIdempotencyStore)"/>.
+    /// </summary>
     public NymBrokerBuilder AddIdempotentReceiver(TimeSpan? ttl = null)
+        => AddIdempotentReceiver(new InMemoryIdempotencyStore(ttl ?? TimeSpan.FromHours(24)));
+
+    /// <summary>Register an idempotent receiver backed by <paramref name="store"/>.</summary>
+    public NymBrokerBuilder AddIdempotentReceiver(IIdempotencyStore store)
     {
-        _services.AddSingleton<IIdempotencyStore>(new InMemoryIdempotencyStore(ttl ?? TimeSpan.FromHours(24)));
-        _services.AddSingleton<IdempotentFilter>();
-        _builderFilterTypes.Add(typeof(IdempotentFilter));
+        ArgumentNullException.ThrowIfNull(store);
+        return AddIdempotentReceiver(_ => store);
+    }
+
+    /// <summary>Register an idempotent receiver backed by a store resolved from DI (e.g. registered by an extension package).</summary>
+    public NymBrokerBuilder AddIdempotentReceiver<TStore>() where TStore : class, IIdempotencyStore
+    {
+        _services.TryAddSingleton<TStore>();
+        return AddIdempotentReceiver(sp => sp.GetRequiredService<TStore>());
+    }
+
+    /// <summary>Register an idempotent receiver backed by the store <paramref name="factory"/> creates. One store per broker; the last registration wins.</summary>
+    public NymBrokerBuilder AddIdempotentReceiver(Func<IServiceProvider, IIdempotencyStore> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        _services.RemoveAll<IIdempotencyStore>();
+        _services.AddSingleton(factory);
+        _idempotentReceiver = true;
         return this;
     }
 
@@ -244,6 +268,7 @@ public sealed class NymBrokerBuilder
         var wireTapEndpoints = _wireTapEndpoints.ToList();
         var deadLetter       = _deadLetterEndpoint;
         var maxMessageAge    = _maxMessageAge;
+        var idempotent       = _idempotentReceiver;
         var healthCheck      = _healthCheckOptions;
 
         _services.AddSingleton<NymBrokerImpl>(sp =>
@@ -281,6 +306,9 @@ public sealed class NymBrokerBuilder
 
             if (maxMessageAge.HasValue)
                 broker.SetMaxMessageAge(maxMessageAge.Value);
+
+            if (idempotent)
+                broker.SetIdempotencyStore(sp.GetRequiredService<IIdempotencyStore>());
 
             broker.ConfigureHealthCheck(healthCheck);
 

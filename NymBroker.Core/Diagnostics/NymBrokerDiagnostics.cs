@@ -24,6 +24,11 @@ public static class NymBrokerDiagnostics
     internal static readonly Counter<long> MessagesConsumed =
         Meter.CreateCounter<long>("nymbroker.messages.consumed", "{message}");
 
+    /// <summary>Duplicates dropped by the idempotent receiver; tag <c>source</c>.</summary>
+    internal static readonly Counter<long> MessagesDuplicate =
+        Meter.CreateCounter<long>("nymbroker.messages.duplicates", "{message}",
+            "Duplicate messages dropped by the idempotent receiver.");
+
     internal static readonly Histogram<double> ProcessingDuration =
         Meter.CreateHistogram<double>("nymbroker.message.processing.duration", "ms");
 

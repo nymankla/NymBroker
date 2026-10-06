@@ -30,6 +30,7 @@
   <ItemGroup>
     <ProjectReference Include="..\NymBroker.AzureServiceBus\NymBroker.AzureServiceBus.csproj" />
     <ProjectReference Include="..\NymBroker.Core\NymBroker.Core.csproj" />
+    <ProjectReference Include="..\NymBroker.Idempotency.SqlServer\NymBroker.Idempotency.SqlServer.csproj" />
     <ProjectReference Include="..\NymBroker.Postgres\NymBroker.Postgres.csproj" />
     <ProjectReference Include="..\NymBroker.Sqlite\NymBroker.Sqlite.csproj" />
     <ProjectReference Include="..\NymBroker.SqlServer\NymBroker.SqlServer.csproj" />
