@@ -5,7 +5,7 @@
     Or bump with: .\pack.ps1 -BumpPatch | -BumpMinor | -BumpMajor
   -->
   <PropertyGroup>
-    <Version>0.3.3</Version>
+    <Version>0.3.4</Version>
     <Authors>nymankla@gmail.com</Authors>
     <RepositoryUrl>https://github.com/nymankla/NymBroker</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

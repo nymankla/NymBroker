@@ -16,6 +16,8 @@ public interface IRouteBuilder<T> : IRouteBuilder where T : class
     IRouteBuilder<T> WhenMessageIsOlderThan(TimeSpan age);
     IRouteBuilder<T> And(IRouteCondition lhs, IRouteCondition rhs);
     IRouteBuilder<T> Or(IRouteCondition lhs, IRouteCondition rhs);
+    /// <summary>Obsolete: never implemented — the route forwards the message unchanged.</summary>
+    [Obsolete("Has no effect: routed messages are not transformed. It will be removed in a future version (issue #48).")]
     IRouteBuilder<T> Transform(string fileName);
     new RouteContext Build();
 }

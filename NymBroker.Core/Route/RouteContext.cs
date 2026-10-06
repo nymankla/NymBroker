@@ -10,6 +10,8 @@ public class RouteContext
 
     public string DestinationEndpoint { get; set; } = string.Empty;
 
+    /// <summary>Obsolete: never read by the broker.</summary>
+    [Obsolete("Has no effect: routed messages are not transformed. It will be removed in a future version (issue #48).")]
     public string? Transform { get; set; }
 
     /// <summary>When set, only matches messages that arrived from this source endpoint.</summary>

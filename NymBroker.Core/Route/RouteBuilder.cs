@@ -8,7 +8,6 @@ internal sealed class RouteBuilder<T> : IRouteBuilder<T> where T : class
     private string? _destination;
     private string? _source;
     private string? _excludedSource;
-    private string? _transform;
     private IRouteCondition? _condition;
     private readonly Action<RouteContext> _register;
     private readonly Func<RouteContext>? _factory;
@@ -28,7 +27,8 @@ internal sealed class RouteBuilder<T> : IRouteBuilder<T> where T : class
     public IRouteBuilder<T> WhenMessageIsOlderThan(TimeSpan age) => AddCondition(new MessageAgeRouteCondition(age));
     public IRouteBuilder<T> And(IRouteCondition lhs, IRouteCondition rhs) => AddCondition(new AndRouteCondition(lhs, rhs));
     public IRouteBuilder<T> Or(IRouteCondition lhs, IRouteCondition rhs) => AddCondition(new OrRouteCondition(lhs, rhs));
-    public IRouteBuilder<T> Transform(string fileName) { _transform = fileName; return this; }
+    [Obsolete("Has no effect: routed messages are not transformed. It will be removed in a future version (issue #48).")]
+    public IRouteBuilder<T> Transform(string fileName) => this;   // intentionally a no-op (#48)
 
     public RouteContext Build()
     {
@@ -45,7 +45,6 @@ internal sealed class RouteBuilder<T> : IRouteBuilder<T> where T : class
         routeContext.ExcludedSourceEndpoint = _excludedSource ?? routeContext.ExcludedSourceEndpoint;
         // A condition already on a factory-created context is kept and AND-ed with the builder's conditions.
         routeContext.Condition = RouteConditions.Combine(routeContext.Condition, _condition);
-        routeContext.Transform = _transform ?? routeContext.Transform;
 
         _register(routeContext);
         return routeContext;

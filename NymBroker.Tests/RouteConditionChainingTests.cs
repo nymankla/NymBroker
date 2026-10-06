@@ -153,6 +153,31 @@ public sealed class RouteConditionChainingTests
         Assert.Equal([new ChainOrder(1500m, "high")], Delivered(dest, serializer));
     }
 
+    // --- #48: Transform(fileName) was never implemented ---
+
+    [Fact]
+    public void RouteTransform_IsMarkedObsolete()
+    {
+        var builderMethod = typeof(IRouteBuilder<ChainOrder>).GetMethod(nameof(IRouteBuilder<ChainOrder>.Transform))!;
+        var contextProperty = typeof(RouteContext).GetProperty("Transform")!;
+
+        Assert.Contains("#48", Assert.Single(builderMethod.GetCustomAttributes(typeof(ObsoleteAttribute), false).Cast<ObsoleteAttribute>()).Message);
+        Assert.Contains("#48", Assert.Single(contextProperty.GetCustomAttributes(typeof(ObsoleteAttribute), false).Cast<ObsoleteAttribute>()).Message);
+    }
+
+    [Fact]
+    public async Task RouteTransform_IsANoOp_TheMessageIsForwardedUnchanged()
+    {
+        var (broker, dest, serializer) = Build();
+#pragma warning disable CS0618 // the call under test is obsolete
+        broker.Route<ChainOrder>().To("Dest").Transform("order-to-invoice.xslt").Build();
+#pragma warning restore CS0618
+
+        await SendAsync(broker, serializer, new ChainOrder(42m, "high"));
+
+        Assert.Equal([new ChainOrder(42m, "high")], Delivered(dest, serializer));
+    }
+
     [Fact]
     public async Task Route_SingleCondition_StillWorks()
     {
