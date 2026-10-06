@@ -98,5 +98,5 @@ broker.AddScheduledAction<INymBroker>(
 ```
 
 - Actions are synchronous (`Action`); call async code with `.GetAwaiter().GetResult()`, or post a message and do the async work in a consumer.
-- Actions start with `StartAsync` and stop with `StopAsync`. **Add them before `StartAsync`** — an action added after the broker has started currently never runs ([#50](https://github.com/nymankla/NymBroker/issues/50)).
-- **Catch exceptions inside the action.** Currently an exception stops that action's schedule for good and makes `StopAsync` throw ([#51](https://github.com/nymankla/NymBroker/issues/51)).
+- Actions start with `StartAsync` and stop with `StopAsync`. They can be added at any time: an action added while the broker is running starts right away, is stopped by `StopAsync`, and — like the others — is started again by a later `StartAsync`.
+- A run that throws is logged at `Error` and the schedule continues with the next occurrence. `StopAsync` never throws because of an action.

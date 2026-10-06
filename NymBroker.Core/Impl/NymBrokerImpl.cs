@@ -23,8 +23,12 @@ public sealed partial class NymBrokerImpl : INymBroker
     private readonly ILogger<NymBrokerImpl> _logger;
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
     private readonly TaskCompletionSource _startGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private ImmutableList<Func<CancellationToken, Task<ScheduledActionHandle>>> _scheduledActions = ImmutableList<Func<CancellationToken, Task<ScheduledActionHandle>>>.Empty;
+    // Scheduled actions: registered start functions, the handles currently running, and whether they run.
+    // All three are guarded by _scheduleLock (never held across an await).
+    private readonly Lock _scheduleLock = new();
+    private ImmutableList<Func<CancellationToken, ScheduledActionHandle>> _scheduledActions = ImmutableList<Func<CancellationToken, ScheduledActionHandle>>.Empty;
     private ImmutableList<ScheduledActionHandle> _activeScheduledActions = ImmutableList<ScheduledActionHandle>.Empty;
+    private bool _scheduledActionsRunning;
     private volatile bool _startInitiated;
     private bool _started;
 

@@ -202,7 +202,7 @@ broker.Route<Order>()
 
 ### Scheduled Actions
 
-Interval-based actions fire on a timer. Cron-based actions use **Cronos** (`CronExpression.Parse`) with local timezone. Each action runs in a background `Task` managed by `ScheduledActionHandle` (implements `IAsyncDisposable`).
+Interval-based actions fire on a timer. Cron-based actions use **Cronos** (`CronExpression.Parse`) with local timezone. Each action runs in a background `Task` managed by `ScheduledActionHandle` (implements `IAsyncDisposable`). An action added after `StartAsync` starts immediately and is stopped by `StopAsync` (#50); `_scheduledActions` / `_activeScheduledActions` / `_scheduledActionsRunning` are guarded by `_scheduleLock` (a sync `Lock`, never held across an await — not `_lifecycleLock`, so `AddScheduledAction` stays non-blocking and cannot deadlock against `StopAsync`). A throwing run is logged at `Error` and the schedule continues; an unexpected loop termination is logged at `Critical`; `ScheduledActionHandle.DisposeAsync` logs instead of rethrowing, so `StopAsync` never throws because of an action (#51).
 
 ### Aggregator / Splitter
 

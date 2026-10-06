@@ -941,6 +941,8 @@ broker.AddScheduledAction<INymBroker>(
 ```
 
 > **Note:** `AddScheduledAction` takes a synchronous `Action<T>`. Async broker calls inside must use `.GetAwaiter().GetResult()`.
+>
+> Actions can be added before or after `StartAsync` (one added while running starts at once); all stop with `StopAsync`. A run that throws is logged at `Error` and the schedule continues.
 
 ## JSON configuration file
 
