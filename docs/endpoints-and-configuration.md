@@ -18,6 +18,8 @@ An **endpoint** is a named connection to a transport. You post to endpoints by n
 
 "Failed messages" is explained in [Reliability](reliability.md). PostgreSQL and SQL Server let several application instances poll the same table safely; SQLite is meant for a single machine.
 
+For the full durability, multi-node, dead-letter and crash/restart comparison, see [Delivery guarantees](delivery-guarantees.md).
+
 ## Registering endpoints in code
 
 Every endpoint has an `Add…EndPoint(name, settings, mode)` method on the builder.

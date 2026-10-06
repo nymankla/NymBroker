@@ -2,7 +2,7 @@
 
 [← User guide](user-guide.md)
 
-NymBroker delivers messages **at least once**: a message is only removed from its transport after it was handled, so a crash or a failure leads to redelivery rather than loss. This page explains what happens when handling fails, where failed messages end up, and the tools for expiry, auditing and duplicates.
+At-least-once delivery applies only to transports that can redeliver and are configured to do so. Memory and File do not retry a message after handing it to the broker; a crash or failure at that point can prevent automatic recovery. See [Delivery guarantees](delivery-guarantees.md) for endpoint-specific consume/settlement boundaries, ordering and durability. This page explains what happens when handling fails, where failed messages end up, and the tools for expiry, auditing and duplicates.
 
 ## The processing pipeline
 
@@ -188,4 +188,4 @@ Taps see everything, including messages that are later filtered, expired or dead
 
 ## Shutdown
 
-When the host stops, each endpoint stops receiving, lets the message in progress finish, and records its result before `StopAsync` returns. Messages claimed but not yet started are released by their transport (lease or lock expiry) and delivered again later — never lost.
+When the host stops, endpoints stop receiving and allow in-flight work to settle where supported. Messages claimed but not yet started by lease/lock-based transports are delivered again after lease or lock expiry. Memory and File cannot redeliver an item already taken from the channel or renamed to `.processed`; graceful shutdown cannot guarantee recovery from abrupt termination or make consumer side effects atomic with settlement.
