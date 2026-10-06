@@ -1,5 +1,4 @@
 using System.Text;
-using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -127,8 +126,8 @@ public sealed class SqliteSettlementTests : IDisposable
         await using (var conn = new SqliteConnection(ConnectionString))
         {
             await conn.OpenAsync(TestContext.Current.CancellationToken);
-            await conn.ExecuteAsync("DELETE FROM NymBrokerMessages");
-            await conn.ExecuteAsync("CREATE TRIGGER no_boom BEFORE INSERT ON NymBrokerMessages WHEN NEW.Payload = 'boom' BEGIN SELECT RAISE(ABORT, 'boom'); END");
+            await SqliteTestDb.ExecuteAsync(conn, "DELETE FROM NymBrokerMessages");
+            await SqliteTestDb.ExecuteAsync(conn, "CREATE TRIGGER no_boom BEFORE INSERT ON NymBrokerMessages WHEN CAST(NEW.Payload AS TEXT) = 'boom' BEGIN SELECT RAISE(ABORT, 'boom'); END");
         }
 
         await Assert.ThrowsAnyAsync<Exception>(() => ep.PostBatchAsync(
@@ -177,12 +176,7 @@ public sealed class SqliteSettlementTests : IDisposable
         return items;
     }
 
-    private async Task<T> ScalarAsync<T>(string sql)
-    {
-        await using var conn = new SqliteConnection(ConnectionString);
-        await conn.OpenAsync(TestContext.Current.CancellationToken);
-        return (await conn.ExecuteScalarAsync<T>(sql))!;
-    }
+    private Task<T> ScalarAsync<T>(string sql) => SqliteTestDb.ScalarAsync<T>(ConnectionString, sql);
 
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)
     {
@@ -198,8 +192,11 @@ public sealed class SqliteSettlementTests : IDisposable
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
-        try { File.Delete(_dbPath); }
-        catch (IOException) { /* best effort: the listener may still hold the file briefly */ }
-        catch (UnauthorizedAccessException) { /* best effort */ }
+        foreach (var file in new[] { _dbPath, _dbPath + "-wal", _dbPath + "-shm" })
+        {
+            try { File.Delete(file); }
+            catch (IOException) { /* best effort: the listener may still hold the file briefly */ }
+            catch (UnauthorizedAccessException) { /* best effort */ }
+        }
     }
 }
