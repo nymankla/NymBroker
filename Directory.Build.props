@@ -9,5 +9,20 @@
     <Authors>nymankla@gmail.com</Authors>
     <RepositoryUrl>https://github.com/nymankla/NymBroker</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/nymankla/NymBroker</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>NymBroker;messaging;message-processing;integration</PackageTags>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NymBroker.Core' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AzureServiceBus' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.RabbitMq' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Sqlite' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Sqlite'">
+    <IsNymBrokerPackage>true</IsNymBrokerPackage>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsNymBrokerPackage)' == 'true'">
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 </Project>

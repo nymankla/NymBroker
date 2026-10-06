@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet restore NymBroker.slnx
+      - run: dotnet build NymBroker.slnx --configuration Release --no-restore -p:ContinuousIntegrationBuild=true
+      - run: dotnet test NymBroker.Tests/NymBroker.Tests.csproj --configuration Release --no-build --no-restore
+      - run: dotnet pack NymBroker.slnx --configuration Release --no-build --output artifacts/nupkg
+      - run: test "$(find artifacts/nupkg -name '*.snupkg' | wc -l)" -eq 9
