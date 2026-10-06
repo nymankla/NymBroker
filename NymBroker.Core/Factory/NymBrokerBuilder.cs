@@ -3,6 +3,7 @@ using NymBroker.Core.Aggregator;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.File;
+using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Endpoint.Memory;
 using NymBroker.Core.Factory.Configuration;
 using NymBroker.Core.DI;
@@ -33,6 +34,7 @@ public sealed class NymBrokerBuilder
     private readonly List<string> _wireTapEndpoints = [];
     private string? _deadLetterEndpoint;
     private TimeSpan? _maxMessageAge;
+    private readonly BrokerHealthCheckOptions _healthCheckOptions = new();
     private bool _built;
 
     /// <summary>Exposes the DI container for endpoint extension packages (e.g. NymBroker.RabbitMq).</summary>
@@ -170,6 +172,19 @@ public sealed class NymBrokerBuilder
         return this;
     }
 
+    // --- Health check ---
+
+    /// <summary>
+    /// Configures <see cref="INymBroker.CheckHealthAsync"/>: the overall timeout and which endpoints are non-critical
+    /// (an unhealthy non-critical endpoint makes the broker Degraded instead of Unhealthy). Can be called more than once.
+    /// </summary>
+    public NymBrokerBuilder ConfigureHealthCheck(Action<BrokerHealthCheckOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        configure(_healthCheckOptions);
+        return this;
+    }
+
     // --- Load from config file ---
 
     public NymBrokerBuilder LoadConfiguration(string filePath)
@@ -200,6 +215,14 @@ public sealed class NymBrokerBuilder
         if (_built)
             throw new InvalidOperationException("NymBrokerBuilder.Build() can only be called once.");
 
+        var unknownNonCritical = _healthCheckOptions.NonCriticalEndpoints
+            .Where(n => !_endpoints.Contains(n, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        if (unknownNonCritical.Count > 0)
+            throw new InvalidOperationException(
+                $"ConfigureHealthCheck marks unknown endpoint(s) as non-critical: {string.Join(", ", unknownNonCritical)}. " +
+                "Register the endpoint, or remove it from NonCritical(...).");
+
         _built = true;
 
         _services.AddSingleton<MessageSerializerJson>();
@@ -221,6 +244,7 @@ public sealed class NymBrokerBuilder
         var wireTapEndpoints = _wireTapEndpoints.ToList();
         var deadLetter       = _deadLetterEndpoint;
         var maxMessageAge    = _maxMessageAge;
+        var healthCheck      = _healthCheckOptions;
 
         _services.AddSingleton<NymBrokerImpl>(sp =>
         {
@@ -257,6 +281,8 @@ public sealed class NymBrokerBuilder
 
             if (maxMessageAge.HasValue)
                 broker.SetMaxMessageAge(maxMessageAge.Value);
+
+            broker.ConfigureHealthCheck(healthCheck);
 
             // Config-based topics: resolve message type string → CLR type via registry.
             var registry = sp.GetRequiredService<MessageTypeRegistry>();

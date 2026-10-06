@@ -155,7 +155,10 @@ broker.AddScheduledAction<T1>(string cronExpr, Action<T1>, T1)   // Cronos cron 
 
 broker.StartAsync(ct) / StopAsync(ct)              // called automatically by IHostedService
 broker.ProcessAsync(raw, sourceEndpoint, ct)        // entry point for endpoint listeners → Task<ProcessResult>
+broker.CheckHealthAsync(ct)                         // → BrokerHealthReport (#53), see below
 ```
+
+**Broker health check (#53).** `CheckHealthAsync` (`NymBrokerImpl.HealthCheck.cs`) runs every endpoint's synchronous `HealthCheck()` on the thread pool in parallel, waits up to `BrokerHealthCheckOptions.Timeout` (default 10 s; a late endpoint → `Unhealthy` "timed out", its task left running), and never throws except caller cancellation. `BrokerHealthReport(Status, BrokerStarted, Endpoints, Duration, Message)` / `EndpointHealth(Name, Status, Message, Mode, Duration, IsCritical)` / `BrokerHealthStatus` live in `NymBroker.Core.Endpoint.HealthCheck`. Aggregate: broker not started or any critical endpoint unhealthy → `Unhealthy`; only non-critical ones unhealthy → `Degraded`; else `Healthy` (no endpoints = broker state only). Builder: `.ConfigureHealthCheck(o => { o.NonCritical("Audit"); o.Timeout = …; })` (`Build()` throws for unknown non-critical names). ASP.NET Core: `services.AddHealthChecks().AddNymBroker(name, failureStatus, tags, timeout)` registers `NymBrokerHealthCheck : IHealthCheck` (namespace `NymBroker.Core.DI`; Core references `Microsoft.Extensions.Diagnostics.HealthChecks`); `Data` = `brokerStarted` + one `"<name>": "<status>: <message>"` per endpoint.
 
 ### Routing
 
@@ -365,6 +368,7 @@ No exception is silently swallowed. The policy per layer:
 | Dead-letter endpoint posts (`TryPostToDeadLetterAsync`) | Posts `DeadLetterEnvelope.Annotate(raw, info)` so the reason travels with the message; counted in `nymbroker.messages.dead_lettered`; a failing post → `LogError`. |
 | `AggregatorImpl.PurgeExpired` | Purge count logged at `Debug`. |
 | `NymBrokerImpl.StartAsync` | Any startup exception → `LogError`, scheduled actions rolled back, exception re-thrown. |
+| `NymBrokerImpl.CheckHealthAsync` | Never throws (caller cancellation aside). An endpoint `HealthCheck()` that throws → `LogWarning`, reported `Unhealthy` with the exception message; one that misses the timeout → `LogWarning`, reported `Unhealthy`. Result logged at `Debug`. |
 | `FileEndPoint.OnFileCreated` | Fire-and-forget handler failure, or a non-`Completed` result → `LogError` (the file is already renamed, no retry; loop continues). |
 | `FileEndPoint.ProcessExistingFilesAsync` | Per-file handler failure → `LogError` (remaining files still processed). Structural failure (e.g. directory gone) → `LogError` on outer Task.Run. |
 | `FileEndPoint.ReadAndArchiveAsync` | IOException after retries → `LogWarning`, file skipped. |

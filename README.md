@@ -141,6 +141,21 @@ Each processing call is instrumented with a `nymbroker.process` consumer activit
 
 For production dashboards and alerts, monitor message receive rate alongside routed and consumed rates by destination and consumer, the failure ratio per consumer, processing latency, retry rate, dead-letter and expired-message logs, and transport-specific queue depth/age and endpoint health. Roughly, received messages are accounted for by consumed + routed + dropped/expired/dead-lettered messages. The counters describe delivery attempts and handler invocations separately; a topic delivery may be both routed and consumed by subscribers, so this is not a strict sum. The core metrics describe broker processing and retries; queue depth and transport health should be collected from the configured endpoint or hosting platform.
 
+### Health checks
+
+`broker.CheckHealthAsync()` checks the broker and every endpoint in parallel (overall timeout 10 s, never throws) and returns one `BrokerHealthReport`: `Healthy`, `Degraded` (only endpoints marked non-critical are unhealthy) or `Unhealthy` (a critical endpoint is unhealthy, or the broker is not running), with per-endpoint status, message and duration. Plug it into ASP.NET Core health checks and Kubernetes probes:
+
+```csharp
+services.AddNymBroker()
+    .AddFileEndPoint("Audit", new FileSettings { PostPath = "audit" }, EndpointMode.WriteOnly)
+    .ConfigureHealthCheck(o => { o.NonCritical("Audit"); o.Timeout = TimeSpan.FromSeconds(5); })
+    .Build();
+
+services.AddHealthChecks().AddNymBroker(name: "nymbroker", tags: ["ready"]);
+```
+
+See [docs/observability.md](docs/observability.md#health-checks) for the aggregation rules.
+
 ## Solution layout
 
 | Project | Purpose |

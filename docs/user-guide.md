@@ -50,7 +50,7 @@ flowchart LR
 | [Reliability](reliability.md) | Retries, dead-lettering (native and broker), the dead-letter reason, TTL, wire tap, duplicate detection |
 | [Retry policy](resilience.md) | `RetryPolicy` options, backoff and jitter, how the File and RabbitMQ endpoints use it |
 | [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, scheduled actions |
-| [Observability](observability.md) | Metrics, tracing and logging |
+| [Observability](observability.md) | Metrics, tracing, logging and health checks |
 
 ## Minimal example
 

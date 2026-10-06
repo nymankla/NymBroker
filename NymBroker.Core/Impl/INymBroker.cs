@@ -1,4 +1,5 @@
 using NymBroker.Core.Endpoint;
+using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Filter;
 using NymBroker.Core.Message;
 using NymBroker.Core.Route;
@@ -68,6 +69,14 @@ public interface INymBroker
 
     Task StartAsync(CancellationToken ct = default);
     Task StopAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Checks every registered endpoint (in parallel, on the thread pool) and the broker's own state, and returns one
+    /// aggregated <see cref="BrokerHealthReport"/>. An endpoint that does not answer within
+    /// <see cref="BrokerHealthCheckOptions.Timeout"/> (default 10 s), or whose check throws, is reported unhealthy.
+    /// Never throws, except <see cref="OperationCanceledException"/> when <paramref name="ct"/> is cancelled.
+    /// </summary>
+    Task<BrokerHealthReport> CheckHealthAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Serialize and post several messages to one endpoint in a single endpoint call (<see cref="IEndPoint.PostBatchAsync"/>).
