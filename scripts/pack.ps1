@@ -47,7 +47,8 @@ $PropsFile = Join-Path $Root "Directory.Build.props"
 
 # ── read current version ────────────────────────────────────────────────────
 [xml]$props   = Get-Content $PropsFile -Encoding UTF8
-$current      = $props.Project.PropertyGroup.Version
+$versionNode  = $props.SelectSingleNode("/Project/PropertyGroup/Version")
+$current      = $versionNode.InnerText.Trim()
 if (-not $current) { throw "No <Version> found in $PropsFile" }
 
 # ── determine new version ───────────────────────────────────────────────────
@@ -69,7 +70,7 @@ if ($Version) {
     if ($Version -notmatch '^\d+\.\d+\.\d+') {
         throw "Version '$Version' must start with major.minor.patch (e.g. 1.2.3 or 1.2.3-preview.1)."
     }
-    $props.Project.PropertyGroup.Version = $Version
+    $versionNode.InnerText = $Version
     $props.Save($PropsFile)
     Write-Host "Version updated: $current -> $Version"
 } else {
