@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using NymBroker.Core.Aggregator;
+using NymBroker.Core.Diagnostics;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
@@ -199,6 +201,115 @@ public sealed class BrokerHealthCheckTests
         {
             release.Set();
         }
+    }
+
+    // --- Metrics ---
+
+    private sealed record Measurement(string Instrument, long Value, Dictionary<string, object?> Tags);
+
+    /// <summary>Captures the health instruments of the NymBroker meter (other test classes may record too — filter by endpoint).</summary>
+    private sealed class HealthMetricCapture : IDisposable
+    {
+        private readonly MeterListener _listener = new();
+        private readonly List<Measurement> _measurements = [];
+
+        public HealthMetricCapture()
+        {
+            _listener.InstrumentPublished = (instrument, listener) =>
+            {
+                if (instrument.Meter.Name == NymBrokerDiagnostics.InstrumentationName && instrument.Name.StartsWith("nymbroker.health.", StringComparison.Ordinal))
+                    listener.EnableMeasurementEvents(instrument);
+            };
+            _listener.SetMeasurementEventCallback<long>((i, v, tags, _) => Add(i.Name, v, tags));
+            _listener.SetMeasurementEventCallback<int>((i, v, tags, _) => Add(i.Name, v, tags));
+            _listener.Start();
+        }
+
+        private void Add(string instrument, long value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
+        {
+            var dict = tags.ToArray().ToDictionary(t => t.Key, t => t.Value);
+            lock (_measurements) _measurements.Add(new Measurement(instrument, value, dict));
+        }
+
+        public Measurement[] For(string instrument, string? endpoint = null)
+        {
+            lock (_measurements)
+                return _measurements.Where(m => m.Instrument == instrument
+                    && (endpoint is null || Equals(m.Tags.GetValueOrDefault("endpoint"), endpoint))).ToArray();
+        }
+
+        public void Dispose() => _listener.Dispose();
+    }
+
+    private static string UniqueName(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
+
+    [Fact]
+    public async Task Metrics_DegradedCheck_RecordsStatusCounterAndGauge_AndEndpointFailure()
+    {
+        using var metrics = new HealthMetricCapture();
+        var ok = UniqueName("Ok");
+        var audit = UniqueName("Audit");
+        var broker = await StartedBrokerAsync((ok, FakeEndPoint.Healthy()), (audit, FakeEndPoint.Unhealthy("disk full")));
+        broker.ConfigureHealthCheck(new BrokerHealthCheckOptions().NonCritical(audit));
+
+        var report = await broker.CheckHealthAsync(Ct);
+
+        Assert.Equal(BrokerHealthStatus.Degraded, report.Status);
+        Assert.Contains(metrics.For("nymbroker.health.checks"), m => m.Value == 1 && Equals(m.Tags["status"], "degraded"));
+        Assert.Contains(metrics.For("nymbroker.health.status"), m => m.Value == (int)BrokerHealthStatus.Degraded);
+
+        var failure = Assert.Single(metrics.For("nymbroker.health.endpoint.failures", audit));
+        Assert.Equal(1, failure.Value);
+        Assert.Equal(false, failure.Tags["critical"]);
+        Assert.Equal("unhealthy", failure.Tags["reason"]);
+        Assert.Empty(metrics.For("nymbroker.health.endpoint.failures", ok));
+
+        Assert.Equal(0, Assert.Single(metrics.For("nymbroker.health.endpoint.healthy", audit)).Value);
+        Assert.Equal(1, Assert.Single(metrics.For("nymbroker.health.endpoint.healthy", ok)).Value);
+    }
+
+    [Fact]
+    public async Task Metrics_FailureReasons_DistinguishErrorAndTimeout_AndCriticalFailureIsUnhealthy()
+    {
+        using var metrics = new HealthMetricCapture();
+        using var release = new ManualResetEventSlim();
+        try
+        {
+            var throwing = UniqueName("Throws");
+            var hung = UniqueName("Hung");
+            var broker = CreateBroker();
+            broker.AddEndpoint(throwing, new FakeEndPoint(() => throw new InvalidOperationException("boom")));
+            broker.AddEndpoint(hung, new FakeEndPoint(() => { release.Wait(TimeSpan.FromSeconds(60)); return CoreHealthCheckResult.Healthy(); }));
+            broker.ConfigureHealthCheck(new BrokerHealthCheckOptions { Timeout = TimeSpan.FromSeconds(1) });
+            await broker.StartAsync(Ct);
+
+            var report = await broker.CheckHealthAsync(Ct);
+
+            Assert.Equal(BrokerHealthStatus.Unhealthy, report.Status);
+            Assert.Contains(metrics.For("nymbroker.health.checks"), m => Equals(m.Tags["status"], "unhealthy"));
+            Assert.Equal("error", Assert.Single(metrics.For("nymbroker.health.endpoint.failures", throwing)).Tags["reason"]);
+            var timeout = Assert.Single(metrics.For("nymbroker.health.endpoint.failures", hung));
+            Assert.Equal("timeout", timeout.Tags["reason"]);
+            Assert.Equal(true, timeout.Tags["critical"]);
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [Fact]
+    public async Task Metrics_HealthyCheck_RecordsNoEndpointFailures()
+    {
+        using var metrics = new HealthMetricCapture();
+        var name = UniqueName("Ok");
+        var broker = await StartedBrokerAsync((name, FakeEndPoint.Healthy()));
+
+        await broker.CheckHealthAsync(Ct);
+
+        Assert.Contains(metrics.For("nymbroker.health.checks"), m => Equals(m.Tags["status"], "healthy"));
+        Assert.Empty(metrics.For("nymbroker.health.endpoint.failures", name));
+        Assert.Equal(1, Assert.Single(metrics.For("nymbroker.health.endpoint.healthy", name)).Value);
     }
 
     // --- Robustness ---

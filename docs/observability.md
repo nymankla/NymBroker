@@ -24,6 +24,10 @@ Meter `NymBroker`:
 | `nymbroker.messages.failed` | counter | processing failures | `source` |
 | `nymbroker.messages.dead_lettered` | counter | dead-lettered messages | `reason`, `source`, `mode` (`broker`/`native`) |
 | `nymbroker.message.processing.duration` | histogram (ms) | time to process one message | `source`, `outcome` (`success`/`failure`), `result` (`completed`/`retry`/`dead_letter`) |
+| `nymbroker.health.checks` | counter | [health checks](#health-checks) run | `status` (`healthy`/`degraded`/`unhealthy`) |
+| `nymbroker.health.endpoint.failures` | counter | endpoints reported unhealthy by a health check | `endpoint`, `critical` (`true`/`false`), `reason` (`unhealthy`/`timeout`/`error`) |
+| `nymbroker.health.status` | gauge | aggregate status of the latest health check: `0` healthy, `1` degraded, `2` unhealthy | — |
+| `nymbroker.health.endpoint.healthy` | gauge | health of each endpoint in the latest check: `1` healthy, `0` unhealthy | `endpoint`, `critical` |
 
 Meter `NymBroker.Resilience`: `nymbroker.retries` — retry attempts by the File and RabbitMQ endpoints' [retry policy](resilience.md). `RetryPolicy` now lives in `NymBroker.Core`; the meter keeps its original name so existing setups keep working.
 
@@ -35,6 +39,7 @@ Useful views:
 - **Where messages go** — `routed` by `destination`, `consumed` by `consumer`.
 - **Poison messages** — `dead_lettered` by `reason`; alert on any increase.
 - **Latency** — `processing.duration` p95 by `source`; `result = retry` shows transient trouble.
+- **Health** — alert on `health.checks` with `status = unhealthy` (or `degraded`) increasing, or on `health.status > 0`; `health.endpoint.failures` by `endpoint` and `reason` shows which endpoint fails and whether it is down (`unhealthy`), hanging (`timeout`) or broken (`error`: its check threw). The health metrics are only recorded when `CheckHealthAsync` runs — for example on each `/health` probe — so their resolution is the probe interval.
 - **Backlog** — queue depth isn't measured by the broker; take it from the transport (row count with `status = 0`, RabbitMQ / Service Bus metrics).
 
 ## Traces
