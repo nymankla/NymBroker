@@ -1,0 +1,40 @@
+#nullable enable
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint.AzureServiceBusEndPoint(string! name, NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint!>! logger, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint.DisposeAsync() -> System.Threading.Tasks.ValueTask
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint.HealthCheck() -> NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint.Mode.get -> NymBroker.Core.Endpoint.EndpointMode
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint.PostAsync(byte[]! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint.PostBatchAsync(System.Collections.Generic.IReadOnlyList<byte[]!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint.StartListeningAsync(System.Func<byte[]!, System.Threading.CancellationToken, System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!>! handler, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint.StopListeningAsync() -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPoint.UsesNativeDeadLetter.get -> bool
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPointType
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.AzureServiceBusSettings() -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.ConnectionString.get -> string?
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.ConnectionString.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.Credential.get -> Azure.Core.TokenCredential?
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.Credential.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.FullyQualifiedNamespace.get -> string?
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.FullyQualifiedNamespace.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.MaxAutoLockRenewalDuration.get -> System.TimeSpan
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.MaxAutoLockRenewalDuration.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.MaxConcurrentCalls.get -> int
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.MaxConcurrentCalls.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.PrefetchCount.get -> int
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.PrefetchCount.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.QueueName.get -> string?
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.QueueName.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.ReadDeadLetterQueue.get -> bool
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.ReadDeadLetterQueue.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.SubscriptionName.get -> string?
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.SubscriptionName.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.TopicName.get -> string?
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.TopicName.set -> void
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.UseNativeDeadLetter.get -> bool
+NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings.UseNativeDeadLetter.set -> void
+NymBroker.Endpoint.AzureServiceBus.NymBrokerBuilderAzureServiceBusExtensions
+const NymBroker.Endpoint.AzureServiceBus.AzureServiceBusEndPointType.AzureServiceBus = "AzureServiceBus" -> string!
+static NymBroker.Endpoint.AzureServiceBus.NymBrokerBuilderAzureServiceBusExtensions.AddAzureServiceBusEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.AzureServiceBus.AzureServiceBusSettings! settings, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> NymBroker.Core.Factory.NymBrokerBuilder!
+static NymBroker.Endpoint.AzureServiceBus.NymBrokerBuilderAzureServiceBusExtensions.WithAzureServiceBus(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!

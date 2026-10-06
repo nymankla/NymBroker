@@ -1,0 +1,51 @@
+#nullable enable
+NymBroker.Endpoint.Sqlite.NymBrokerBuilderSqliteExtensions
+NymBroker.Endpoint.Sqlite.SqliteEndPoint
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.DisposeAsync() -> System.Threading.Tasks.ValueTask
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.HealthCheck() -> NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.Mode.get -> NymBroker.Core.Endpoint.EndpointMode
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.PostAsync(byte[]! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.PostBatchAsync(System.Collections.Generic.IReadOnlyList<byte[]!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.ReadAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<string!>!
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.SqliteEndPoint(string! name, NymBroker.Endpoint.Sqlite.SqliteSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Endpoint.Sqlite.SqliteEndPoint!>! logger, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> void
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.StartListeningAsync(System.Func<byte[]!, System.Threading.CancellationToken, System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!>! handler, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.StopListeningAsync() -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.UsesNativeDeadLetter.get -> bool
+NymBroker.Endpoint.Sqlite.SqliteJournalMode
+NymBroker.Endpoint.Sqlite.SqliteJournalMode.Delete = 1 -> NymBroker.Endpoint.Sqlite.SqliteJournalMode
+NymBroker.Endpoint.Sqlite.SqliteJournalMode.Memory = 4 -> NymBroker.Endpoint.Sqlite.SqliteJournalMode
+NymBroker.Endpoint.Sqlite.SqliteJournalMode.Off = 5 -> NymBroker.Endpoint.Sqlite.SqliteJournalMode
+NymBroker.Endpoint.Sqlite.SqliteJournalMode.Persist = 3 -> NymBroker.Endpoint.Sqlite.SqliteJournalMode
+NymBroker.Endpoint.Sqlite.SqliteJournalMode.Truncate = 2 -> NymBroker.Endpoint.Sqlite.SqliteJournalMode
+NymBroker.Endpoint.Sqlite.SqliteJournalMode.Wal = 0 -> NymBroker.Endpoint.Sqlite.SqliteJournalMode
+NymBroker.Endpoint.Sqlite.SqliteSettings
+NymBroker.Endpoint.Sqlite.SqliteSettings.AutoCreateTable.get -> bool
+NymBroker.Endpoint.Sqlite.SqliteSettings.AutoCreateTable.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.BatchSize.get -> int
+NymBroker.Endpoint.Sqlite.SqliteSettings.BatchSize.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.BusyTimeout.get -> System.TimeSpan
+NymBroker.Endpoint.Sqlite.SqliteSettings.BusyTimeout.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.ConnectionString.get -> string!
+NymBroker.Endpoint.Sqlite.SqliteSettings.ConnectionString.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.JournalMode.get -> NymBroker.Endpoint.Sqlite.SqliteJournalMode
+NymBroker.Endpoint.Sqlite.SqliteSettings.JournalMode.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.LeaseTimeout.get -> System.TimeSpan
+NymBroker.Endpoint.Sqlite.SqliteSettings.LeaseTimeout.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.MaxRetryCount.get -> int
+NymBroker.Endpoint.Sqlite.SqliteSettings.MaxRetryCount.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.PollInterval.get -> System.TimeSpan
+NymBroker.Endpoint.Sqlite.SqliteSettings.PollInterval.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.SqliteSettings() -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.Synchronous.get -> NymBroker.Endpoint.Sqlite.SqliteSynchronous
+NymBroker.Endpoint.Sqlite.SqliteSettings.Synchronous.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.TableName.get -> string!
+NymBroker.Endpoint.Sqlite.SqliteSettings.TableName.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.UseNativeDeadLetter.get -> bool
+NymBroker.Endpoint.Sqlite.SqliteSettings.UseNativeDeadLetter.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSynchronous
+NymBroker.Endpoint.Sqlite.SqliteSynchronous.Extra = 3 -> NymBroker.Endpoint.Sqlite.SqliteSynchronous
+NymBroker.Endpoint.Sqlite.SqliteSynchronous.Full = 2 -> NymBroker.Endpoint.Sqlite.SqliteSynchronous
+NymBroker.Endpoint.Sqlite.SqliteSynchronous.Normal = 1 -> NymBroker.Endpoint.Sqlite.SqliteSynchronous
+NymBroker.Endpoint.Sqlite.SqliteSynchronous.Off = 0 -> NymBroker.Endpoint.Sqlite.SqliteSynchronous
+static NymBroker.Endpoint.Sqlite.NymBrokerBuilderSqliteExtensions.AddSqliteEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.Sqlite.SqliteSettings? settings = null, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> NymBroker.Core.Factory.NymBrokerBuilder!
+static NymBroker.Endpoint.Sqlite.NymBrokerBuilderSqliteExtensions.WithSql(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!

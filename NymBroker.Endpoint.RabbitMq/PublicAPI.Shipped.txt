@@ -1,0 +1,37 @@
+#nullable enable
+NymBroker.Endpoint.RabbitMq.NymBrokerBuilderRabbitMqExtensions
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.DisposeAsync() -> System.Threading.Tasks.ValueTask
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.HealthCheck() -> NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.Mode.get -> NymBroker.Core.Endpoint.EndpointMode
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.PostAsync(byte[]! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.RabbitMqEndPoint(string! name, NymBroker.Endpoint.RabbitMq.RabbitMqSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint!>! logger, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.StartListeningAsync(System.Func<byte[]!, System.Threading.CancellationToken, System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!>! handler, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.StopListeningAsync() -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.UsesNativeDeadLetter.get -> bool
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.BatchAckSize.get -> int
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.BatchAckSize.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.HostName.get -> string!
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.HostName.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.Password.get -> string!
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.Password.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.Port.get -> int
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.Port.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.RabbitMqSettings() -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ReadQueueName.get -> string!
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ReadQueueName.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ReconnectDelaySeconds.get -> int
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ReconnectDelaySeconds.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.RejectRedeliveredFailures.get -> bool
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.RejectRedeliveredFailures.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseNativeDeadLetter.get -> bool
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseNativeDeadLetter.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.User.get -> string!
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.User.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.VirtualHost.get -> string!
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.VirtualHost.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.WriteQueueName.get -> string!
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.WriteQueueName.set -> void
+static NymBroker.Endpoint.RabbitMq.NymBrokerBuilderRabbitMqExtensions.AddRabbitMqEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.RabbitMq.RabbitMqSettings? settings = null, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> NymBroker.Core.Factory.NymBrokerBuilder!
+static NymBroker.Endpoint.RabbitMq.NymBrokerBuilderRabbitMqExtensions.WithRabbitMq(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!

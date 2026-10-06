@@ -1,0 +1,27 @@
+#nullable enable
+NymBroker.Idempotency.Sqlite.NymBrokerBuilderSqliteIdempotencyExtensions
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.AutoCreateTable.get -> bool
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.AutoCreateTable.set -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.CleanupBatchSize.get -> int
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.CleanupBatchSize.set -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.CleanupInterval.set -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.ConnectionString.get -> string!
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.ConnectionString.set -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.LeaseTimeout.get -> System.TimeSpan
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.LeaseTimeout.set -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.SqliteIdempotencySettings() -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.TableName.get -> string!
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.TableName.set -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.Ttl.get -> System.TimeSpan
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.Ttl.set -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.Validate() -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore
+NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.CompleteAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.DeleteExpiredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.DisposeAsync() -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.ReleaseAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.SqliteIdempotencyStore(NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore!>! logger) -> void
+NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.TryClaimAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<NymBroker.Core.Idempotency.IdempotencyClaimResult>
+static NymBroker.Idempotency.Sqlite.NymBrokerBuilderSqliteIdempotencyExtensions.AddSqliteIdempotency(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings? settings = null) -> NymBroker.Core.Factory.NymBrokerBuilder!

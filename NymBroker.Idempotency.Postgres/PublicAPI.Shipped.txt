@@ -1,0 +1,27 @@
+#nullable enable
+NymBroker.Idempotency.Postgres.NymBrokerBuilderPostgresIdempotencyExtensions
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.AutoCreateTable.get -> bool
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.AutoCreateTable.set -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.CleanupBatchSize.get -> int
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.CleanupBatchSize.set -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.CleanupInterval.set -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.ConnectionString.get -> string!
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.ConnectionString.set -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.LeaseTimeout.get -> System.TimeSpan
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.LeaseTimeout.set -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.PostgresIdempotencySettings() -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.TableName.get -> string!
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.TableName.set -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.Ttl.get -> System.TimeSpan
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.Ttl.set -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.Validate() -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencyStore
+NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.CompleteAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.DeleteExpiredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.DisposeAsync() -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.PostgresIdempotencyStore(NymBroker.Idempotency.Postgres.PostgresIdempotencySettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Idempotency.Postgres.PostgresIdempotencyStore!>! logger) -> void
+NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.ReleaseAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.TryClaimAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<NymBroker.Core.Idempotency.IdempotencyClaimResult>
+static NymBroker.Idempotency.Postgres.NymBrokerBuilderPostgresIdempotencyExtensions.AddPostgresIdempotency(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Idempotency.Postgres.PostgresIdempotencySettings? settings = null) -> NymBroker.Core.Factory.NymBrokerBuilder!
