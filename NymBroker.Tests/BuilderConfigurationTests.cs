@@ -174,6 +174,42 @@ public sealed class BuilderConfigurationTests
         Assert.Empty(config.Endpoints);
     }
 
+    [Theory]
+    [InlineData("\"WriteOnly\"")]
+    [InlineData("\"writeonly\"")]
+    [InlineData("2")]
+    public void BrokerConfigurationReader_Read_Mode_AcceptsNameOrNumber(string mode)
+    {
+        var json = "{ \"NymBroker\": { \"Endpoints\": [ { \"Name\": \"Out\", \"Type\": \"Memory\", \"Mode\": " + mode + " } ] } }";
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, json);
+            var config = BrokerConfigurationReader.Read(path);
+            Assert.Equal(EndpointMode.WriteOnly, config.Endpoints[0].Mode);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void BrokerConfigurationReader_Read_InvalidMode_Throws()
+    {
+        var json = """{ "NymBroker": { "Endpoints": [ { "Name": "Out", "Type": "Memory", "Mode": "Bogus" } ] } }""";
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, json);
+            Assert.Throws<System.Text.Json.JsonException>(() => BrokerConfigurationReader.Read(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // --- Open endpoint types ---
 
     [Fact]
