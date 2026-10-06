@@ -61,7 +61,7 @@ services.AddNymBroker()
     .Build();
 ```
 
-The settings each endpoint supports (with defaults) are listed in the README: [Memory](../README.md#memory), [File](../README.md#file), [SQLite](../README.md#sql-sqlite), [PostgreSQL](../README.md#postgresql), [SQL Server](../README.md#sql-server), [Azure Service Bus](../README.md#azure-service-bus), [RabbitMQ](../README.md#rabbitmq). The most important ones:
+Each endpoint's settings type defines its available options and defaults. The most important shared settings are:
 
 | Setting | Endpoints | Meaning |
 |---|---|---|
