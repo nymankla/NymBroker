@@ -1,4 +1,4 @@
-using NymBroker.SqlServer;
+using NymBroker.Endpoint.SqlServer;
 
 namespace NymBroker.Tests;
 

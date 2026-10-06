@@ -2,9 +2,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NymBroker.Core.DI;
 using NymBroker.ConsumerSample.Consumers;
-using NymBroker.Postgres;
-using NymBroker.RabbitMq;
-using NymBroker.Sql;
+using NymBroker.Endpoint.Postgres;
+using NymBroker.Endpoint.RabbitMq;
+using NymBroker.Endpoint.Sqlite;
 
 var transport = args.SkipWhile(a => a != "--transport").Skip(1).FirstOrDefault() ?? "sqlite";
 

@@ -163,17 +163,19 @@ See [docs/observability.md](docs/observability.md#health-checks) for the aggrega
 
 ## Solution layout
 
+> **Renamed in 0.5.0:** the optional transport packages are now `NymBroker.Endpoint.<Transport>`. Package IDs and namespaces both changed: `NymBroker.RabbitMq` → `NymBroker.Endpoint.RabbitMq`, `NymBroker.Sqlite` (namespace `NymBroker.Sql`) → `NymBroker.Endpoint.Sqlite`, `NymBroker.Postgres` → `NymBroker.Endpoint.Postgres`, `NymBroker.SqlServer` → `NymBroker.Endpoint.SqlServer` and `NymBroker.AzureServiceBus` → `NymBroker.Endpoint.AzureServiceBus`. Update your `PackageReference`s and `using`s. Configuration files are unchanged.
+
 | Project | Purpose |
 |---|---|
 | `NymBroker.Core` | Framework core — no external transport dependency; includes the dependency-free [retry policy](docs/resilience.md) (`RetryPolicy`) used by the File and RabbitMQ endpoints |
-| `NymBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
-| `NymBroker.Sqlite` | Optional SQLite transport via native `Microsoft.Data.Sqlite` (add when needed) |
-| `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
-| `NymBroker.SqlServer` | Optional SQL Server transport via Microsoft.Data.SqlClient |
+| `NymBroker.Endpoint.RabbitMq` | Optional RabbitMQ transport (add when needed) |
+| `NymBroker.Endpoint.Sqlite` | Optional SQLite transport via native `Microsoft.Data.Sqlite` (add when needed) |
+| `NymBroker.Endpoint.Postgres` | Optional PostgreSQL transport via Npgsql |
+| `NymBroker.Endpoint.SqlServer` | Optional SQL Server transport via Microsoft.Data.SqlClient |
 | `NymBroker.Idempotency.SqlServer` | Optional durable idempotency store (idempotent receiver) in a SQL Server table — `AddSqlServerIdempotency` |
 | `NymBroker.Idempotency.Postgres` | Optional durable idempotency store (idempotent receiver) in a PostgreSQL table — `AddPostgresIdempotency` |
 | `NymBroker.Idempotency.Sqlite` | Optional durable idempotency store (idempotent receiver) in a SQLite table, restart-safe on one host — `AddSqliteIdempotency` |
-| `NymBroker.AzureServiceBus` | Optional Azure Service Bus transport via Azure.Messaging.ServiceBus |
+| `NymBroker.Endpoint.AzureServiceBus` | Optional Azure Service Bus transport via Azure.Messaging.ServiceBus |
 | `NymBroker.Tests` | xUnit tests |
 | [`NymBroker.Sample`](samples/NymBroker.Sample) | Fluent API, Memory/File endpoints, routing, and scheduled actions |
 | [`NymBroker.ConfigSample`](samples/NymBroker.ConfigSample) | Endpoint configuration from JSON |
@@ -325,10 +327,10 @@ From a JSON config file:
 
 ### SQL (SQLite)
 
-Add a reference to `NymBroker.Sql` and use the extension method:
+Add a reference to `NymBroker.Endpoint.Sqlite` and use the extension method:
 
 ```csharp
-using NymBroker.Sql;
+using NymBroker.Endpoint.Sqlite;
 
 services.AddNymBroker()
     .AddSqliteEndPoint("SqlQueue", new SqliteSettings
@@ -412,10 +414,10 @@ services.AddNymBroker()
 
 ### PostgreSQL
 
-Add a reference to `NymBroker.Postgres` and use the extension method:
+Add a reference to `NymBroker.Endpoint.Postgres` and use the extension method:
 
 ```csharp
-using NymBroker.Postgres;
+using NymBroker.Endpoint.Postgres;
 
 services.AddNymBroker()
     .AddPostgresEndPoint("PgQueue", new PostgresSettings
@@ -506,10 +508,10 @@ services.AddNymBroker()
 
 ### SQL Server
 
-Add a reference to `NymBroker.SqlServer` and use the extension method:
+Add a reference to `NymBroker.Endpoint.SqlServer` and use the extension method:
 
 ```csharp
-using NymBroker.SqlServer;
+using NymBroker.Endpoint.SqlServer;
 
 services.AddNymBroker()
     .AddSqlServerEndPoint("SqlServerQueue", new SqlServerSettings
@@ -602,10 +604,10 @@ services.AddNymBroker()
 
 ### Azure Service Bus
 
-Add a reference to `NymBroker.AzureServiceBus` and use the extension method:
+Add a reference to `NymBroker.Endpoint.AzureServiceBus` and use the extension method:
 
 ```csharp
-using NymBroker.AzureServiceBus;
+using NymBroker.Endpoint.AzureServiceBus;
 
 services.AddNymBroker()
     .AddAzureServiceBusEndPoint("Orders", new AzureServiceBusSettings
@@ -675,10 +677,10 @@ Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;Share
 
 ### RabbitMQ
 
-Add a reference to `NymBroker.RabbitMq` and use the extension method:
+Add a reference to `NymBroker.Endpoint.RabbitMq` and use the extension method:
 
 ```csharp
-using NymBroker.RabbitMq;
+using NymBroker.Endpoint.RabbitMq;
 
 services.AddNymBroker()
     .AddRabbitMqEndPoint("RabbitIn", new RabbitMqSettings
@@ -1013,7 +1015,7 @@ Declare endpoint topology in a file — consumers and routes are still registere
 ```csharp
 services.AddNymBroker()
     .LoadConfiguration("queuesettings.json")   // File + Memory endpoints registered automatically
-    .WithRabbitMq()                            // from NymBroker.RabbitMq — processes RabbitMq entries
+    .WithRabbitMq()                            // from NymBroker.Endpoint.RabbitMq — processes RabbitMq entries
     .AddConsumer<TradingConsumer>()
     .Build();
 ```

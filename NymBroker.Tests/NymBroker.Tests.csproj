@@ -28,14 +28,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NymBroker.AzureServiceBus\NymBroker.AzureServiceBus.csproj" />
+    <ProjectReference Include="..\NymBroker.Endpoint.AzureServiceBus\NymBroker.Endpoint.AzureServiceBus.csproj" />
     <ProjectReference Include="..\NymBroker.Core\NymBroker.Core.csproj" />
     <ProjectReference Include="..\NymBroker.Idempotency.SqlServer\NymBroker.Idempotency.SqlServer.csproj" />
     <ProjectReference Include="..\NymBroker.Idempotency.Postgres\NymBroker.Idempotency.Postgres.csproj" />
     <ProjectReference Include="..\NymBroker.Idempotency.Sqlite\NymBroker.Idempotency.Sqlite.csproj" />
-    <ProjectReference Include="..\NymBroker.Postgres\NymBroker.Postgres.csproj" />
-    <ProjectReference Include="..\NymBroker.Sqlite\NymBroker.Sqlite.csproj" />
-    <ProjectReference Include="..\NymBroker.SqlServer\NymBroker.SqlServer.csproj" />
+    <ProjectReference Include="..\NymBroker.Endpoint.Postgres\NymBroker.Endpoint.Postgres.csproj" />
+    <ProjectReference Include="..\NymBroker.Endpoint.Sqlite\NymBroker.Endpoint.Sqlite.csproj" />
+    <ProjectReference Include="..\NymBroker.Endpoint.SqlServer\NymBroker.Endpoint.SqlServer.csproj" />
   </ItemGroup>
 
 </Project>

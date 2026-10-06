@@ -1,4 +1,4 @@
-namespace NymBroker.SqlServer;
+namespace NymBroker.Endpoint.SqlServer;
 
 /// <summary>
 /// T-SQL for the queue table. Status values are inlined as literals (0 Pending, 1 InProgress,

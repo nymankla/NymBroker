@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using Azure.Core;
 
-namespace NymBroker.AzureServiceBus;
+namespace NymBroker.Endpoint.AzureServiceBus;
 
 public sealed class AzureServiceBusSettings
 {

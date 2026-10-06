@@ -8,7 +8,7 @@ using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.Memory;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
-using NymBroker.Sql;
+using NymBroker.Endpoint.Sqlite;
 
 namespace NymBroker.Tests;
 

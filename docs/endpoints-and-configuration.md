@@ -10,11 +10,11 @@ An **endpoint** is a named connection to a transport. You post to endpoints by n
 |---|---|---|---|---|---|---|
 | **Memory** | `NymBroker` | no (process memory) | in-process channel | broker dead-letter endpoint | one by one | tests, in-process decoupling |
 | **File** | `NymBroker` | yes (files) | file watcher + periodic scan | broker dead-letter endpoint | one by one | file drops, simple integration |
-| **SQLite** | `NymBroker.Sqlite` | yes | polling a table | retried, then `Failed` row | one transaction | single-process apps, edge devices |
-| **PostgreSQL** | `NymBroker.Postgres` | yes | polling + `LISTEN/NOTIFY` | retried, then `Failed` row | one statement | multi-instance apps already on Postgres |
-| **SQL Server** | `NymBroker.SqlServer` | yes | polling a table | retried, then `Failed` row | one statement | multi-instance apps already on SQL Server |
-| **RabbitMQ** | `NymBroker.RabbitMq` | yes | push (consumer) | requeued, then the queue's dead-letter exchange | one by one | a message broker you already run |
-| **Azure Service Bus** | `NymBroker.AzureServiceBus` | yes | push (processor) | abandoned, then the queue's dead-letter queue | Service Bus batches | Azure, managed queues and topics |
+| **SQLite** | `NymBroker.Endpoint.Sqlite` | yes | polling a table | retried, then `Failed` row | one transaction | single-process apps, edge devices |
+| **PostgreSQL** | `NymBroker.Endpoint.Postgres` | yes | polling + `LISTEN/NOTIFY` | retried, then `Failed` row | one statement | multi-instance apps already on Postgres |
+| **SQL Server** | `NymBroker.Endpoint.SqlServer` | yes | polling a table | retried, then `Failed` row | one statement | multi-instance apps already on SQL Server |
+| **RabbitMQ** | `NymBroker.Endpoint.RabbitMq` | yes | push (consumer) | requeued, then the queue's dead-letter exchange | one by one | a message broker you already run |
+| **Azure Service Bus** | `NymBroker.Endpoint.AzureServiceBus` | yes | push (processor) | abandoned, then the queue's dead-letter queue | Service Bus batches | Azure, managed queues and topics |
 
 "Failed messages" is explained in [Reliability](reliability.md). PostgreSQL and SQL Server let several application instances poll the same table safely; SQLite is meant for a single machine.
 
@@ -28,30 +28,30 @@ services.AddNymBroker()
     .AddMemoryEndPoint("Work", capacity: 1000)
     .AddFileEndPoint("Drop", new FileSettings { ReadPath = "in", PostPath = "out" })
 
-    // NymBroker.Sqlite (namespace NymBroker.Sql)
+    // NymBroker.Endpoint.Sqlite (namespace NymBroker.Endpoint.Sqlite)
     .AddSqliteEndPoint("Local", new SqliteSettings { ConnectionString = "Data Source=messages.db" })
 
-    // NymBroker.Postgres
+    // NymBroker.Endpoint.Postgres
     .AddPostgresEndPoint("Pg", new PostgresSettings
     {
         ConnectionString = "Host=localhost;Database=app;Username=app;Password=…",
         TableName = "orders_queue"
     })
 
-    // NymBroker.SqlServer
+    // NymBroker.Endpoint.SqlServer
     .AddSqlServerEndPoint("Mssql", new SqlServerSettings
     {
         ConnectionString = "Server=…;Database=app;…",
         TableName = "dbo.orders_queue"
     })
 
-    // NymBroker.RabbitMq
+    // NymBroker.Endpoint.RabbitMq
     .AddRabbitMqEndPoint("Rabbit", new RabbitMqSettings
     {
         HostName = "localhost", ReadQueueName = "orders.in", WriteQueueName = "orders.in"
     })
 
-    // NymBroker.AzureServiceBus
+    // NymBroker.Endpoint.AzureServiceBus
     .AddAzureServiceBusEndPoint("Bus", new AzureServiceBusSettings
     {
         ConnectionString = "<namespace connection string>",   // or FullyQualifiedNamespace + Credential

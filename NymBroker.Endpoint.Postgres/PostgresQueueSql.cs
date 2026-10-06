@@ -1,4 +1,4 @@
-namespace NymBroker.Postgres;
+namespace NymBroker.Endpoint.Postgres;
 
 /// <summary>
 /// SQL for the queue table. Status values are inlined as literals (0 Pending, 1 InProgress, 2 Completed,

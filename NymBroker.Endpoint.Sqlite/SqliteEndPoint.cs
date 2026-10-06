@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
 
-namespace NymBroker.Sql;
+namespace NymBroker.Endpoint.Sqlite;
 
 /// <summary>
 /// Queue table in SQLite. One connection, serialized by <see cref="_dbLock"/> (a <see cref="SqliteConnection"/> is not

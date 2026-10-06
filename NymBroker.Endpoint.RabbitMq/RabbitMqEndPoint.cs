@@ -5,7 +5,7 @@ using NymBroker.Core.Resilience;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
-namespace NymBroker.RabbitMq;
+namespace NymBroker.Endpoint.RabbitMq;
 
 public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
 {

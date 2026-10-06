@@ -2,7 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NymBroker.Core.DI;
 using NymBroker.Core.Impl;
-using NymBroker.Postgres;
+using NymBroker.Endpoint.Postgres;
 using NymBroker.PostgresSample.Consumers;
 using NymBroker.PostgresSample.Messages;
 

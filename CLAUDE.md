@@ -53,14 +53,14 @@ Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker comp
 | Project | Role |
 |---|---|
 | `NymBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No transport dependency. Also holds the dependency-free retry policy (`NymBroker.Core.Resilience`: `RetryPolicy`, `RetryOptions`) — constant/exponential backoff with optional jitter; used by `FileEndPoint` (IOException retry) and `RabbitMqEndPoint` (reconnect). Replaces Polly. Options documented in [docs/resilience.md](docs/resilience.md). |
-| `NymBroker.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, `AddRabbitMqEndPoint`/`WithRabbitMq`. |
-| `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses `Microsoft.Data.Sqlite` (no Dapper — removed from the solution in #60; don't re-add it). |
-| `NymBroker.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
-| `NymBroker.SqlServer` | Optional add-on — `SqlServerEndPoint`, `SqlServerSettings`, `AddSqlServerEndPoint`/`WithSqlServer`, config type `SqlServerEndPointType.SqlServer`. Uses `Microsoft.Data.SqlClient`. |
-| `NymBroker.Idempotency.SqlServer` | Optional add-on (#55) — durable `IIdempotencyStore` in a SQL Server table: `SqlServerIdempotencyStore`, `SqlServerIdempotencySettings`, `AddSqlServerIdempotency`, plus a hosted cleanup service. Independent of `NymBroker.SqlServer`. |
-| `NymBroker.Idempotency.Postgres` | Optional add-on (#56) — durable `IIdempotencyStore` in a PostgreSQL table: `PostgresIdempotencyStore`, `PostgresIdempotencySettings`, `AddPostgresIdempotency`, plus a hosted cleanup service. Independent of `NymBroker.Postgres`. |
-| `NymBroker.Idempotency.Sqlite` | Optional add-on (#57) — durable `IIdempotencyStore` in a SQLite table (`INSERT … ON CONFLICT … RETURNING` claim, one persistent connection under a `SemaphoreSlim`, WAL for files): `SqliteIdempotencyStore`, `SqliteIdempotencySettings`, `AddSqliteIdempotency`, plus a hosted cleanup service. Restart-safe on **one host** only. Independent of `NymBroker.Sqlite`. |
-| `NymBroker.AzureServiceBus` | Optional add-on — `AzureServiceBusEndPoint`, `AzureServiceBusSettings`, `AddAzureServiceBusEndPoint`/`WithAzureServiceBus`, config type `AzureServiceBusEndPointType.AzureServiceBus`. Uses `Azure.Messaging.ServiceBus` (no `Azure.Identity` dependency). |
+| `NymBroker.Endpoint.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, `AddRabbitMqEndPoint`/`WithRabbitMq`. |
+| `NymBroker.Endpoint.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses `Microsoft.Data.Sqlite` (no Dapper — removed from the solution in #60; don't re-add it). |
+| `NymBroker.Endpoint.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
+| `NymBroker.Endpoint.SqlServer` | Optional add-on — `SqlServerEndPoint`, `SqlServerSettings`, `AddSqlServerEndPoint`/`WithSqlServer`, config type `SqlServerEndPointType.SqlServer`. Uses `Microsoft.Data.SqlClient`. |
+| `NymBroker.Idempotency.SqlServer` | Optional add-on (#55) — durable `IIdempotencyStore` in a SQL Server table: `SqlServerIdempotencyStore`, `SqlServerIdempotencySettings`, `AddSqlServerIdempotency`, plus a hosted cleanup service. Independent of `NymBroker.Endpoint.SqlServer`. |
+| `NymBroker.Idempotency.Postgres` | Optional add-on (#56) — durable `IIdempotencyStore` in a PostgreSQL table: `PostgresIdempotencyStore`, `PostgresIdempotencySettings`, `AddPostgresIdempotency`, plus a hosted cleanup service. Independent of `NymBroker.Endpoint.Postgres`. |
+| `NymBroker.Idempotency.Sqlite` | Optional add-on (#57) — durable `IIdempotencyStore` in a SQLite table (`INSERT … ON CONFLICT … RETURNING` claim, one persistent connection under a `SemaphoreSlim`, WAL for files): `SqliteIdempotencyStore`, `SqliteIdempotencySettings`, `AddSqliteIdempotency`, plus a hosted cleanup service. Restart-safe on **one host** only. Independent of `NymBroker.Endpoint.Sqlite`. |
+| `NymBroker.Endpoint.AzureServiceBus` | Optional add-on — `AzureServiceBusEndPoint`, `AzureServiceBusSettings`, `AddAzureServiceBusEndPoint`/`WithAzureServiceBus`, config type `AzureServiceBusEndPointType.AzureServiceBus`. Uses `Azure.Messaging.ServiceBus` (no `Azure.Identity` dependency). |
 | `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. PostgreSQL / SQL Server / Service Bus integration tests (`PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `AzureServiceBusEndPointTests`) run only when `NYMBROKER_POSTGRES_CS` / `NYMBROKER_SQLSERVER_CS` / `NYMBROKER_SERVICEBUS_CS` are set; otherwise they are skipped (their unit and health-check tests always run). |
 | `samples/NymBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
 | `samples/NymBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
@@ -234,7 +234,7 @@ services.AddNymBroker()
     .AddConsumer<OrderConsumer>()
     .Build();
 
-// With SQLite (reference NymBroker.Sqlite):
+// With SQLite (reference NymBroker.Endpoint.Sqlite):
 services.AddNymBroker()
     .AddSqliteEndPoint("SqlQueue", new SqliteSettings
     {
@@ -246,7 +246,7 @@ services.AddNymBroker()
     .AddConsumer<OrderConsumer>()
     .Build();
 
-// With PostgreSQL (reference NymBroker.Postgres):
+// With PostgreSQL (reference NymBroker.Endpoint.Postgres):
 services.AddNymBroker()
     .AddPostgresEndPoint("PgQueue", new PostgresSettings
     {
@@ -256,7 +256,7 @@ services.AddNymBroker()
     .AddConsumer<OrderConsumer>()
     .Build();
 
-// With SQL Server (reference NymBroker.SqlServer):
+// With SQL Server (reference NymBroker.Endpoint.SqlServer):
 services.AddNymBroker()
     .AddSqlServerEndPoint("SqlServerQueue", new SqlServerSettings
     {
@@ -267,7 +267,7 @@ services.AddNymBroker()
     .AddConsumer<OrderConsumer>()
     .Build();
 
-// With Azure Service Bus (reference NymBroker.AzureServiceBus):
+// With Azure Service Bus (reference NymBroker.Endpoint.AzureServiceBus):
 services.AddNymBroker()
     .AddAzureServiceBusEndPoint("Orders", new AzureServiceBusSettings
     {
@@ -277,7 +277,7 @@ services.AddNymBroker()
     .AddConsumer<OrderConsumer>()
     .Build();
 
-// With RabbitMQ (reference NymBroker.RabbitMq):
+// With RabbitMQ (reference NymBroker.Endpoint.RabbitMq):
 services.AddNymBroker()
     .AddRabbitMqEndPoint("Rabbit", new RabbitMqSettings { HostName = "localhost", ReadQueueName = "q.in" })
     .AddConsumer<OrderConsumer>()
@@ -290,21 +290,21 @@ From a config file — each transport requires its own `With*()` call:
 services.AddNymBroker()
     .LoadConfiguration("queuesettings.json")
     .WithRabbitMq()     // processes Type=RabbitMq entries
-    .WithSql()          // processes Type=Sql entries (from NymBroker.Sqlite)
+    .WithSql()          // processes Type=Sql entries (from NymBroker.Endpoint.Sqlite)
     .WithPostgres()     // processes Type=Postgres entries
-    .WithSqlServer()    // processes Type=SqlServer entries (from NymBroker.SqlServer)
-    .WithAzureServiceBus()  // processes Type=AzureServiceBus entries (from NymBroker.AzureServiceBus)
+    .WithSqlServer()    // processes Type=SqlServer entries (from NymBroker.Endpoint.SqlServer)
+    .WithAzureServiceBus()  // processes Type=AzureServiceBus entries (from NymBroker.Endpoint.AzureServiceBus)
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
 
-Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config` (camelCase type-specific settings). `Type` is an **open string**, not an enum: `EndPointType` is a static class of string constants for the built-in types (`File|Memory|RabbitMq|Sql|Postgres`, also listed in `EndPointType.BuiltIn`). Unknown types load without error and are left for their package's `With*()` extension, which matches with `ep.IsType(name)` (case-insensitive). New transports define their type-name constant in their own package; Core does not change (e.g. `SqlServerEndPointType.SqlServer = "SqlServer"` lives in `NymBroker.SqlServer`). `File` and `Memory` are processed automatically by `LoadConfiguration` without a `With*()` call.
+Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config` (camelCase type-specific settings). `Type` is an **open string**, not an enum: `EndPointType` is a static class of string constants for the built-in types (`File|Memory|RabbitMq|Sql|Postgres`, also listed in `EndPointType.BuiltIn`). Unknown types load without error and are left for their package's `With*()` extension, which matches with `ep.IsType(name)` (case-insensitive). New transports define their type-name constant in their own package; Core does not change (e.g. `SqlServerEndPointType.SqlServer = "SqlServer"` lives in `NymBroker.Endpoint.SqlServer`). `File` and `Memory` are processed automatically by `LoadConfiguration` without a `With*()` call.
 
 `NymBrokerBuilder` exposes `Services` (the DI container) and `LoadedConfiguration` as public properties so extension packages in other assemblies can register their endpoint types.
 
 ### SQLite Endpoint
 
-`SqliteEndPoint` (namespace `NymBroker.Sql`, project `NymBroker.Sqlite`) implements `IEndPointEventDriven` (internal poll loop) plus a non-interface `ReadAsync`.
+`SqliteEndPoint` (project and namespace `NymBroker.Endpoint.Sqlite`) implements `IEndPointEventDriven` (internal poll loop) plus a non-interface `ReadAsync`.
 
 **Message lifecycle**: `Pending (0)` → `InProgress (1)` → `Completed (2)` or `Failed (3)`.
 
@@ -327,7 +327,7 @@ Native `Microsoft.Data.Sqlite`, no Dapper (#60); SQL in `SqliteQueueSql`. Measur
 
 ### PostgreSQL Endpoint
 
-`PostgresEndPoint` (namespace `NymBroker.Postgres`) uses the same message lifecycle as SQLite. Claiming uses `SELECT … FOR UPDATE SKIP LOCKED` so multiple application instances can poll the same table concurrently without a process-wide lock. Measured on the `setup-postgres.ps1` container, the 0.1.5 rework took backlog drain with default settings from ~80 to ~3 000–5 000 msg/s, with `BatchSize=50` from ~4 000 to ~9 000 msg/s, and with 300k completed rows from ~1 600 to ~10 500 msg/s.
+`PostgresEndPoint` (namespace `NymBroker.Endpoint.Postgres`) uses the same message lifecycle as SQLite. Claiming uses `SELECT … FOR UPDATE SKIP LOCKED` so multiple application instances can poll the same table concurrently without a process-wide lock. Measured on the `setup-postgres.ps1` container, the 0.1.5 rework took backlog drain with default settings from ~80 to ~3 000–5 000 msg/s, with `BatchSize=50` from ~4 000 to ~9 000 msg/s, and with 300k completed rows from ~1 600 to ~10 500 msg/s.
 
 - **Polling**: back to back while batches come back non-empty. Only after an empty poll does it wait for `NOTIFY` / `PollInterval`. (≤ 0.1.4 waited after *every* batch, capping default settings at `BatchSize / PollInterval` ≈ 100 msg/s.)
 - **One round trip and one commit per batch**: `FinalizeAndClaimAsync` sends the finalize of batch N and the claim of batch N+1 as one `NpgsqlBatch`, which PostgreSQL executes as one implicit transaction.
@@ -339,7 +339,7 @@ Native `Microsoft.Data.Sqlite`, no Dapper (#60); SQL in `SqliteQueueSql`. Measur
 
 ### SQL Server Endpoint
 
-`SqlServerEndPoint` (namespace `NymBroker.SqlServer`) has the same lifecycle, leases, retry/`Failed` handling, logging and loop structure (back-to-back drain, finalize + claim in one round trip, shutdown finalize) as `PostgresEndPoint`, but the SQL is written for SQL Server. Each choice below was measured against the straight port (`scripts/setup-sqlserver.ps1` container): backlog drain went from ~3 000 to ~4 500–6 000 msg/s, and from ~2 500 to ~5 000 msg/s with 300k completed rows in the table.
+`SqlServerEndPoint` (namespace `NymBroker.Endpoint.SqlServer`) has the same lifecycle, leases, retry/`Failed` handling, logging and loop structure (back-to-back drain, finalize + claim in one round trip, shutdown finalize) as `PostgresEndPoint`, but the SQL is written for SQL Server. Each choice below was measured against the straight port (`scripts/setup-sqlserver.ps1` container): backlog drain went from ~3 000 to ~4 500–6 000 msg/s, and from ~2 500 to ~5 000 msg/s with 300k completed rows in the table.
 
 - **One round trip and one commit per batch** (`SqlServerQueueSql.FinalizeAndClaim`): the results of batch N are written in the same T-SQL batch as the claim of batch N+1. The transaction is inside the SQL text (`SET XACT_ABORT ON; BEGIN TRANSACTION … COMMIT`), not `SqlConnection.BeginTransaction`, which would cost two extra round trips.
 - **Claiming** uses an updatable CTE with `WITH (UPDLOCK, READPAST, ROWLOCK)` (the SQL Server equivalent of `SKIP LOCKED`) and `OUTPUT inserted.*`, ordered by `queue_id`.
@@ -352,7 +352,7 @@ Native `Microsoft.Data.Sqlite`, no Dapper (#60); SQL in `SqliteQueueSql`. Measur
 
 ### Azure Service Bus Endpoint
 
-`AzureServiceBusEndPoint` (namespace `NymBroker.AzureServiceBus`) is push-based: a `ServiceBusProcessor` (peek-lock, `AutoCompleteMessages = false`, `MaxConcurrentCalls` default 1) calls the broker and settles by the `ProcessResult` in `ServiceBusSettlement` (internal, unit-tested through `IServiceBusMessageSettler`):
+`AzureServiceBusEndPoint` (namespace `NymBroker.Endpoint.AzureServiceBus`) is push-based: a `ServiceBusProcessor` (peek-lock, `AutoCompleteMessages = false`, `MaxConcurrentCalls` default 1) calls the broker and settles by the `ProcessResult` in `ServiceBusSettlement` (internal, unit-tested through `IServiceBusMessageSettler`):
 
 - `Completed` → `CompleteMessageAsync`; `Retry` (or a handler exception) → `AbandonMessageAsync` — Service Bus redelivers and dead-letters with `MaxDeliveryCountExceeded` at the entity's `MaxDeliveryCount`; `DeadLetter` → `DeadLetterMessageAsync(reason, description)` (truncated to 4 KB).
 - `ReadDeadLetterQueue = true` receives from the DLQ sub-queue; there a `DeadLetter` result **completes** the message (it is already dead-lettered) with a warning.
@@ -416,6 +416,7 @@ Transient-failure retries use `RetryPolicy` (namespace `NymBroker.Core.Resilienc
 - **Bump the patch version on every push to `master`** (the main branch). Run `.\scripts\pack.ps1 -BumpPatch` — it updates `<Version>` in `Directory.Build.props` (e.g. `0.1.0` → `0.1.1`) and packs — then commit the bump together with the change before pushing. Minor/major bumps (`-BumpMinor` / `-BumpMajor`) are the user's call.
 - Routes use `IRouteCondition` / `Func<JsonElement, bool>` predicates; no XML/XSLT.
 - No Windows-specific endpoints (MSMQ, Event Log, etc.) — .NET Core only.
+- **Package naming**: optional transports are `NymBroker.Endpoint.<Transport>` — folder, project, package ID and namespace (renamed from `NymBroker.<Transport>` in 0.5.0; the SQLite namespace was `NymBroker.Sql`). Idempotency stores are `NymBroker.Idempotency.<Db>`. Config type names (`"Sql"`, `"RabbitMq"`, …) did not change.
 - DI: `Microsoft.Extensions.DI` only (no Autofac).
 - Serialization: `System.Text.Json` only (no Newtonsoft).
 - Consumers are keyed services: key = `typeof(TConsumer).Name`.

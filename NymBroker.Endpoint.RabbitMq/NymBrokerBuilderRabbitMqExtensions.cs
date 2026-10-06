@@ -5,7 +5,7 @@ using NymBroker.Core.Factory.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace NymBroker.RabbitMq;
+namespace NymBroker.Endpoint.RabbitMq;
 
 public static class NymBrokerBuilderRabbitMqExtensions
 {

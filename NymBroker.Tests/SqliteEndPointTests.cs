@@ -1,7 +1,7 @@
 using System.Text;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
-using NymBroker.Sql;
+using NymBroker.Endpoint.Sqlite;
 using NymBroker.Core.Endpoint;
 
 namespace NymBroker.Tests;

@@ -4,7 +4,7 @@ using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Message;
 
-namespace NymBroker.AzureServiceBus;
+namespace NymBroker.Endpoint.AzureServiceBus;
 
 /// <summary>
 /// Azure Service Bus queue or topic/subscription endpoint. Push-based: a <see cref="ServiceBusProcessor"/> (peek-lock,

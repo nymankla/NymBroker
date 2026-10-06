@@ -1,4 +1,4 @@
-namespace NymBroker.RabbitMq;
+namespace NymBroker.Endpoint.RabbitMq;
 
 public sealed class RabbitMqSettings
 {

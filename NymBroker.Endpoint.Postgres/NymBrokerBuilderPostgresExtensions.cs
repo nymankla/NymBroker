@@ -5,7 +5,7 @@ using NymBroker.Core.Endpoint;
 using NymBroker.Core.Factory;
 using NymBroker.Core.Factory.Configuration;
 
-namespace NymBroker.Postgres;
+namespace NymBroker.Endpoint.Postgres;
 
 public static class NymBrokerBuilderPostgresExtensions
 {

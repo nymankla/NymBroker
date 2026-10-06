@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
-using NymBroker.SqlServer;
+using NymBroker.Endpoint.SqlServer;
 using NymBroker.Core.Endpoint;
 using Microsoft.Extensions.DependencyInjection;
 using NymBroker.Core.DI;
