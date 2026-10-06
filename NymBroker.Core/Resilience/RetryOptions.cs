@@ -1,4 +1,4 @@
-namespace NymBroker.Resilience;
+﻿namespace NymBroker.Core.Resilience;
 
 public sealed class RetryOptions
 {

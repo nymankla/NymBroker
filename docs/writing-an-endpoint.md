@@ -298,7 +298,7 @@ Most real brokers and cloud queues (Azure Service Bus, Amazon SQS, Google Pub/Su
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
-using NymBroker.Resilience;
+using NymBroker.Core.Resilience;
 
 namespace MyCompany.NymBroker.Queue;
 
@@ -475,7 +475,7 @@ What this sample adds beyond Sample B:
 - **Settle by the result, and ack only on `Completed`.** `CompleteAsync` runs only for `Completed`; `Retry` abandons the message so the queue redelivers it; `DeadLetter` moves it to the queue's dead-letter queue with the reason. The endpoint sets `UsesNativeDeadLetter` because the queue has a DLQ. If the process crashes mid-dispatch, the lease expires and the queue redelivers the message. This gives you *at-least-once* delivery. Pair it with `.AddIdempotentReceiver()` on the builder if consumers must not see duplicates.
 - **Separate poll errors from message errors.** A failed `ReceiveBatchAsync` is a transport problem: log it, back off, retry. A `Retry` or `DeadLetter` result is a message problem: settle that message and continue with the batch.
 - **Handle poison messages.** Repeated `Retry`s should eventually stop. Rely on the queue's max-delivery-count / dead-letter feature if it has one. Otherwise, check `DeliveryCount` and mark the message failed yourself, the way the SQL endpoints use `MaxRetryCount`, and log at `Warning` when you do.
-- **Retry with `RetryPolicy`.** Use `NymBroker.Resilience` for transient send and reconnect failures. Build one policy per endpoint and reuse it; `OnRetry` must log. Don't add Polly. See [NymBroker.Resilience/README.md](../NymBroker.Resilience/README.md) for every option. If the client SDK already retries transient faults (the Azure SDKs do, as in `AzureServiceBusEndPoint`), don't wrap it in a second retry loop.
+- **Retry with `RetryPolicy`.** Use `RetryPolicy` (`NymBroker.Core.Resilience`) for transient send and reconnect failures. Build one policy per endpoint and reuse it; `OnRetry` must log. Don't add Polly. See [Retry policy](resilience.md) for every option. If the client SDK already retries transient faults (the Azure SDKs do, as in `AzureServiceBusEndPoint`), don't wrap it in a second retry loop.
 - **Keep the health check bounded.** `HealthCheck()` is synchronous, so put a timeout on the probe and catch everything. A health check must never throw.
 
 > **Concurrency:** this loop dispatches one message at a time, which keeps ordering and is the right default. If you add parallel dispatch (for example a `SemaphoreSlim(n)`), document that ordering is no longer guaranteed. If your client isn't thread-safe, serialize access to it the way `SqliteEndPoint` does with `_dbLock`.
@@ -649,7 +649,7 @@ Tests run in parallel. Use a unique name, port or table per test, and filter any
 - [ ] No silent catches: every `catch` logs.
 - [ ] `StopListeningAsync` stops receiving and awaits the loop.
 - [ ] `HealthCheck()` is bounded, never throws, and reports a dead listener.
-- [ ] Transient failures use `NymBroker.Resilience.RetryPolicy` with a logging `OnRetry`.
+- [ ] Transient failures use `NymBroker.Core.Resilience.RetryPolicy` with a logging `OnRetry`.
 - [ ] Builder extension calls both `Services.AddKeyedSingleton<IEndPoint>(name, …)` and `RegisterEndpoint(name)`.
 - [ ] Tests use no external infrastructure and are safe to run in parallel.
 - [ ] No Windows-only APIs, `System.Text.Json` only, `Microsoft.Extensions.DependencyInjection` only.

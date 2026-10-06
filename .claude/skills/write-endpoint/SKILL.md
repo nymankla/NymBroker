@@ -42,9 +42,9 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - `PostAsync` sends the bytes unchanged and is safe to call concurrently.
 - Override `PostBatchAsync(IReadOnlyList<byte[]>)` when the transport can batch (one statement / transaction / client batch); keep order and one envelope per message, and document atomicity. Otherwise rely on the default (sequential `PostAsync`).
 - `HealthCheck()` has a timeout and never throws.
-- Retries use `NymBroker.Resilience.RetryPolicy` (one per endpoint, `OnRetry` logs). **Never add Polly.**
+- Retries use `NymBroker.Core.Resilience.RetryPolicy` (one per endpoint, `OnRetry` logs; options in `docs/resilience.md`). **Never add Polly.**
 - Constructor: `(string name, TSettings settings, ILogger<T> logger, EndpointMode mode = EndpointMode.ReadWrite)`.
-- Use NymBroker.Resilience if applicable
+- Use `RetryPolicy` (`NymBroker.Core.Resilience`) if applicable
 - Always try to use best practices when implementing the endpoint. If implementing a new transport, follow the patterns established in the existing ones. 
 - Optimize for performance and reliability, using best practices for underlying transport and infrastructure.
 - Ensure proper disposal of resources and handle exceptions gracefully to maintain system stability.

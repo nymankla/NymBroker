@@ -14,7 +14,7 @@ using NymBroker.Core.Serialize;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using NymBroker.Resilience;
+using NymBroker.Core.Resilience;
 
 namespace NymBroker.Tests;
 

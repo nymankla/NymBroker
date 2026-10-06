@@ -79,6 +79,7 @@ The **[user guide](docs/user-guide.md)** explains the API step by step, with dia
 | [Routing and publish/subscribe](docs/routing-and-pubsub.md) | routes, conditions, topics, subscribers |
 | [Endpoints and configuration](docs/endpoints-and-configuration.md) | every endpoint type, modes, `queuesettings.json` |
 | [Reliability](docs/reliability.md) | retries, dead-lettering, TTL, wire tap, duplicate detection |
+| [Retry policy](docs/resilience.md) | `RetryPolicy` options, backoff and jitter |
 | [Pipeline extensions](docs/pipeline-extensions.md) | filters, input transformers, scheduled actions |
 | [Observability](docs/observability.md) | metrics, traces, logging, health checks |
 
@@ -93,7 +94,7 @@ Adding a transport? See [Writing an endpoint](docs/writing-an-endpoint.md). The 
 | [Filters](#filters) | Inspect or modify a message before routing; return `null` to drop it. |
 | [Consumers](#getting-started) | Implement `IConsume<T>` to handle messages of a particular type. Consumers are dispatched through dependency injection. |
 | [Subscribers](#publish-subscribe-channel) | Implement `ISubscribe<T>` to receive copies published to a topic, independently of endpoint routing. |
-| [Retries](NymBroker.Resilience/README.md) | Transport retries handle transient File and RabbitMQ failures; SQLite/PostgreSQL queue settings retry failed message processing. |
+| [Retries](docs/resilience.md) | Transport retries handle transient File and RabbitMQ failures; SQLite/PostgreSQL queue settings retry failed message processing. |
 
 In short: a producer posts to an endpoint, the broker processes the message through filters and routes, then dispatches it to a consumer and/or destination endpoint. Publishing to a topic instead fans a copy out to its subscribers.
 
@@ -144,9 +145,8 @@ For production dashboards and alerts, monitor message receive rate alongside rou
 
 | Project | Purpose |
 |---|---|
-| `NymBroker.Core` | Framework core — no external transport dependency |
+| `NymBroker.Core` | Framework core — no external transport dependency; includes the dependency-free [retry policy](docs/resilience.md) (`RetryPolicy`) used by the File and RabbitMQ endpoints |
 | `NymBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
-| [`NymBroker.Resilience`](NymBroker.Resilience/README.md) | Dependency-free retry policy (`RetryPolicy`) used by the File and RabbitMQ endpoints |
 | `NymBroker.Sqlite` | Optional SQLite transport via Dapper (add when needed) |
 | `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
 | `NymBroker.SqlServer` | Optional SQL Server transport via Microsoft.Data.SqlClient |
@@ -662,7 +662,7 @@ services.AddNymBroker()
     .Build();
 ```
 
-Messages are consumed with `autoAck: false`. A message is acked after successful processing. When a consumer fails it is nacked with `requeue: true` once; if it fails again after redelivery it is treated as a poison message and nacked with `requeue: false` (dead-lettered when the queue has a DLX; disable via `RejectRedeliveredFailures = false`, which requeues indefinitely). Messages that can never succeed (undecodable, expired) are nacked with `requeue: false` immediately. Set `UseNativeDeadLetter = false` to send failures to the broker's dead-letter endpoint instead (the message is then acked). The endpoint reconnects automatically on connection loss using the built-in `NymBroker.Resilience` retry policy.
+Messages are consumed with `autoAck: false`. A message is acked after successful processing. When a consumer fails it is nacked with `requeue: true` once; if it fails again after redelivery it is treated as a poison message and nacked with `requeue: false` (dead-lettered when the queue has a DLX; disable via `RejectRedeliveredFailures = false`, which requeues indefinitely). Messages that can never succeed (undecodable, expired) are nacked with `requeue: false` immediately. Set `UseNativeDeadLetter = false` to send failures to the broker's dead-letter endpoint instead (the message is then acked). The endpoint reconnects automatically on connection loss using the built-in [retry policy](docs/resilience.md) (`RetryPolicy`).
 
 Start RabbitMQ with the provided Docker Compose file:
 

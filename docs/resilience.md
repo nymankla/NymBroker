@@ -1,16 +1,20 @@
-# NymBroker.Resilience
+# Retry policy
 
-A small retry policy with no package dependencies. It replaced Polly in NymBroker and is used by:
+[← User guide](user-guide.md)
+
+`RetryPolicy` (namespace `NymBroker.Core.Resilience`, in the `NymBroker` package) is a small retry policy with no package dependencies. It replaced Polly in NymBroker and is used by:
 
 - `FileEndPoint`, to retry file reads that fail with `IOException` while a writer still has the file open or hasn't flushed it.
 - `RabbitMqEndPoint`, to reconnect forever when the broker connection drops.
 
 It only retries. There is no circuit breaker, timeout, fallback or hedging.
 
+> Up to 0.3.5 the retry policy was a separate `NymBroker.Resilience` project and package (namespace `NymBroker.Resilience`). It now lives in `NymBroker.Core`: drop any `NymBroker.Resilience` package reference and change `using NymBroker.Resilience;` to `using NymBroker.Core.Resilience;`. The meter name is still `NymBroker.Resilience`, so existing metrics setups keep working.
+
 ## Quick start
 
 ```csharp
-using NymBroker.Resilience;
+using NymBroker.Core.Resilience;
 
 // Build once (e.g. in a constructor) and reuse; RetryPolicy is immutable and thread-safe.
 var policy = new RetryPolicy(new RetryOptions

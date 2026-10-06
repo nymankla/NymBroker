@@ -79,8 +79,8 @@ if ($Version) {
 
 # ── projects to pack ────────────────────────────────────────────────────────
 # Every top-level NymBroker.* project whose IsPackable is true (test projects set it false).
-# Discovered rather than hard-coded so a new library project (e.g. NymBroker.Resilience,
-# which NymBroker depends on) can't be left out and publish a package nobody can restore.
+# Discovered rather than hard-coded so a new library project that another package depends on
+# can't be left out and publish a package nobody can restore.
 $Projects = Get-ChildItem $Root -Directory -Filter "NymBroker.*" |
     ForEach-Object { Get-ChildItem $_.FullName -Filter "*.csproj" } |
     Where-Object {

@@ -52,9 +52,8 @@ Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker comp
 
 | Project | Role |
 |---|---|
-| `NymBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No transport dependency. |
+| `NymBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No transport dependency. Also holds the dependency-free retry policy (`NymBroker.Core.Resilience`: `RetryPolicy`, `RetryOptions`) — constant/exponential backoff with optional jitter; used by `FileEndPoint` (IOException retry) and `RabbitMqEndPoint` (reconnect). Replaces Polly. Options documented in [docs/resilience.md](docs/resilience.md). |
 | `NymBroker.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, `AddRabbitMqEndPoint`/`WithRabbitMq`. |
-| `NymBroker.Resilience` | Dependency-free retry policy (`RetryPolicy`, `RetryOptions`) — constant/exponential backoff with optional jitter. Referenced by Core; used by `FileEndPoint` (IOException retry) and `RabbitMqEndPoint` (reconnect). Replaces Polly. Options documented in [NymBroker.Resilience/README.md](NymBroker.Resilience/README.md). |
 | `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses Dapper + `Microsoft.Data.Sqlite`. |
 | `NymBroker.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
 | `NymBroker.SqlServer` | Optional add-on — `SqlServerEndPoint`, `SqlServerSettings`, `AddSqlServerEndPoint`/`WithSqlServer`, config type `SqlServerEndPointType.SqlServer`. Uses `Microsoft.Data.SqlClient`. |
@@ -382,9 +381,9 @@ No exception is silently swallowed. The policy per layer:
 
 `RabbitMqEndPoint` uses `autoAck: false`. Every message is settled by its `ProcessResult`: `Completed` → ack (batched by `BatchAckSize`); `Retry` → nack `requeue: true`, or `requeue: false` once it was already redelivered (`RejectRedeliveredFailures`); `DeadLetter` → nack `requeue: false`, so it reaches the queue's dead-letter exchange if one is configured (RabbitMQ records `x-death` reason `rejected`; our reason is only logged). Connection and publish-channel setup use `SemaphoreSlim(1,1)` with a double-check pattern to prevent concurrent initialisation races.
 
-### Retry Policy (NymBroker.Resilience)
+### Retry Policy (NymBroker.Core.Resilience)
 
-Transient-failure retries use `RetryPolicy` from the dependency-free `NymBroker.Resilience` project (it replaced Polly — do not re-add Polly). Build one `RetryPolicy(new RetryOptions { ... })` per endpoint and reuse it; call `ExecuteAsync(token => ..., ct)`. Default `ShouldHandle` retries everything except `OperationCanceledException`; `OnRetry` should log (no silent retries). All options, defaults, backoff/jitter formulas and execution rules are documented in [NymBroker.Resilience/README.md](NymBroker.Resilience/README.md).
+Transient-failure retries use `RetryPolicy` (namespace `NymBroker.Core.Resilience`, dependency-free; it replaced Polly — do not re-add Polly). Until 0.3.5 it was the separate `NymBroker.Resilience` project/package; the meter name `RetryPolicy.InstrumentationName` is still `"NymBroker.Resilience"` for compatibility. Build one `RetryPolicy(new RetryOptions { ... })` per endpoint and reuse it; call `ExecuteAsync(token => ..., ct)`. Default `ShouldHandle` retries everything except `OperationCanceledException`; `OnRetry` should log (no silent retries). All options, defaults, backoff/jitter formulas and execution rules are documented in [docs/resilience.md](docs/resilience.md).
 
 ### MemoryQueueEndPoint Logger
 

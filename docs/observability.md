@@ -25,7 +25,7 @@ Meter `NymBroker`:
 | `nymbroker.messages.dead_lettered` | counter | dead-lettered messages | `reason`, `source`, `mode` (`broker`/`native`) |
 | `nymbroker.message.processing.duration` | histogram (ms) | time to process one message | `source`, `outcome` (`success`/`failure`), `result` (`completed`/`retry`/`dead_letter`) |
 
-Meter `NymBroker.Resilience`: `nymbroker.retries` — retry attempts by the File and RabbitMQ endpoints' retry policy.
+Meter `NymBroker.Resilience`: `nymbroker.retries` — retry attempts by the File and RabbitMQ endpoints' [retry policy](resilience.md). `RetryPolicy` now lives in `NymBroker.Core`; the meter keeps its original name so existing setups keep working.
 
 Tag values are endpoint, topic, type and consumer names, so the number of series stays small.
 

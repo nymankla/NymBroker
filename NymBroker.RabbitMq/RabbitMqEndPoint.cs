@@ -1,7 +1,7 @@
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
 using Microsoft.Extensions.Logging;
-using NymBroker.Resilience;
+using NymBroker.Core.Resilience;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
