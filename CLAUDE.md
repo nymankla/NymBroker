@@ -54,7 +54,7 @@ Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker comp
 |---|---|
 | `NymBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No transport dependency. Also holds the dependency-free retry policy (`NymBroker.Core.Resilience`: `RetryPolicy`, `RetryOptions`) — constant/exponential backoff with optional jitter; used by `FileEndPoint` (IOException retry) and `RabbitMqEndPoint` (reconnect). Replaces Polly. Options documented in [docs/resilience.md](docs/resilience.md). |
 | `NymBroker.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, `AddRabbitMqEndPoint`/`WithRabbitMq`. |
-| `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses Dapper + `Microsoft.Data.Sqlite`. |
+| `NymBroker.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses `Microsoft.Data.Sqlite` (no Dapper — removed from the solution in #60; don't re-add it). |
 | `NymBroker.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
 | `NymBroker.SqlServer` | Optional add-on — `SqlServerEndPoint`, `SqlServerSettings`, `AddSqlServerEndPoint`/`WithSqlServer`, config type `SqlServerEndPointType.SqlServer`. Uses `Microsoft.Data.SqlClient`. |
 | `NymBroker.Idempotency.SqlServer` | Optional add-on (#55) — durable `IIdempotencyStore` in a SQL Server table: `SqlServerIdempotencyStore`, `SqlServerIdempotencySettings`, `AddSqlServerIdempotency`, plus a hosted cleanup service. Independent of `NymBroker.SqlServer`. |
@@ -308,11 +308,20 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config
 
 **Message lifecycle**: `Pending (0)` → `InProgress (1)` → `Completed (2)` or `Failed (3)`.
 
-**Claiming**: a `SemaphoreSlim(1,1)` (`_dbLock`) serializes all DB operations because `SqliteConnection` is not safe for concurrent access. `ClaimMessagesAsync` runs a SELECT + per-row UPDATE inside a transaction; only rows where `rows_affected > 0` are yielded (optimistic claim). Expired leases (`LockedUntilUtc <= unixepoch()`) are reclaimable.
+Native `Microsoft.Data.Sqlite`, no Dapper (#60); SQL in `SqliteQueueSql`. Measured with a scratch harness (5 000 messages, file database), the #60 rewrite took backlog drain from ~70 to ~60 000 msg/s at `BatchSize=10` and from ~270 to ~130 000 msg/s at `BatchSize=100`, and single `PostAsync` from ~400 to ~20 000–28 000/s (mostly WAL + `synchronous=NORMAL`).
 
-**Retry**: `AttemptCount` is incremented on every claim. On `Retry` (or a handler exception), messages are returned to `Pending` until `AttemptCount >= MaxRetryCount`, then marked `Failed`; `DeadLetter` marks them `Failed` at once with `"{Reason}: {Description}"` in `LastError` (same in the Postgres / SQL Server endpoints). `StopListeningAsync` awaits the loop, and a handled message's outcome is written even during shutdown. `LeaseTimeout` controls how long a claimed message stays locked before another poller can reclaim it.
+- **One connection**, serialized by `SemaphoreSlim(1,1)` (`_dbLock`) — `SqliteConnection` is not safe for concurrent access. Every statement (insert, claim, three finalize updates) is **prepared once** (`PreparedCommands`) and only rebound per call; `SetTransaction` attaches them to the current transaction.
+- **PRAGMAs on open** (`SqliteSettings`): `journal_mode` (`JournalMode`, default WAL) and `synchronous` (`Synchronous`, default NORMAL — survives an app crash, the last commits can be lost on power loss; `Full` for strict durability) on file databases only; `busy_timeout` (`BusyTimeout`, 5 s) and `temp_store = MEMORY` always. Write transactions are `BEGIN IMMEDIATE` (`BeginTransaction(deferred: false)`), so several processes on one file wait for the write lock instead of failing an upgrade.
+- **Claim** = one `UPDATE … WHERE QueueId IN (SELECT … ORDER BY QueueId LIMIT $batchSize) RETURNING …` (SQLite ≥ 3.35). The subquery repeats the partial index's `Status IN (0, 1)` verbatim (literal statuses, never parameters) so the planner uses `IX_<table>_Active` — `Claim_UsesThePartialActiveIndex` checks the plan. Rows are sorted by `QueueId` after `RETURNING`.
+- **Finalize**: outcomes of batch N are written in the **same transaction as the claim of batch N+1** (`FinalizeAndClaimAsync`): one commit per batch. Each update is guarded by `Status = 1 AND AttemptCount = $attempt`, so a poller whose lease expired cannot overwrite a re-claimed row. A failed write rolls back, logs `LogError` and keeps the outcomes for the next attempt.
+- **Polling**: back to back while claims return rows; `PollInterval` (min 1 ms) only after an empty poll or an error.
+- **Retry**: `AttemptCount` is incremented on every claim. `Retry` (or a handler exception) → back to `Pending` until `AttemptCount >= MaxRetryCount`, then `Failed`; `DeadLetter` → `Failed` at once with `"{Reason}: {Description}"` in `LastError` (same in the Postgres / SQL Server endpoints). `LeaseTimeout` controls how long a claimed message stays locked.
+- **Shutdown**: `StopListeningAsync` awaits the loop, which writes the outcomes of handled messages with `CancellationToken.None` and no claim (`LogWarning` if that fails — redelivered after lease expiry). A handler cancelled mid-batch leaves the rest to lease expiry. `ReadAsync` finalizes per item.
+- **Payloads are bytes** (`BLOB`), unchanged — no UTF-8 conversion (only `ReadAsync`, whose API returns strings, decodes).
 
-**Schema migration**: `EnsureSchemaAsync` detects old single-status schemas and migrates them to the full leasing schema in a transaction (backup table + INSERT SELECT).
+**Schema v2**: `QueueId INTEGER PRIMARY KEY` (no `AUTOINCREMENT` — avoids a `sqlite_sequence` write per insert), `MessageId BLOB` (16-byte GUID, not unique, no index — only logged), `Payload BLOB`, one partial index `(QueueId) WHERE Status IN (0, 1)`. `TableName` must match `^[A-Za-z_][A-Za-z0-9_]*$` (constructor throws) and is always quoted.
+
+**Schema migration**: `EnsureSchemaAsync` detects the version **per table** from `pragma_table_info` (`PRAGMA user_version` is per file, and one file may hold several endpoint tables; it is still set to 2). A v1 table (TEXT payload, `MessageId TEXT UNIQUE`, `AUTOINCREMENT`) or the legacy single-status table is renamed to `<table>_v1_<timestamp>` / `<table>_Legacy_<timestamp>` (kept as backup), the new table is created and the rows copied (`CAST(… AS BLOB)` keeps the UTF-8 bytes) in one `BEGIN IMMEDIATE` transaction.
 
 **In-memory SQLite** (`Data Source=:memory:`) requires a single persistent connection — tests use this via `EnsureConnectionAsync` (lazy init under `_dbLock`).
 
@@ -361,7 +370,7 @@ Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config
 - **PropertyInfo cache** in `MessageSerializerJson.PropCache` — one reflection lookup per concrete `MessageContext<T>` type.
 - **Bounded `Channel<byte[]>`** in `MemoryQueueEndPoint` for backpressure.
 - **`FileShare.ReadWrite | FileShare.Delete`** in `FileEndPoint.ReadAndArchiveAsync` — `FileShare.Delete` is required so that `File.Move` (rename) can succeed while the read handle is still open. Without it, Windows enforces sharing semantics and the rename fails with ERROR_SHARING_VIOLATION even from the same process.
-- **`SemaphoreSlim(1,1)` in `SqliteEndPoint`** — SQLite single-connection; all DB ops serialized. `ReadAsync` collects rows under the lock then yields outside it to avoid holding the lock during consumer execution.
+- **`SemaphoreSlim(1,1)` in `SqliteEndPoint`** — SQLite single-connection; all DB ops serialized, never held while a handler runs (`ReadAsync` claims under the lock, then yields outside it). Prepared statements, one-statement claim, and per-batch finalize + next claim in one `BEGIN IMMEDIATE` transaction (see SQLite Endpoint).
 
 ### Error Handling / Logging Guarantees
 

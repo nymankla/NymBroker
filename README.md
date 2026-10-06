@@ -167,7 +167,7 @@ See [docs/observability.md](docs/observability.md#health-checks) for the aggrega
 |---|---|
 | `NymBroker.Core` | Framework core — no external transport dependency; includes the dependency-free [retry policy](docs/resilience.md) (`RetryPolicy`) used by the File and RabbitMQ endpoints |
 | `NymBroker.RabbitMq` | Optional RabbitMQ transport (add when needed) |
-| `NymBroker.Sqlite` | Optional SQLite transport via Dapper (add when needed) |
+| `NymBroker.Sqlite` | Optional SQLite transport via native `Microsoft.Data.Sqlite` (add when needed) |
 | `NymBroker.Postgres` | Optional PostgreSQL transport via Npgsql |
 | `NymBroker.SqlServer` | Optional SQL Server transport via Microsoft.Data.SqlClient |
 | `NymBroker.Idempotency.SqlServer` | Optional durable idempotency store (idempotent receiver) in a SQL Server table — `AddSqlServerIdempotency` |
@@ -344,23 +344,26 @@ services.AddNymBroker()
     .Build();
 ```
 
-Messages written via `PostAsync` are stored as `Pending` rows. The broker claims them by moving them to `InProgress`, setting a lease (`LockedUntilUtc`) and incrementing `AttemptCount`. Successful processing moves them to `Completed`; failures are returned to `Pending` until `MaxRetryCount` is reached, after which they are marked `Failed`. Expired leases are reclaimable, so multiple application instances can safely poll the same database.
+Messages written via `PostAsync` are stored as `Pending` rows; the payload bytes are stored unchanged. The broker claims a batch in one statement by moving rows to `InProgress`, setting a lease (`LockedUntilUtc`) and incrementing `AttemptCount`. Successful processing moves them to `Completed`; failures are returned to `Pending` until `MaxRetryCount` is reached, after which they are marked `Failed`. The results of a batch are written in the same transaction as the claim of the next one, and batches are claimed back to back while messages are waiting. Expired leases are reclaimable, so several processes can safely poll the same database file.
 
-**Schema** (auto-created when `AutoCreateTable = true`):
+The endpoint uses native `Microsoft.Data.Sqlite` with prepared statements, and opens file databases in **WAL** mode with `synchronous = NORMAL` by default: a commit doesn't wait for the disk, so it survives an application crash, but the last commits can be lost on power loss or an OS crash. Set `Synchronous = SqliteSynchronous.Full` if every posted message must survive that.
+
+**Schema** (auto-created when `AutoCreateTable = true`; tables created by earlier versions are migrated automatically, keeping the old table as a backup):
 
 ```sql
-CREATE TABLE NymBrokerMessages (
-    QueueId        INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    MessageId      TEXT    NOT NULL UNIQUE,
+CREATE TABLE "NymBrokerMessages" (
+    QueueId        INTEGER NOT NULL PRIMARY KEY,
+    MessageId      BLOB    NOT NULL,
     Status         INTEGER NOT NULL DEFAULT 0 CHECK (Status IN (0, 1, 2, 3)),
     CreatedAtUtc   INTEGER NOT NULL DEFAULT (unixepoch()),
     LockedUntilUtc INTEGER NULL,
     CompletedAtUtc INTEGER NULL,
     FailedAtUtc    INTEGER NULL,
     AttemptCount   INTEGER NOT NULL DEFAULT 0,
-    LastError      TEXT NULL,
-    Payload        TEXT NOT NULL
+    LastError      TEXT    NULL,
+    Payload        BLOB    NOT NULL
 );
+CREATE INDEX "IX_NymBrokerMessages_Active" ON "NymBrokerMessages"(QueueId) WHERE Status IN (0, 1);
 ```
 
 **`SqliteSettings` properties:**
@@ -368,13 +371,16 @@ CREATE TABLE NymBrokerMessages (
 | Property | Default | Description |
 |---|---|---|
 | `ConnectionString` | `Data Source=messages.db` | SQLite connection string |
-| `TableName` | `NymBrokerMessages` | Table to read/write |
-| `BatchSize` | `10` | Max rows read per poll cycle |
-| `AutoCreateTable` | `true` | Create table + indexes on first connect |
-| `PollInterval` | `100 ms` | Delay between poll cycles; `TimeSpan.Zero` = poll immediately after a full batch |
+| `TableName` | `NymBrokerMessages` | Table to read/write; letters, digits and underscores only |
+| `BatchSize` | `10` | Max rows claimed per poll |
+| `AutoCreateTable` | `true` | Create (or migrate) table + index on first connect |
+| `PollInterval` | `100 ms` | Delay after a poll that found nothing; while messages are waiting, batches are claimed back to back |
 | `LeaseTimeout` | `5 min` | How long a claimed message stays leased before it can be reclaimed |
 | `MaxRetryCount` | `5` | Number of failed attempts before a message is marked `Failed` |
 | `UseNativeDeadLetter` | `true` | Settle failures in the table (retry up to `MaxRetryCount`, mark undecodable/expired messages `Failed` at once). `false` sends failures to the broker's dead-letter endpoint instead and marks the row Completed |
+| `JournalMode` | `Wal` | `PRAGMA journal_mode` for file databases (`Wal`, `Delete`, `Truncate`, `Persist`, `Memory`, `Off`) |
+| `Synchronous` | `Normal` | `PRAGMA synchronous` for file databases. `Normal` under WAL survives an app crash but can lose the last commits on power loss; `Full` for strict durability |
+| `BusyTimeout` | `5 s` | How long a write waits for another connection's lock before failing |
 
 From a JSON config file (call `.WithSql()` after `.LoadConfiguration()`):
 
@@ -1416,7 +1422,7 @@ A warmup pass runs first to JIT the hot paths before measurements begin. GC is f
 | **PubSub – 3 subs** | `Memory` | 50 000 × 3 | Three subscribers on the same topic. Fan-out is sequential within the topic; each message must signal three times before it counts as complete. Measures per-subscriber overhead and shows how throughput scales with subscriber count. |
 | **PubSub – endpoint** | `Memory` → `PubSubDest` | 50 000 | Topic fans out to a second `PubSubDest` memory endpoint; the consumer on that endpoint signals. `NotFromRouteCondition` prevents the copy from re-triggering the topic. Exercises the endpoint-based fan-out path. |
 | **File – direct** | `FileLoop` | 100 | Messages are written as JSON files to `bench-in/`, picked up by `FileSystemWatcher`, deserialized, and dispatched. Exercises the full file I/O path including the IOException retry policy and `.processed` rename. Lower count because disk I/O dominates. |
-| **SQL – direct** | `SqlBench` | 1 000 | Messages are inserted into an in-memory SQLite database via Dapper, then claimed and dispatched by the endpoint's internal poll loop (`BatchSize=100`, `PollInterval=0`). Measures the overhead of the optimistic UPDATE claim and async Dapper round trips. |
+| **SQL – direct** | `SqlBench` | 1 000 | Messages are posted to an in-memory SQLite database, then claimed and dispatched by the endpoint's internal poll loop (`BatchSize=100`, `PollInterval=0`). Measures the one-statement `UPDATE … RETURNING` claim and the per-batch finalize transaction with prepared statements. |
 | **Split+Compress – direct** | `Memory` | 200 | Each message carries a ~276 KB highly compressible payload and is posted with `splitThresholdBytes: 16 384` and `compress: true`. `PostAsync` compresses the envelope with `BrotliCompressor` before handing it to `ISplitter`, so fewer/smaller `SplitMessage` parts are posted; `AggregatorImpl` reassembles and decompresses them on arrival. Measures the split+compress+reassemble round trip end to end. |
 | **Split – no compress** | `Memory` | 200 | Same payload and threshold as above but `compress: false`, so the envelope is split into Base64-chunked `SplitMessage` parts without compression. Isolates the cost/benefit of compression by comparing directly against **Split+Compress – direct**. |
 | **Postgres – direct** | `PgBench` | 1 000 | Messages are inserted into a real PostgreSQL table, then claimed using `FOR UPDATE SKIP LOCKED` and dispatched (`BatchSize=50`, `PollInterval=0`). Skipped automatically when PostgreSQL is not reachable. Measures the overhead of TCP round trips and the CTE-based atomic claim. |
