@@ -32,6 +32,10 @@ Before submitting a pull request:
 3. Update documentation when user-visible behavior or configuration changes.
 4. Describe the change and any relevant testing in the pull request.
 
+## API compatibility and releases
+
+See [Versioning and API compatibility](docs/versioning-and-api-compatibility.md) for package versioning rules, release tags, API baseline workflow, and the breaking-change/deprecation policy.
+
 ## Pull requests
 
 Keep each pull request focused. Explain the problem it solves, summarize the implementation, and include test results. Do not include generated build output, local configuration, or credentials.

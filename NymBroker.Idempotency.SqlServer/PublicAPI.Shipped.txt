@@ -1,0 +1,26 @@
+#nullable enable
+NymBroker.Idempotency.SqlServer.NymBrokerBuilderSqlServerIdempotencyExtensions
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.AutoCreateTable.get -> bool
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.AutoCreateTable.set -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.CleanupBatchSize.get -> int
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.CleanupBatchSize.set -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.CleanupInterval.set -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.ConnectionString.get -> string!
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.ConnectionString.set -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.LeaseTimeout.get -> System.TimeSpan
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.LeaseTimeout.set -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.SqlServerIdempotencySettings() -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.TableName.get -> string!
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.TableName.set -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.Ttl.get -> System.TimeSpan
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.Ttl.set -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.Validate() -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.CompleteAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.DeleteExpiredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.ReleaseAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.SqlServerIdempotencyStore(NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore!>! logger) -> void
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.TryClaimAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<NymBroker.Core.Idempotency.IdempotencyClaimResult>
+static NymBroker.Idempotency.SqlServer.NymBrokerBuilderSqlServerIdempotencyExtensions.AddSqlServerIdempotency(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings? settings = null) -> NymBroker.Core.Factory.NymBrokerBuilder!

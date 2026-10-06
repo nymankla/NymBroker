@@ -23,6 +23,11 @@
 
   <ItemGroup Condition="'$(IsNymBrokerPackage)' == 'true'">
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="5.6.0" PrivateAssets="All" />
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
+  <PropertyGroup Condition="'$(IsNymBrokerPackage)' == 'true'">
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <WarningsAsErrors>$(WarningsAsErrors);RS0016;RS0017;RS0018;RS0024;RS0025;RS0036</WarningsAsErrors>
+  </PropertyGroup>
 </Project>
