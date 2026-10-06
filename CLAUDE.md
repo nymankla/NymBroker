@@ -364,7 +364,7 @@ No exception is silently swallowed. The policy per layer:
 |---|---|
 | `NymBrokerImpl.ProcessAsync` | Deserialization failure → `LogError`, then dead-lettered (native `DeadLetter` or the broker's dead-letter endpoint). Unresolved type with no route → `LogWarning`. Every dead-lettering → `LogWarning` with its reason. Unexpected exception → `LogError`, returns `Retry`. |
 | `ConsumerDispatcher` | No registered consumer → `LogWarning`. |
-| Observability | `nymbroker.messages.received`, `nymbroker.messages.routed`, `nymbroker.messages.consumed`, `nymbroker.messages.failed`, `nymbroker.messages.dead_lettered`, and `nymbroker.message.processing.duration` are emitted on the `NymBroker` meter. |
+| Observability | `nymbroker.messages.received`, `nymbroker.messages.routed`, `nymbroker.messages.consumed`, `nymbroker.messages.failed`, `nymbroker.messages.dead_lettered`, and `nymbroker.message.processing.duration` are emitted on the `NymBroker` meter. Each `CheckHealthAsync` also records `nymbroker.health.checks` (counter, tag `status`), `nymbroker.health.endpoint.failures` (counter, tags `endpoint`/`critical`/`reason` = `unhealthy`\|`timeout`\|`error`) and the gauges `nymbroker.health.status` (0/1/2) and `nymbroker.health.endpoint.healthy` (1/0). |
 | Dead-letter endpoint posts (`TryPostToDeadLetterAsync`) | Posts `DeadLetterEnvelope.Annotate(raw, info)` so the reason travels with the message; counted in `nymbroker.messages.dead_lettered`; a failing post → `LogError`. |
 | `AggregatorImpl.PurgeExpired` | Purge count logged at `Debug`. |
 | `NymBrokerImpl.StartAsync` | Any startup exception → `LogError`, scheduled actions rolled back, exception re-thrown. |

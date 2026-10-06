@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
 using Microsoft.Extensions.Logging;
@@ -29,7 +30,7 @@ public sealed partial class NymBrokerImpl
 
         // HealthCheck() is synchronous and may block (database / Service Bus endpoints contact their server),
         // so every endpoint runs on the thread pool and the total time is about the slowest one.
-        var checks = new Task<EndpointHealth>[endpoints.Count];
+        var checks = new Task<(EndpointHealth Health, string? FailureReason)>[endpoints.Count];
         var modes = new EndpointMode[endpoints.Count];
         for (var i = 0; i < endpoints.Count; i++)
         {
@@ -51,13 +52,16 @@ public sealed partial class NymBrokerImpl
         }
 
         var results = new EndpointHealth[checks.Length];
+        var failureReasons = new string?[checks.Length];
         for (var i = 0; i < checks.Length; i++)
         {
             if (checks[i].IsCompletedSuccessfully)
             {
-                results[i] = checks[i].Result;
+                (results[i], failureReasons[i]) = checks[i].Result;
                 continue;
             }
+
+            failureReasons[i] = HealthFailureTimeout;
 
             // Still running: report it and leave the task to finish in the background (CheckEndpoint never throws).
             var name = endpoints[i].Key;
@@ -69,6 +73,7 @@ public sealed partial class NymBrokerImpl
 
         var (status, summary) = Aggregate(started, results);
         var report = new BrokerHealthReport(status, started, results, total.Elapsed, summary);
+        RecordHealthMetrics(report, failureReasons);
 
         if (_logger.IsEnabled(LogLevel.Debug))
             _logger.LogDebug("Broker health check: {Status} in {Duration} ms ({Summary})",
@@ -77,26 +82,60 @@ public sealed partial class NymBrokerImpl
         return report;
     }
 
-    private EndpointHealth CheckEndpoint(string name, IEndPoint endpoint, EndpointMode mode, bool critical)
+    // Values of the "reason" tag on nymbroker.health.endpoint.failures.
+    internal const string HealthFailureUnhealthy = "unhealthy";
+    internal const string HealthFailureTimeout = "timeout";
+    internal const string HealthFailureError = "error";
+
+    /// <summary>Checks one endpoint; never throws. The failure reason is null when the endpoint is healthy.</summary>
+    private (EndpointHealth Health, string? FailureReason) CheckEndpoint(string name, IEndPoint endpoint, EndpointMode mode, bool critical)
     {
         var sw = Stopwatch.StartNew();
         try
         {
             var result = endpoint.HealthCheck();
             if (result is null)
-                return new EndpointHealth(name, BrokerHealthStatus.Unhealthy, "Health check returned no result", mode, sw.Elapsed, critical);
+                return (new EndpointHealth(name, BrokerHealthStatus.Unhealthy, "Health check returned no result", mode, sw.Elapsed, critical),
+                    HealthFailureError);
 
-            return new EndpointHealth(name,
-                result.IsHealthy ? BrokerHealthStatus.Healthy : BrokerHealthStatus.Unhealthy,
-                result.Message, mode, sw.Elapsed, critical);
+            return result.IsHealthy
+                ? (new EndpointHealth(name, BrokerHealthStatus.Healthy, result.Message, mode, sw.Elapsed, critical), null)
+                : (new EndpointHealth(name, BrokerHealthStatus.Unhealthy, result.Message, mode, sw.Elapsed, critical), HealthFailureUnhealthy);
         }
         catch (Exception ex)
         {
             // IEndPoint.HealthCheck() should not throw; report it instead of failing the whole check.
             _logger.LogWarning(ex, "Health check of endpoint '{Name}' threw", name);
-            return new EndpointHealth(name, BrokerHealthStatus.Unhealthy, ex.Message, mode, sw.Elapsed, critical);
+            return (new EndpointHealth(name, BrokerHealthStatus.Unhealthy, ex.Message, mode, sw.Elapsed, critical), HealthFailureError);
         }
     }
+
+    /// <summary>Records the health metrics (counters for alerting on rates, gauges for the latest state).</summary>
+    private static void RecordHealthMetrics(BrokerHealthReport report, IReadOnlyList<string?> failureReasons)
+    {
+        NymBrokerDiagnostics.HealthChecks.Add(1, new KeyValuePair<string, object?>("status", StatusTag(report.Status)));
+        NymBrokerDiagnostics.HealthStatus.Record((int)report.Status);
+
+        for (var i = 0; i < report.Endpoints.Count; i++)
+        {
+            var endpoint = report.Endpoints[i];
+            var endpointTag = new KeyValuePair<string, object?>("endpoint", endpoint.Name);
+            var criticalTag = new KeyValuePair<string, object?>("critical", endpoint.IsCritical);
+
+            NymBrokerDiagnostics.HealthEndpointHealthy.Record(endpoint.IsHealthy ? 1 : 0, endpointTag, criticalTag);
+
+            if (!endpoint.IsHealthy)
+                NymBrokerDiagnostics.HealthEndpointFailures.Add(1, endpointTag, criticalTag,
+                    new KeyValuePair<string, object?>("reason", failureReasons[i] ?? HealthFailureUnhealthy));
+        }
+    }
+
+    private static string StatusTag(BrokerHealthStatus status) => status switch
+    {
+        BrokerHealthStatus.Healthy => "healthy",
+        BrokerHealthStatus.Degraded => "degraded",
+        _ => "unhealthy"
+    };
 
     private EndpointMode SafeMode(string name, IEndPoint endpoint)
     {

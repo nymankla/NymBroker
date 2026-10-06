@@ -135,6 +135,10 @@ The broker emits these measurements:
 | `nymbroker.messages.failed` | `NymBroker` | Processing failures, including deserialization and consumer failures |
 | `nymbroker.messages.dead_lettered` | `NymBroker` | Dead-lettered messages, tagged with `reason` (`DeadLetterReasons` or a transport reason), `source` endpoint and `mode` (`broker`: posted to the dead-letter endpoint; `native`: the broker returned `ProcessResult.DeadLetter`) |
 | `nymbroker.message.processing.duration` | `NymBroker` | Processing latency in milliseconds, tagged with `outcome` (`success`/`failure`) and `result` (`completed`/`retry`/`dead_letter`, the `ProcessResult` returned to the endpoint) |
+| `nymbroker.health.checks` | `NymBroker` | Health checks run (`CheckHealthAsync`), tagged with `status` (`healthy`/`degraded`/`unhealthy`) |
+| `nymbroker.health.endpoint.failures` | `NymBroker` | Endpoints reported unhealthy by a health check, tagged with `endpoint`, `critical` and `reason` (`unhealthy`/`timeout`/`error`) |
+| `nymbroker.health.status` | `NymBroker` | Gauge: latest aggregate health (`0` healthy, `1` degraded, `2` unhealthy) |
+| `nymbroker.health.endpoint.healthy` | `NymBroker` | Gauge: latest health per endpoint (`1`/`0`), tagged with `endpoint` and `critical` |
 | `nymbroker.retries` | `NymBroker.Resilience` | Retry attempts made by `RetryPolicy` |
 
 Each processing call is instrumented with a `nymbroker.process` consumer activity when a listener is attached. Once an envelope is decoded, the activity and logging scope carry the message ID, correlation ID, message type, and source endpoint. These identifiers let log aggregators and trace backends correlate broker-stage logs with a message. Activity context propagates across asynchronous processing; subscribe to `NymBroker` to export the spans.
