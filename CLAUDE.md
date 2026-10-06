@@ -189,6 +189,7 @@ broker.Route<Order>()
 - **Compiled Expression lambdas** built once per message type and cached in `ConcurrentDictionary` — avoids `MethodInfo.Invoke`.
 - **`IServiceScopeFactory`** creates a new async DI scope per dispatch — supports `Scoped` consumer lifetimes.
 - A consumer can implement multiple `IConsume<T>` interfaces; `AddConsumer<T>()` registers all of them.
+- **One consumer per message type** (#49): a second, different consumer for the same type throws at `AddConsumer<T>()` (and in `ConsumerDispatcher.RegisterConsumer`); the same consumer twice is a no-op; two consumer classes with the same simple name throw (DI key collision). Several handlers for one message → topic with `ISubscribe<T>`.
 
 ### Message Type Resolution
 

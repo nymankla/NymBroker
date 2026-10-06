@@ -9,6 +9,7 @@ using NymBroker.Core.DI;
 using NymBroker.Core.Filter;
 using NymBroker.Core.Idempotency;
 using NymBroker.Core.Impl;
+using NymBroker.Core.Message;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Serialize;
 using NymBroker.Core.Splitter;
@@ -75,12 +76,36 @@ public sealed class NymBrokerBuilder
         if (messageTypes.Count == 0)
             throw new InvalidOperationException($"{typeof(TConsumer).Name} must implement IConsume<T>.");
 
+        // Registering the same consumer twice is harmless.
+        if (_consumers.Any(c => c.ConsumerType == typeof(TConsumer)))
+            return this;
+
+        // Consumers are keyed services by class name, so two different classes with the same name would collide.
+        var sameName = _consumers.FirstOrDefault(c => c.ConsumerType.Name == typeof(TConsumer).Name);
+        if (sameName.ConsumerType is not null)
+            throw new InvalidOperationException(
+                $"Consumers '{sameName.ConsumerType.FullName}' and '{typeof(TConsumer).FullName}' have the same class name; " +
+                "consumers are registered by class name, so give one of them a different name.");
+
+        // A message type has exactly one consumer: a second one would silently replace the first.
+        foreach (var messageType in messageTypes)
+        {
+            var existing = _consumers.FirstOrDefault(c => c.MessageType == messageType);
+            if (existing.ConsumerType is not null)
+                throw DuplicateConsumer(messageType, existing.ConsumerType.Name, typeof(TConsumer).Name);
+        }
+
         foreach (var messageType in messageTypes)
             _consumers.Add((typeof(TConsumer), messageType));
 
         _services.AddKeyedTransient(typeof(IMessageConsumer), typeof(TConsumer).Name, typeof(TConsumer));
         return this;
     }
+
+    internal static InvalidOperationException DuplicateConsumer(Type messageType, string existingConsumer, string newConsumer)
+        => new($"Message type '{MessageTypeName.Get(messageType)}' already has consumer '{existingConsumer}', so '{newConsumer}' " +
+               "cannot also consume it — each message type has exactly one consumer. " +
+               "To handle a message in several places, use a topic with ISubscribe<T> subscribers (AddTopic<T>(...).SubscribeWith<...>()).");
 
     // --- Pub/Sub topic registration ---
 
