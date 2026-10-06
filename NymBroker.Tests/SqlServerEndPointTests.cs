@@ -4,6 +4,9 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using NymBroker.SqlServer;
 using NymBroker.Core.Endpoint;
+using Microsoft.Extensions.DependencyInjection;
+using NymBroker.Core.DI;
+using NymBroker.Core.Endpoint.HealthCheck;
 
 namespace NymBroker.Tests;
 
@@ -293,6 +296,36 @@ public sealed class SqlServerEndPointTests : IAsyncLifetime
             TestContext.Current.CancellationToken);
 
         Assert.Equal(payload, await received.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken));
+    }
+
+    // --- 6. Broker health check (#53) ---
+
+    [Fact]
+    public async Task BrokerHealth_UnreachableServer_IsUnhealthy_AndNamesTheEndpoint()
+    {
+        var report = await BrokerHealthTestHelper.CheckAsync(b => b
+            .AddMemoryEndPoint("Mem")
+            .AddSqlServerEndPoint("SqlDown", new SqlServerSettings
+            {
+                ConnectionString = "Server=127.0.0.1,1;Database=nymbroker;User Id=sa;Password=x;Connect Timeout=1;TrustServerCertificate=True"
+            }, EndpointMode.WriteOnly));
+
+        Assert.Equal(BrokerHealthStatus.Unhealthy, report.Status);
+        Assert.Contains("SqlDown", report.Message);
+        Assert.Equal(BrokerHealthStatus.Unhealthy, report.Endpoints.Single(e => e.Name == "SqlDown").Status);
+        Assert.Equal(BrokerHealthStatus.Healthy, report.Endpoints.Single(e => e.Name == "Mem").Status);
+    }
+
+    [Fact]
+    public async Task BrokerHealth_RealServer_IsHealthy()
+    {
+        RequireSqlServer();
+        var report = await BrokerHealthTestHelper.CheckAsync(b => b
+            .AddSqlServerEndPoint("Sql", new SqlServerSettings { ConnectionString = ConnectionString!, TableName = _tableName },
+                EndpointMode.WriteOnly));
+
+        Assert.Equal(BrokerHealthStatus.Healthy, report.Status);
+        Assert.Equal("Sql", Assert.Single(report.Endpoints).Name);
     }
 
     // --- helpers ---

@@ -11,6 +11,7 @@ using NymBroker.Core.Endpoint.Memory;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
 using NymBroker.Core.Serialize;
+using NymBroker.Core.Endpoint.HealthCheck;
 
 namespace NymBroker.Tests;
 
@@ -469,6 +470,37 @@ public sealed class AzureServiceBusEndPointTests : IAsyncLifetime
             ep.PostBatchAsync([new byte[2_000_000]], TestContext.Current.CancellationToken));
 
         Assert.Contains("splitThresholdBytes", ex.Message);
+    }
+
+    // =====================================================================
+    // Broker health check (#53)
+    // =====================================================================
+
+    [Fact]
+    public async Task BrokerHealth_UnreachableNamespace_IsUnhealthy_AndNamesTheEndpoint()
+    {
+        var report = await BrokerHealthTestHelper.CheckAsync(b => b
+            .AddMemoryEndPoint("Mem")
+            .AddAzureServiceBusEndPoint("SbDown",
+                new AzureServiceBusSettings { ConnectionString = UnreachableConnectionString, QueueName = "q" }, EndpointMode.WriteOnly));
+
+        Assert.Equal(BrokerHealthStatus.Unhealthy, report.Status);
+        Assert.Contains("SbDown", report.Message);
+        Assert.Equal(BrokerHealthStatus.Unhealthy, report.Endpoints.Single(e => e.Name == "SbDown").Status);
+        Assert.Equal(BrokerHealthStatus.Healthy, report.Endpoints.Single(e => e.Name == "Mem").Status);
+    }
+
+    [Fact]
+    public async Task BrokerHealth_Emulator_IsHealthy()
+    {
+        RequireServiceBus();
+        // Write-only: the health check peeks the queue without starting a processor on the shared test queue.
+        var report = await BrokerHealthTestHelper.CheckAsync(b => b
+            .AddAzureServiceBusEndPoint("Sb", new AzureServiceBusSettings { ConnectionString = ConnectionString, QueueName = TestQueue },
+                EndpointMode.WriteOnly));
+
+        Assert.Equal(BrokerHealthStatus.Healthy, report.Status);
+        Assert.Equal("Sb", Assert.Single(report.Endpoints).Name);
     }
 
     // =====================================================================

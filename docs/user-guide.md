@@ -49,7 +49,7 @@ flowchart LR
 | [Endpoints and configuration](endpoints-and-configuration.md) | Every endpoint type, endpoint modes, configuring in code or from `queuesettings.json` |
 | [Reliability](reliability.md) | Retries, dead-lettering (native and broker), the dead-letter reason, TTL, wire tap, duplicate detection |
 | [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, scheduled actions |
-| [Observability](observability.md) | Metrics, tracing and logging |
+| [Observability](observability.md) | Metrics, tracing, logging and health checks |
 
 ## Minimal example
 

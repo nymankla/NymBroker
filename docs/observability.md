@@ -61,23 +61,57 @@ Activities started inside consumers (HTTP calls, database commands) become child
 
 ## Health checks
 
-Every endpoint implements `HealthCheck()` (connectivity to its database or broker, whether its listener is running). It never throws. Endpoints are registered as keyed `IEndPoint` services, so you can expose them through ASP.NET Core health checks:
+`INymBroker.CheckHealthAsync()` checks the broker and every registered endpoint and returns one `BrokerHealthReport` (namespace `NymBroker.Core.Endpoint.HealthCheck`):
 
 ```csharp
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using NymBroker.Core.Endpoint;
+BrokerHealthReport report = await broker.CheckHealthAsync(ct);
 
-public sealed class EndpointHealthCheck(IServiceProvider services, string endpointName) : IHealthCheck
-{
-    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken ct = default)
-    {
-        var result = services.GetRequiredKeyedService<IEndPoint>(endpointName).HealthCheck();
-        return Task.FromResult(result.IsHealthy ? HealthCheckResult.Healthy() : HealthCheckResult.Unhealthy(result.Message));
-    }
-}
-
-builder.Services.AddHealthChecks()
-    .AddTypeActivatedCheck<EndpointHealthCheck>("orders-endpoint", "Orders");
+report.Status          // Healthy | Degraded | Unhealthy (aggregate)
+report.BrokerStarted   // started and not stopped
+report.Message         // what is wrong, e.g. "Unhealthy endpoints: Orders"; null when healthy
+report.Duration
+foreach (var ep in report.Endpoints)   // ordered by name
+    Console.WriteLine($"{ep.Name} ({ep.Mode}): {ep.Status} {ep.Message} in {ep.Duration.TotalMilliseconds} ms");
 ```
 
-`HealthCheck()` is synchronous and the database and Service Bus endpoints contact their server (with a 5-second timeout), so don't call it on a hot path.
+- Each endpoint's `HealthCheck()` (connectivity to its database or broker, whether its listener is running) runs on the thread pool, all **in parallel**, so the call takes about as long as the slowest endpoint. The database and Service Bus endpoints contact their server with a 5-second timeout.
+- An endpoint that has not answered within the overall **timeout** (default 10 s) is reported `Unhealthy` ("Health check timed out after …") and logged at `Warning`; its check finishes in the background.
+- The call **never throws**: an endpoint whose `HealthCheck()` throws is reported `Unhealthy` with the exception message and logged at `Warning`. Only an `OperationCanceledException` from your own token propagates.
+
+| Situation | Aggregate `Status` |
+|---|---|
+| All endpoints healthy and the broker started | `Healthy` |
+| Only endpoints marked non-critical are unhealthy | `Degraded` |
+| Any critical endpoint unhealthy | `Unhealthy` |
+| Broker not started (or stopped) | `Unhealthy`, `BrokerStarted = false`, message "Broker is not running" |
+| No endpoints registered | `Healthy` (only the broker state counts) |
+
+All endpoints are critical by default. Mark the ones that shouldn't fail the whole broker, such as an audit sink or a wire tap, and change the timeout, with `ConfigureHealthCheck`:
+
+```csharp
+services.AddNymBroker()
+    .AddFileEndPoint("Audit", new FileSettings { PostPath = "audit" }, EndpointMode.WriteOnly)
+    .ConfigureHealthCheck(o =>
+    {
+        o.NonCritical("Audit");                 // unhealthy → Degraded, not Unhealthy
+        o.Timeout = TimeSpan.FromSeconds(5);
+    })
+    .Build();
+```
+
+`Build()` throws if `NonCritical` names an endpoint that is not registered.
+
+### ASP.NET Core and Kubernetes probes
+
+`NymBrokerHealthCheck` adapts the report to `Microsoft.Extensions.Diagnostics.HealthChecks` (`using NymBroker.Core.DI;`):
+
+```csharp
+builder.Services.AddHealthChecks()
+    .AddNymBroker(name: "nymbroker", tags: ["ready"]);
+
+app.MapHealthChecks("/health/ready", new() { Predicate = r => r.Tags.Contains("ready") });
+```
+
+`Healthy` and `Degraded` map one to one; `Unhealthy` maps to the registration's `failureStatus` (`Unhealthy` unless you pass another). `HealthCheckResult.Description` is the report's message, and `Data` holds `"brokerStarted"` plus one entry per endpoint (`"Orders": "Unhealthy: <message>"`), so health UIs show which endpoint failed.
+
+Health checks contact external systems, so don't run them on a hot path; a probe every few seconds is fine.

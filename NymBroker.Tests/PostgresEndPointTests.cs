@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using NymBroker.Postgres;
 using NymBroker.Core.Endpoint;
+using Microsoft.Extensions.DependencyInjection;
+using NymBroker.Core.DI;
+using NymBroker.Core.Endpoint.HealthCheck;
 
 namespace NymBroker.Tests;
 
@@ -348,6 +351,36 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
             ["ok-1"u8.ToArray(), "boom"u8.ToArray(), "ok-2"u8.ToArray()], TestContext.Current.CancellationToken));
 
         Assert.Equal(0, await CountAsync("true"));
+    }
+
+    // --- Broker health check (#53) ---
+
+    [Fact]
+    public async Task BrokerHealth_UnreachableServer_IsUnhealthy_AndNamesTheEndpoint()
+    {
+        var report = await BrokerHealthTestHelper.CheckAsync(b => b
+            .AddMemoryEndPoint("Mem")
+            .AddPostgresEndPoint("PgDown", new PostgresSettings
+            {
+                ConnectionString = "Host=127.0.0.1;Port=1;Database=nymbroker;Username=x;Password=x;Timeout=1"
+            }, EndpointMode.WriteOnly));
+
+        Assert.Equal(BrokerHealthStatus.Unhealthy, report.Status);
+        Assert.Contains("PgDown", report.Message);
+        Assert.Equal(BrokerHealthStatus.Unhealthy, report.Endpoints.Single(e => e.Name == "PgDown").Status);
+        Assert.Equal(BrokerHealthStatus.Healthy, report.Endpoints.Single(e => e.Name == "Mem").Status);
+    }
+
+    [Fact]
+    public async Task BrokerHealth_RealServer_IsHealthy()
+    {
+        RequirePostgres();
+        var report = await BrokerHealthTestHelper.CheckAsync(b => b
+            .AddPostgresEndPoint("Pg", new PostgresSettings { ConnectionString = ConnectionString!, TableName = _tableName },
+                EndpointMode.WriteOnly));
+
+        Assert.Equal(BrokerHealthStatus.Healthy, report.Status);
+        Assert.Equal("Pg", Assert.Single(report.Endpoints).Name);
     }
 
     // --- helpers ---
