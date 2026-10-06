@@ -8,7 +8,7 @@ using NymBroker.Core.Route;
 using NymBroker.RoutingSample.Consumers;
 using NymBroker.RoutingSample.Messages;
 using NymBroker.RoutingSample.Subscribers;
-using NymBroker.Sql;
+using NymBroker.Endpoint.Sqlite;
 
 static SqliteSettings Db(string table) => new()
 {

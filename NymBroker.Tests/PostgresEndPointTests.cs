@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Npgsql;
-using NymBroker.Postgres;
+using NymBroker.Endpoint.Postgres;
 using NymBroker.Core.Endpoint;
 using Microsoft.Extensions.DependencyInjection;
 using NymBroker.Core.DI;

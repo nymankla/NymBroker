@@ -4,10 +4,10 @@ using Microsoft.Extensions.Logging;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Impl;
-using NymBroker.Postgres;
+using NymBroker.Endpoint.Postgres;
 using NymBroker.ProducerSample.Messages;
-using NymBroker.RabbitMq;
-using NymBroker.Sql;
+using NymBroker.Endpoint.RabbitMq;
+using NymBroker.Endpoint.Sqlite;
 
 var transport = args.SkipWhile(a => a != "--transport").Skip(1).FirstOrDefault() ?? "sqlite";
 var countArg  = args.SkipWhile(a => a != "--count").Skip(1).FirstOrDefault();

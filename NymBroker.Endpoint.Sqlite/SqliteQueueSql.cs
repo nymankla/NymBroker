@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace NymBroker.Sql;
+namespace NymBroker.Endpoint.Sqlite;
 
 /// <summary>
 /// SQL for the queue table (schema version 2). Status values are inlined as literals (0 Pending, 1 InProgress,

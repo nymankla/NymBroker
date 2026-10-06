@@ -12,7 +12,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PackageId>NymBroker.RabbitMq</PackageId>
+    <PackageId>NymBroker.Endpoint.RabbitMq</PackageId>
     <PackageDescription>RabbitMQ endpoint add-on for NymBroker.</PackageDescription>
   </PropertyGroup>
 

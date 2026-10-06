@@ -2,7 +2,7 @@ using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Endpoint;
 
-namespace NymBroker.AzureServiceBus;
+namespace NymBroker.Endpoint.AzureServiceBus;
 
 /// <summary>The three ways to settle a peek-locked message. Abstracted so the mapping below is unit-testable.</summary>
 internal interface IServiceBusMessageSettler

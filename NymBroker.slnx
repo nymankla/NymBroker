@@ -1,10 +1,10 @@
 <Solution>
-  <Project Path="NymBroker.AzureServiceBus/NymBroker.AzureServiceBus.csproj" />
+  <Project Path="NymBroker.Endpoint.AzureServiceBus/NymBroker.Endpoint.AzureServiceBus.csproj" />
   <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
-  <Project Path="NymBroker.RabbitMq/NymBroker.RabbitMq.csproj" />
-  <Project Path="NymBroker.Sqlite/NymBroker.Sqlite.csproj" />
-  <Project Path="NymBroker.Postgres/NymBroker.Postgres.csproj" />
-  <Project Path="NymBroker.SqlServer/NymBroker.SqlServer.csproj" />
+  <Project Path="NymBroker.Endpoint.RabbitMq/NymBroker.Endpoint.RabbitMq.csproj" />
+  <Project Path="NymBroker.Endpoint.Sqlite/NymBroker.Endpoint.Sqlite.csproj" />
+  <Project Path="NymBroker.Endpoint.Postgres/NymBroker.Endpoint.Postgres.csproj" />
+  <Project Path="NymBroker.Endpoint.SqlServer/NymBroker.Endpoint.SqlServer.csproj" />
   <Project Path="NymBroker.Idempotency.SqlServer/NymBroker.Idempotency.SqlServer.csproj" />
   <Project Path="NymBroker.Idempotency.Postgres/NymBroker.Idempotency.Postgres.csproj" />
   <Project Path="NymBroker.Idempotency.Sqlite/NymBroker.Idempotency.Sqlite.csproj" />

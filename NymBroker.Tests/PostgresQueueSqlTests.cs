@@ -1,4 +1,4 @@
-using NymBroker.Postgres;
+using NymBroker.Endpoint.Postgres;
 
 namespace NymBroker.Tests;
 

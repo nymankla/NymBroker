@@ -38,7 +38,7 @@ public sealed class NymBrokerBuilder
     private bool _idempotentReceiver;
     private bool _built;
 
-    /// <summary>Exposes the DI container for endpoint extension packages (e.g. NymBroker.RabbitMq).</summary>
+    /// <summary>Exposes the DI container for endpoint extension packages (e.g. NymBroker.Endpoint.RabbitMq).</summary>
     public IServiceCollection Services => _services;
 
     /// <summary>Set by <see cref="LoadConfiguration"/> so extension packages can process their endpoint types.</summary>

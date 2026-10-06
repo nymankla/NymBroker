@@ -1,6 +1,6 @@
 using NymBroker.Core.DI;
 using NymBroker.Core.Impl;
-using NymBroker.Sql;
+using NymBroker.Endpoint.Sqlite;
 using NymBroker.SqlSample.Consumers;
 using NymBroker.SqlSample.Messages;
 using Microsoft.Extensions.DependencyInjection;

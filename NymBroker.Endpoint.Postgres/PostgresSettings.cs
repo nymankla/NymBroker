@@ -1,13 +1,15 @@
-namespace NymBroker.SqlServer;
+namespace NymBroker.Endpoint.Postgres;
 
-public sealed class SqlServerSettings
+public sealed class PostgresSettings
 {
-    /// <summary>Default matches the local container started by <c>scripts/setup-sqlserver.ps1</c>.</summary>
-    public string ConnectionString { get; set; } = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True";
-    public string TableName        { get; set; } = "dbo.nymbroker_messages";
+    public string ConnectionString { get; set; } = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
+    public string TableName        { get; set; } = "nymbroker_messages";
     public int BatchSize           { get; set; } = 10;
     public bool AutoCreateTable    { get; set; } = true;
-    /// <summary>Delay after a poll that found no messages. While messages are waiting, batches are claimed back to back.</summary>
+    /// <summary>
+    /// How long to wait after a poll that found no messages (cut short by a NOTIFY when <see cref="UseNotifications"/>
+    /// is on). While messages are waiting, batches are claimed back to back.
+    /// </summary>
     public TimeSpan PollInterval   { get; set; } = TimeSpan.FromMilliseconds(100);
     public TimeSpan LeaseTimeout   { get; set; } = TimeSpan.FromMinutes(5);
     public int MaxRetryCount       { get; set; } = 5;
@@ -18,4 +20,6 @@ public sealed class SqlServerSettings
     /// dead-letter endpoint (<c>WithDeadLetterEndpoint</c>) and the row is marked Completed.
     /// </summary>
     public bool UseNativeDeadLetter { get; set; } = true;
+
+    public bool UseNotifications   { get; set; } = true;
 }

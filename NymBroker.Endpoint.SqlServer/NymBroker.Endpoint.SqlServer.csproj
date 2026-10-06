@@ -4,8 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PackageId>NymBroker.Postgres</PackageId>
-    <PackageDescription>PostgreSQL endpoint add-on for NymBroker.</PackageDescription>
+    <PackageId>NymBroker.Endpoint.SqlServer</PackageId>
+    <PackageDescription>SQL Server endpoint add-on for NymBroker.</PackageDescription>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,7 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
   </ItemGroup>
 
   <ItemGroup>

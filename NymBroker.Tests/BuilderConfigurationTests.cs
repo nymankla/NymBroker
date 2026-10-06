@@ -10,8 +10,8 @@ using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using NymBroker.Postgres;
-using NymBroker.SqlServer;
+using NymBroker.Endpoint.Postgres;
+using NymBroker.Endpoint.SqlServer;
 
 namespace NymBroker.Tests;
 

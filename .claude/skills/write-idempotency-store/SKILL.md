@@ -50,7 +50,7 @@ New project **`NymBroker.Idempotency.<Db>`**, namespace `NymBroker.Idempotency.<
 
 | File | Content |
 |---|---|
-| `NymBroker.Idempotency.<Db>.csproj` | Reference `NymBroker.Core` plus the driver, at the same version as the matching endpoint project. Add `InternalsVisibleTo NymBroker.Tests`. Do **not** reference the endpoint project (`NymBroker.<Db>`). |
+| `NymBroker.Idempotency.<Db>.csproj` | Reference `NymBroker.Core` plus the driver, at the same version as the matching endpoint project. Add `InternalsVisibleTo NymBroker.Tests`. Do **not** reference the endpoint project (`NymBroker.Endpoint.<Db>`). |
 | `<Db>IdempotencySettings.cs` | `ConnectionString`, `TableName`, `Ttl` (24 h), `LeaseTimeout` (5 min), `AutoCreateTable` (true), `CleanupInterval` (10 min; `Zero` disables it), `CleanupBatchSize` (1000), and `Validate()` throwing `ArgumentException`. Use whole seconds if the database's date arithmetic needs integers. |
 | `<Db>IdempotencySql.cs` | Internal static SQL builders: `CreateSchema`, `Claim`, `Complete`, `Release`, `DeleteExpired`, plus identifier quoting. |
 | `<Db>IdempotencyStore.cs` | Public `IIdempotencyStore`. Validate settings in the constructor, build the SQL once, create the schema lazily under a `SemaphoreSlim` with a `volatile bool` ready flag, and expose a public `DeleteExpiredAsync`. |

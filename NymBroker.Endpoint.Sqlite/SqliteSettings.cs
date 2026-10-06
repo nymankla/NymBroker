@@ -1,4 +1,4 @@
-namespace NymBroker.Sql;
+namespace NymBroker.Endpoint.Sqlite;
 
 public sealed class SqliteSettings
 {

@@ -2,7 +2,7 @@ using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using NymBroker.AzureServiceBus;
+using NymBroker.Endpoint.AzureServiceBus;
 using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
 using NymBroker.Core.Impl;

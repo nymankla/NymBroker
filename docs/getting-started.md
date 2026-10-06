@@ -10,11 +10,11 @@
 | Package | Adds | Builder methods |
 |---|---|---|
 | `NymBroker` | Broker, Memory and File endpoints | `AddNymBroker()`, `AddMemoryEndPoint`, `AddFileEndPoint` |
-| `NymBroker.Sqlite` | SQLite queue table | `AddSqliteEndPoint`, `WithSql` |
-| `NymBroker.Postgres` | PostgreSQL queue table | `AddPostgresEndPoint`, `WithPostgres` |
-| `NymBroker.SqlServer` | SQL Server queue table | `AddSqlServerEndPoint`, `WithSqlServer` |
-| `NymBroker.RabbitMq` | RabbitMQ queues | `AddRabbitMqEndPoint`, `WithRabbitMq` |
-| `NymBroker.AzureServiceBus` | Azure Service Bus queues and topics | `AddAzureServiceBusEndPoint`, `WithAzureServiceBus` |
+| `NymBroker.Endpoint.Sqlite` | SQLite queue table | `AddSqliteEndPoint`, `WithSql` |
+| `NymBroker.Endpoint.Postgres` | PostgreSQL queue table | `AddPostgresEndPoint`, `WithPostgres` |
+| `NymBroker.Endpoint.SqlServer` | SQL Server queue table | `AddSqlServerEndPoint`, `WithSqlServer` |
+| `NymBroker.Endpoint.RabbitMq` | RabbitMQ queues | `AddRabbitMqEndPoint`, `WithRabbitMq` |
+| `NymBroker.Endpoint.AzureServiceBus` | Azure Service Bus queues and topics | `AddAzureServiceBusEndPoint`, `WithAzureServiceBus` |
 
 Inside this repository, reference the projects directly; `scripts/pack.ps1` builds the NuGet packages into `artifacts/nupkg`.
 

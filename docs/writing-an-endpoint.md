@@ -534,7 +534,7 @@ The hosted service starts the broker, and the broker starts your listener. You d
 
 ### Where to put it
 
-- **In this repo:** create a `NymBroker.<Transport>` project that references only `NymBroker.Core` plus the transport's client library, the same layout as `NymBroker.RabbitMq`, `NymBroker.Sqlite` and `NymBroker.Postgres`. Add it to `scripts/pack.ps1` so it ships with the other packages.
+- **In this repo:** create a `NymBroker.Endpoint.<Transport>` project (namespace `NymBroker.Endpoint.<Transport>`) that references only `NymBroker.Core` plus the transport's client library, the same layout as `NymBroker.Endpoint.RabbitMq`, `NymBroker.Endpoint.Sqlite` and `NymBroker.Endpoint.Postgres`. Add it to `scripts/pack.ps1` so it ships with the other packages.
 - **In your own app or package:** reference the `NymBroker` package and copy the same pattern. Everything you need (`NymBrokerBuilder.Services`, `RegisterEndpoint`, `LoadedConfiguration`) is public.
 
 ---

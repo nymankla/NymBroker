@@ -3,7 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.DI;
 using NymBroker.Core.Impl;
-using NymBroker.RabbitMq;
+using NymBroker.Endpoint.RabbitMq;
 using NymBroker.RabbitSample.Consumers;
 using NymBroker.RabbitSample.Messages;
 

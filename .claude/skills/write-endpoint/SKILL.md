@@ -16,7 +16,7 @@ Answer these before writing code. Ask the user only for the ones the request and
 - **Ack model:** can a message be acked/nacked, abandoned or leased? Is there a max-delivery-count or dead-letter feature?
 - **Size limit** per message (matters for `splitThresholdBytes`).
 - **Client library** and whether its client is thread-safe.
-- **Where it lives:** a new `NymBroker.<Transport>` project in this repo (default for a reusable transport), or code in an app/sample.
+- **Where it lives:** a new `NymBroker.Endpoint.<Transport>` project (namespace `NymBroker.Endpoint.<Transport>`) in this repo (default for a reusable transport), or code in an app/sample.
 
 Per CLAUDE.md, a new project is an architectural decision: **confirm with the user before creating one.**
 
@@ -50,7 +50,7 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - Ensure proper disposal of resources and handle exceptions gracefully to maintain system stability.
 - Follow consistent naming conventions and code style to improve readability and maintainability.
 
-For a new project, mirror `NymBroker.RabbitMq/`: a csproj that references only `NymBroker.Core` plus the client package, with `PackageId`/`PackageDescription` set; `<Transport>Settings.cs`; `<Transport>EndPoint.cs`; `NymBrokerBuilder<Transport>Extensions.cs`. Add the project to `NymBroker.slnx`; `scripts/pack.ps1` picks up `NymBroker.*` projects automatically.
+For a new project, mirror `NymBroker.Endpoint.RabbitMq/`: a csproj that references only `NymBroker.Core` plus the client package, with `PackageId`/`PackageDescription` set; `<Transport>Settings.cs`; `<Transport>EndPoint.cs`; `NymBrokerBuilder<Transport>Extensions.cs`. Add the project to `NymBroker.slnx`; `scripts/pack.ps1` picks up `NymBroker.*` projects automatically.
 
 ## 4. Register
 

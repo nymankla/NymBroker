@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\NymBroker.Core\NymBroker.Core.csproj" />
-    <ProjectReference Include="..\..\NymBroker.Sqlite\NymBroker.Sqlite.csproj" />
+    <ProjectReference Include="..\..\NymBroker.Endpoint.Sqlite\NymBroker.Endpoint.Sqlite.csproj" />
   </ItemGroup>
 
   <ItemGroup>

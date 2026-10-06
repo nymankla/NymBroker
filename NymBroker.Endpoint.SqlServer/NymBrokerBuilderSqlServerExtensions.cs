@@ -5,7 +5,7 @@ using NymBroker.Core.Endpoint;
 using NymBroker.Core.Factory;
 using NymBroker.Core.Factory.Configuration;
 
-namespace NymBroker.SqlServer;
+namespace NymBroker.Endpoint.SqlServer;
 
 public static class NymBrokerBuilderSqlServerExtensions
 {

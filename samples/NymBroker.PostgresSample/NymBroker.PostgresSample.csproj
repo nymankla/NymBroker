@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\NymBroker.Core\NymBroker.Core.csproj" />
-    <ProjectReference Include="..\..\NymBroker.Postgres\NymBroker.Postgres.csproj" />
+    <ProjectReference Include="..\..\NymBroker.Endpoint.Postgres\NymBroker.Endpoint.Postgres.csproj" />
   </ItemGroup>
 
   <ItemGroup>
