@@ -128,4 +128,4 @@ Core's broker flow is already covered by `IdempotentReceiverTests` (in-memory st
 - [ ] `dotnet build` has 0 warnings, and every sample under `samples/` builds.
 - [ ] `dotnet test` is green **with and without** the integration env vars. Start the database with `scripts/setup-<db>.ps1`.
 - [ ] Run the new test class several times: the concurrency and expiry tests must not be flaky.
-- [ ] Commit on a branch with `Fixes #<issue>`. Version bumps follow CLAUDE.md: patch on push, minor or major only if the user says so.
+- [ ] Commit on a branch with `Fixes #<issue>`. Don't bump the version. Per CLAUDE.md, on push remind the user about the changelog, `PublicAPI.Unshipped.txt` and the next release's version.
