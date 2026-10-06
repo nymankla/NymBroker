@@ -2,7 +2,7 @@ using System.Text;
 using System.Threading.Channels;
 using NymBroker.Core.Endpoint.HealthCheck;
 using Microsoft.Extensions.Logging;
-using NymBroker.Resilience;
+using NymBroker.Core.Resilience;
 
 namespace NymBroker.Core.Endpoint.File;
 

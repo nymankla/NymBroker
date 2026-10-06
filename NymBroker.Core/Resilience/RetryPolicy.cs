@@ -1,6 +1,6 @@
 using System.Diagnostics.Metrics;
 
-namespace NymBroker.Resilience;
+namespace NymBroker.Core.Resilience;
 
 /// <summary>
 /// Immutable, thread-safe retry policy. Build once and reuse across calls.

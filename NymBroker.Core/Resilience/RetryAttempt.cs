@@ -1,4 +1,4 @@
-namespace NymBroker.Resilience;
+﻿namespace NymBroker.Core.Resilience;
 
 /// <summary>Passed to <see cref="RetryOptions.OnRetry"/> before each retry delay.</summary>
 /// <param name="AttemptNumber">0-based number of the attempt that just failed.</param>
