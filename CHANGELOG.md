@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-07
+
 ### Changed
 
 - `NymBroker` no longer depends on Cronos; cron expressions are parsed by a built-in, Cronos-compatible implementation.
