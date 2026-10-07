@@ -154,7 +154,7 @@ broker.AddFilter(IMessageFilter)
 broker.AddScheduledAction(TimeSpan, Action)
 broker.AddScheduledAction<T1>(TimeSpan, Action<T1>, T1)
 broker.AddScheduledAction<T1,T2>(TimeSpan, Action<T1,T2>, T1, T2)
-broker.AddScheduledAction<T1>(string cronExpr, Action<T1>, T1)   // Cronos cron syntax
+broker.AddScheduledAction<T1>(string cronExpr, Action<T1>, T1)   // 5-field cron syntax
 
 broker.StartAsync(ct) / StopAsync(ct)              // called automatically by IHostedService
 broker.ProcessAsync(raw, sourceEndpoint, ct)        // entry point for endpoint listeners → Task<ProcessResult>
@@ -212,7 +212,7 @@ broker.Route<Order>()
 
 ### Scheduled Actions
 
-Interval-based actions fire on a timer. Cron-based actions use **Cronos** (`CronExpression.Parse`) with local timezone. Each action runs in a background `Task` managed by `ScheduledActionHandle` (implements `IAsyncDisposable`). An action added after `StartAsync` starts immediately and is stopped by `StopAsync` (#50); `_scheduledActions` / `_activeScheduledActions` / `_scheduledActionsRunning` are guarded by `_scheduleLock` (a sync `Lock`, never held across an await — not `_lifecycleLock`, so `AddScheduledAction` stays non-blocking and cannot deadlock against `StopAsync`). A throwing run is logged at `Error` and the schedule continues; an unexpected loop termination is logged at `Critical`; `ScheduledActionHandle.DisposeAsync` logs instead of rethrowing, so `StopAsync` never throws because of an action (#51).
+Interval-based actions fire on a timer. Cron-based actions use the internal `CronSchedule` (`NymBroker.Core.Scheduling`; Cronos-compatible, Cronos is only a test oracle) with local timezone. Each action runs in a background `Task` managed by `ScheduledActionHandle` (implements `IAsyncDisposable`). An action added after `StartAsync` starts immediately and is stopped by `StopAsync` (#50); `_scheduledActions` / `_activeScheduledActions` / `_scheduledActionsRunning` are guarded by `_scheduleLock` (a sync `Lock`, never held across an await — not `_lifecycleLock`, so `AddScheduledAction` stays non-blocking and cannot deadlock against `StopAsync`). A throwing run is logged at `Error` and the schedule continues; an unexpected loop termination is logged at `Critical`; `ScheduledActionHandle.DisposeAsync` logs instead of rethrowing, so `StopAsync` never throws because of an action (#51).
 
 ### Aggregator / Splitter
 
@@ -412,6 +412,7 @@ Transient-failure retries use `RetryPolicy` (namespace `NymBroker.Core.Resilienc
 
 ## Key Design Rules
 
+- No Cronos in packable projects.
 - **Ask before architectural decisions** — built incrementally with explicit sign-off on each structural choice.
 - **Don't bump the version on a push.** The version changes only when preparing a release, and the bump level is the user's call. Releases are tagged `v<version>` and published from CI (see [docs/versioning-and-api-compatibility.md](docs/versioning-and-api-compatibility.md)). **Reminder:** when pushing to `master`, tell the user if the pushed changes since the last release tag should get a `CHANGELOG.md` entry, a `PublicAPI.*.txt` update, or a version bump for the next release (a breaking change needs a minor bump in 0.x). Don't bump anything without being asked. To set the version: `.\scripts\pack.ps1 -Version x.y.z` (or `-BumpPatch` / `-BumpMinor` / `-BumpMajor`). It rewrites `Directory.Build.props` and drops blank lines, so check the diff.
 - Routes use `IRouteCondition` / `Func<JsonElement, bool>` predicates; no XML/XSLT.

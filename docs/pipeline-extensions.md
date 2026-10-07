@@ -90,12 +90,31 @@ broker.AddScheduledAction<INymBroker>(
     b => b.PostAsync("Prices", new PriceRequest("ACME")).GetAwaiter().GetResult(),
     broker);
 
-// Cron (Cronos syntax, local time zone): weekdays at 17:00.
+// Cron (5-field syntax, local time zone): weekdays at 17:00.
 broker.AddScheduledAction<INymBroker>(
     "0 17 * * 1-5",
     b => b.PostAsync("Reports", new DailyReportRequest()).GetAwaiter().GetResult(),
     broker);
 ```
+
+#### Cron syntax
+
+Five fields, `minute hour day-of-month month day-of-week`, separated by whitespace; seconds are always 0. Expressions are evaluated in the machine's local time zone. The parser is built in and is compatible with Cronos `CronFormat.Standard`, which was used before.
+
+| Field | Values | Also allowed |
+|---|---|---|
+| minute | 0-59 | `*` `,` `-` `/` |
+| hour | 0-23 | `*` `,` `-` `/` |
+| day-of-month | 1-31 | `*` `?` `,` `-` `/` `L` `L-n` `nW` `LW` |
+| month | 1-12 or `JAN`-`DEC` | `*` `,` `-` `/` |
+| day-of-week | 0-7 (0 and 7 = Sunday) or `SUN`-`SAT` | `*` `?` `,` `-` `/` `nL` (last weekday n of the month) `n#k` (k-th weekday n) |
+
+- Steps: `*/s`, `a-b/s` and `a/s` (from `a` to the field's maximum). Names are case-insensitive. Ranges must not be reversed (`5-1` is invalid).
+- Macros: `@yearly`, `@annually`, `@monthly`, `@weekly`, `@daily`, `@midnight`, `@hourly`.
+- When both day-of-month and day-of-week are restricted, a day must match both.
+- An expression with no future occurrence (such as `0 0 30 2 *`) never fires.
+- Daylight saving time: an occurrence in the spring-forward gap fires at the transition; in the fall-back overlap, fixed-time expressions fire once (first pass) and interval-style expressions (`*`, ranges or steps in the minute or hour field, e.g. `*/15 * * * *`) fire in both offsets.
+- An invalid expression throws a `FormatException` when the action is added.
 
 - Actions are synchronous (`Action`); call async code with `.GetAwaiter().GetResult()`, or post a message and do the async work in a consumer.
 - Actions start with `StartAsync` and stop with `StopAsync`. They can be added at any time: an action added while the broker is running starts right away, is stopped by `StopAsync`, and — like the others — is started again by a later `StartAsync`.
