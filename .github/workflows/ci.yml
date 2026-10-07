@@ -25,3 +25,34 @@ jobs:
       - run: dotnet test NymBroker.Tests/NymBroker.Tests.csproj --configuration Release -p:ContinuousIntegrationBuild=true
       - run: pwsh ./scripts/pack.ps1 -OutputDir artifacts/nupkg
       - run: test "$(find artifacts/nupkg -name '*.snupkg' | wc -l)" -eq 9
+      - name: Upload packages
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/nupkg
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    # Requires approval: configure required reviewers on the 'nuget' environment.
+    environment: nuget
+    permissions:
+      id-token: write   # NuGet trusted publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/nupkg
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: NuGet login (trusted publishing)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+      # Pushing a .nupkg also pushes the .snupkg next to it.
+      - run: dotnet nuget push "artifacts/nupkg/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
