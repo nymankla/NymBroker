@@ -5,7 +5,7 @@
 ## Requirements and packages
 
 - .NET 10.
-- The core package, `NymBroker` (project `NymBroker.Core`), contains the broker plus the **Memory** and **File** endpoints. Each other transport is a separate add-on so you only take the dependencies you use:
+- The core package, [`NymBroker`](https://www.nuget.org/packages/NymBroker/) (project `NymBroker.Core`), contains the broker plus the **Memory** and **File** endpoints. Each other transport is a separate add-on so you only take the dependencies you use:
 
 | Package | Adds | Builder methods |
 |---|---|---|
@@ -19,12 +19,48 @@
 | `NymBroker.Idempotency.Postgres` | Durable duplicate detection shared by all instances | `AddPostgresIdempotency` |
 | `NymBroker.Idempotency.Sqlite` | Restart-safe duplicate detection on one host | `AddSqliteIdempotency` |
 
-Inside this repository, reference the projects directly; `scripts/pack.ps1` builds the NuGet packages into `artifacts/nupkg`.
+All packages are published on nuget.org — start with [NymBroker](https://www.nuget.org/packages/NymBroker/). They share one version number, so keep them on the same version.
+
+## Installing from NuGet
+
+Create an app and add the core package plus the generic host:
 
 ```bash
 dotnet new console --framework net10.0 --name Quickstart
+cd Quickstart
+dotnet add package NymBroker
+dotnet add package Microsoft.Extensions.Hosting
+```
+
+Then add only the optional packages for the transports and idempotency stores you use:
+
+```bash
+dotnet add package NymBroker.Endpoint.Sqlite            # SQLite queue
+dotnet add package NymBroker.Endpoint.Postgres          # PostgreSQL queue
+dotnet add package NymBroker.Endpoint.SqlServer         # SQL Server queue
+dotnet add package NymBroker.Endpoint.RabbitMq          # RabbitMQ
+dotnet add package NymBroker.Endpoint.AzureServiceBus   # Azure Service Bus
+dotnet add package NymBroker.Idempotency.Sqlite         # durable duplicate detection, one host
+dotnet add package NymBroker.Idempotency.Postgres       # durable duplicate detection, shared
+dotnet add package NymBroker.Idempotency.SqlServer      # durable duplicate detection, shared
+```
+
+Or in the project file:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="NymBroker" Version="0.9.1" />
+  <PackageReference Include="NymBroker.Endpoint.Sqlite" Version="0.9.1" />
+  <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.*" />
+</ItemGroup>
+```
+
+Each optional package adds its builder methods (see the table above) to `AddNymBroker()`, in its own namespace — for example `using NymBroker.Endpoint.Sqlite;` for `AddSqliteEndPoint`.
+
+**Working inside this repository**, reference the projects instead (as the [samples](samples.md) do); `scripts/pack.ps1` builds the packages into `artifacts/nupkg`:
+
+```bash
 dotnet add Quickstart reference NymBroker.Core/NymBroker.Core.csproj
-dotnet add Quickstart package Microsoft.Extensions.Hosting
 ```
 
 ## A first broker
@@ -98,4 +134,4 @@ sequenceDiagram
 - Use a durable transport instead of `Memory`: [Endpoints and configuration](endpoints-and-configuration.md).
 - Send many messages or large ones: [Sending messages](sending-messages.md).
 
-Runnable samples live in `samples/` — `NymBroker.Sample` (routing, scheduling, file + memory), `NymBroker.SqlSample`, `NymBroker.PostgresSample`, `NymBroker.SqlServerSample`, `NymBroker.RabbitSample`, `NymBroker.AzureServiceBusSample`, `NymBroker.WebSample`, `NymBroker.RoutingSample`, `NymBroker.CsvSample`, and the `NymBroker.ProducerSample` / `NymBroker.ConsumerSample` pair.
+- Run a complete example: [Samples](samples.md).
