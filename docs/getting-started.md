@@ -57,6 +57,10 @@ Or in the project file:
 
 Each optional package adds its builder methods (see the table above) to `AddNymBroker()`, in its own namespace — for example `using NymBroker.Endpoint.Sqlite;` for `AddSqliteEndPoint`.
 
+### Using an AI coding agent?
+
+Download the [NymBroker skills](https://github.com/nymankla/NymBroker/releases/latest/download/nymbroker-skills.zip) and extract them into your project's `.claude/skills/` folder. The agent can then set NymBroker up for you (it asks which transport and options you want first), create messages, consumers and routes, write tests, add monitoring, and troubleshoot. See [skills/README.md](../skills/README.md) for install commands.
+
 **Working inside this repository**, reference the projects instead (as the [samples](samples.md) do); `scripts/pack.ps1` builds the packages into `artifacts/nupkg`:
 
 ```bash

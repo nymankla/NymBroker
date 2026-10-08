@@ -25,12 +25,15 @@ jobs:
       - run: dotnet test NymBroker.Tests/NymBroker.Tests.csproj --configuration Release -p:ContinuousIntegrationBuild=true
       - run: pwsh ./scripts/pack.ps1 -OutputDir artifacts/nupkg
       - run: test "$(find artifacts/nupkg -name '*.snupkg' | wc -l)" -eq 9
+      - run: test -f artifacts/nymbroker-skills.zip
       - name: Upload packages
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
-          name: nupkg
-          path: artifacts/nupkg
+          name: release
+          path: |
+            artifacts/nupkg
+            artifacts/nymbroker-skills.zip
           if-no-files-found: error
 
   publish:
@@ -41,11 +44,12 @@ jobs:
     environment: nuget
     permissions:
       id-token: write   # NuGet trusted publishing (OIDC)
+      contents: write   # create the GitHub Release
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: nupkg
-          path: artifacts/nupkg
+          name: release
+          path: artifacts
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -56,3 +60,8 @@ jobs:
           user: ${{ vars.NUGET_USER }}
       # Pushing a .nupkg also pushes the .snupkg next to it.
       - run: dotnet nuget push "artifacts/nupkg/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+      # The skills zip keeps a fixed name, so .../releases/latest/download/nymbroker-skills.zip always points at the newest one.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" artifacts/nymbroker-skills.zip --repo "$GITHUB_REPOSITORY" --title "NymBroker ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag

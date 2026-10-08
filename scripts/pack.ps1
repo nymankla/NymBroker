@@ -5,7 +5,8 @@
 .DESCRIPTION
     Reads the current version from Directory.Build.props.
     Optionally bumps or overrides the version before packing.
-    Outputs .nupkg files to artifacts/nupkg/.
+    Outputs .nupkg files to artifacts/nupkg/, and zips the client skills in skills/
+    into artifacts/nymbroker-skills.zip.
 
 .PARAMETER Version
     Set an explicit version (e.g. 1.2.3 or 1.2.3-preview.1).
@@ -22,6 +23,9 @@
 .PARAMETER OutputDir
     Directory for .nupkg output (default: artifacts/nupkg).
 
+.PARAMETER SkillsZip
+    Path of the client skills zip (default: artifacts/nymbroker-skills.zip).
+
 .PARAMETER Configuration
     Build configuration (default: Release).
 
@@ -37,6 +41,7 @@ param(
     [switch] $BumpMinor,
     [switch] $BumpMajor,
     [string] $OutputDir     = "artifacts/nupkg",
+    [string] $SkillsZip     = "artifacts/nymbroker-skills.zip",
     [string] $Configuration = "Release"
 )
 
@@ -142,9 +147,30 @@ foreach ($proj in $Projects) {
 }
 if ($missing) { throw "Missing packages:`n  $($missing -join "`n  ")" }
 
+# ── client skills zip ───────────────────────────────────────────────────────
+# One folder per skill at the zip root, so it extracts straight into .claude/skills/.
+# Entries are written with '/' separators so the zip also extracts correctly on Linux and macOS.
+$SkillsDir = Join-Path $Root "skills"
+$ZipPath   = [System.IO.Path]::Combine($Root, $SkillsZip)
+$skillFolders = Get-ChildItem $SkillsDir -Directory | Where-Object { Test-Path (Join-Path $_.FullName "SKILL.md") }
+if (-not $skillFolders) { throw "No skills found under $SkillsDir." }
+
+New-Item -ItemType Directory -Force -Path (Split-Path $ZipPath -Parent) | Out-Null
+if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
+$archive = [System.IO.Compression.ZipFile]::Open($ZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    foreach ($folder in $skillFolders) {
+        Get-ChildItem $folder.FullName -File -Recurse | ForEach-Object {
+            $relative = $_.FullName.Substring($SkillsDir.Length).TrimStart([char]'\', [char]'/') -replace '\\', '/'
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $_.FullName, $relative) | Out-Null
+        }
+    }
+} finally { $archive.Dispose() }
+
 # ── summary ─────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "Packages written to: $Out"
 Get-ChildItem $Out -Filter "*.$Version.nupkg" | Sort-Object Name | ForEach-Object {
     Write-Host "  $($_.Name)"
 }
+Write-Host "Skills zip: $ZipPath ($($skillFolders.Name -join ', '))"

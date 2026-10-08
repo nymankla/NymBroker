@@ -52,6 +52,8 @@ await broker.PostAsync("Orders", new Order("ORD-1"));
 
 See [Getting started](https://github.com/nymankla/NymBroker/blob/master/docs/getting-started.md) for the complete runnable setup, all package install commands, message and consumer definitions, and hosting details. The [samples](https://github.com/nymankla/NymBroker/blob/master/docs/samples.md) show each transport and feature in a runnable app.
 
+**Using an AI coding agent?** Download the [NymBroker skills](https://github.com/nymankla/NymBroker/releases/latest/download/nymbroker-skills.zip) into your project's `.claude/skills/` folder. Your agent can then set NymBroker up (it asks which transport and options you want first), create messages, consumers and routes, write tests, add monitoring, and troubleshoot. [Install instructions](https://github.com/nymankla/NymBroker/blob/master/skills/README.md).
+
 ## Documentation
 
 The [user guide](https://github.com/nymankla/NymBroker/blob/master/docs/user-guide.md) links to detailed guides for:
