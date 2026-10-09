@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-10
+
 ### Added
 
 - Building blocks for endpoint authors in `NymBroker` (Core), used by the built-in endpoints:
