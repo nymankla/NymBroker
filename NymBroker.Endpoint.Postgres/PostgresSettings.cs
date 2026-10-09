@@ -1,6 +1,8 @@
+using NymBroker.Core.Endpoint.Queue;
+
 namespace NymBroker.Endpoint.Postgres;
 
-public sealed class PostgresSettings
+public sealed class PostgresSettings : ILeasedQueueSettings
 {
     public string ConnectionString { get; set; } = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
     public string TableName        { get; set; } = "nymbroker_messages";

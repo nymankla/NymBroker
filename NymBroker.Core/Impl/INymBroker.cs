@@ -108,7 +108,8 @@ public interface INymBroker
 
     /// <summary>
     /// Process raw UTF-8 JSON bytes arriving from an endpoint. Called by endpoint listeners, which settle the message
-    /// according to the returned <see cref="ProcessResult"/>. Never throws except <see cref="OperationCanceledException"/>.
+    /// according to the returned <see cref="ProcessResult"/>. Never throws except <see cref="OperationCanceledException"/> when
+    /// <paramref name="ct"/> is cancelled; a cancellation raised by a consumer itself (e.g. an HTTP timeout) is a failure like any other.
     /// </summary>
     Task<ProcessResult> ProcessAsync(byte[] raw, string? sourceEndpoint = null, CancellationToken ct = default);
 

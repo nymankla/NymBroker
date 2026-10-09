@@ -83,7 +83,7 @@ public sealed class SqlServerIdempotencyStoreTests : IAsyncLifetime
         await using var sp = services.BuildServiceProvider();
 
         Assert.IsType<SqlServerIdempotencyStore>(sp.GetRequiredService<IIdempotencyStore>());
-        Assert.Contains(sp.GetServices<IHostedService>(), s => s is SqlServerIdempotencyCleanupService);
+        Assert.Contains(sp.GetServices<IHostedService>(), s => s is IdempotencyCleanupService<SqlServerIdempotencyStore>);
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public sealed class SqlServerIdempotencyStoreTests : IAsyncLifetime
         services.AddNymBroker().AddSqlServerIdempotency(new SqlServerIdempotencySettings { CleanupInterval = TimeSpan.Zero }).Build();
         await using var sp = services.BuildServiceProvider();
 
-        Assert.DoesNotContain(sp.GetServices<IHostedService>(), s => s is SqlServerIdempotencyCleanupService);
+        Assert.DoesNotContain(sp.GetServices<IHostedService>(), s => s is IdempotencyCleanupService<SqlServerIdempotencyStore>);
     }
 
     // --- Store behaviour (SQL Server) ---

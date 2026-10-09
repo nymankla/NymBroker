@@ -9,7 +9,7 @@ namespace NymBroker.Idempotency.SqlServer;
 /// Durable <see cref="IIdempotencyStore"/> in a SQL Server table: duplicates are detected across restarts and across
 /// every broker instance that uses the same table. One pooled <see cref="SqlConnection"/> per operation (not thread-safe).
 /// </summary>
-public sealed class SqlServerIdempotencyStore : IIdempotencyStore
+public sealed class SqlServerIdempotencyStore : IExpiringIdempotencyStore
 {
     private readonly SqlServerIdempotencySettings _settings;
     private readonly ILogger<SqlServerIdempotencyStore> _logger;

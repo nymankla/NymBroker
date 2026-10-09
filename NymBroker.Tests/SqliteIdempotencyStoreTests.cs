@@ -110,7 +110,7 @@ public sealed class SqliteIdempotencyStoreTests : IAsyncLifetime
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<SqliteIdempotencyStore>(provider.GetRequiredService<IIdempotencyStore>());
-        Assert.Contains(provider.GetServices<IHostedService>(), service => service is SqliteIdempotencyCleanupService);
+        Assert.Contains(provider.GetServices<IHostedService>(), service => service is IdempotencyCleanupService<SqliteIdempotencyStore>);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public sealed class SqliteIdempotencyStoreTests : IAsyncLifetime
         }).Build();
         await using var provider = services.BuildServiceProvider();
 
-        Assert.DoesNotContain(provider.GetServices<IHostedService>(), service => service is SqliteIdempotencyCleanupService);
+        Assert.DoesNotContain(provider.GetServices<IHostedService>(), service => service is IdempotencyCleanupService<SqliteIdempotencyStore>);
     }
 
     [Fact]

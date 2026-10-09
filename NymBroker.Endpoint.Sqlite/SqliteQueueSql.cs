@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using NymBroker.Core.Endpoint.Queue;
 
 namespace NymBroker.Endpoint.Sqlite;
 
@@ -9,10 +10,10 @@ namespace NymBroker.Endpoint.Sqlite;
 /// </summary>
 internal static partial class SqliteQueueSql
 {
-    internal const int Pending = 0;
-    internal const int InProgress = 1;
-    internal const int Completed = 2;
-    internal const int Failed = 3;
+    internal const int Pending = (int)QueueMessageStatus.Pending;
+    internal const int InProgress = (int)QueueMessageStatus.InProgress;
+    internal const int Completed = (int)QueueMessageStatus.Completed;
+    internal const int Failed = (int)QueueMessageStatus.Failed;
 
     internal const int SchemaVersion = 2;
 

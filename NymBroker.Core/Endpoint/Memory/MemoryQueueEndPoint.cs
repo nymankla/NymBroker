@@ -40,19 +40,12 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
             {
                 await foreach (var msg in _channel.Reader.ReadAllAsync(ct))
                 {
-                    try
-                    {
-                        var result = await handler(msg, ct);
-                        // In-memory messages cannot be redelivered, and the broker never asks this endpoint to
-                        // dead-letter (UsesNativeDeadLetter is false), so anything but Completed means the message is lost.
-                        if (result.Outcome != ProcessOutcome.Completed)
-                            _logger.LogError(result.Exception, "Message on endpoint '{Name}' was not processed ({Outcome}: {Failure}) and cannot be redelivered",
-                                _name, result.Outcome, result.FailureText);
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{_name}'", _name);
-                    }
+                    var result = await EndpointHandler.InvokeAsync(handler, msg, _logger, _name, ct);
+                    // In-memory messages cannot be redelivered, and the broker never asks this endpoint to
+                    // dead-letter (UsesNativeDeadLetter is false), so anything but Completed means the message is lost.
+                    if (result.Outcome != ProcessOutcome.Completed)
+                        _logger.LogError(result.Exception, "Message on endpoint '{Name}' was not processed ({Outcome}: {Failure}) and cannot be redelivered",
+                            _name, result.Outcome, result.FailureText);
                 }
             }
             catch (OperationCanceledException) { }

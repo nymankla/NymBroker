@@ -71,11 +71,16 @@ public sealed class ObservabilityTests
         public IHealthCheckResult HealthCheck() => HealthCheckResult.Healthy();
     }
 
-    private sealed class ObservedConsumer(bool fail = false, bool cancel = false) : IConsume<ObservedMessage>
+    /// <param name="cancel">When set, cancels the broker's token and observes it — the broker stopping mid-message.</param>
+    private sealed class ObservedConsumer(bool fail = false, CancellationTokenSource? cancel = null) : IConsume<ObservedMessage>
     {
         public Task ConsumeAsync(ObservedMessage message, IMessageContext context, CancellationToken ct = default)
         {
-            if (cancel) throw new OperationCanceledException();
+            if (cancel is not null)
+            {
+                cancel.Cancel();
+                ct.ThrowIfCancellationRequested();
+            }
             if (fail) throw new InvalidOperationException("Consumer intentionally failed");
             return Task.CompletedTask;
         }
@@ -357,7 +362,8 @@ public sealed class ObservabilityTests
 
         var cancellationSource = "observability-cancelled-consumer-" + Guid.NewGuid();
         using var cancellationCapture = new MetricCapture(cancellationSource);
-        var consumer = new ObservedConsumer(cancel: true);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var consumer = new ObservedConsumer(cancel: stopping);
         using var consumerServices = CreateServices(collection =>
             collection.AddKeyedSingleton<IMessageConsumer>(nameof(ObservedConsumer), consumer));
         var cancellationBroker = CreateBroker(consumerServices);
@@ -365,7 +371,7 @@ public sealed class ObservabilityTests
 
         var raw = await SerializeAsync(new ObservedMessage());
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            cancellationBroker.ProcessAsync(raw, cancellationSource, TestContext.Current.CancellationToken));
+            cancellationBroker.ProcessAsync(raw, cancellationSource, stopping.Token));
 
         Assert.Empty(cancellationCapture.For("nymbroker.messages.consumed"));
     }

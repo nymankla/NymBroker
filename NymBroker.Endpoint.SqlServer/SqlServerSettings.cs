@@ -1,6 +1,8 @@
+using NymBroker.Core.Endpoint.Queue;
+
 namespace NymBroker.Endpoint.SqlServer;
 
-public sealed class SqlServerSettings
+public sealed class SqlServerSettings : ILeasedQueueSettings
 {
     /// <summary>Default matches the local container started by <c>scripts/setup-sqlserver.ps1</c>.</summary>
     public string ConnectionString { get; set; } = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True";

@@ -1,7 +1,5 @@
-using System.Text.Json;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Factory;
-using NymBroker.Core.Factory.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -9,12 +7,6 @@ namespace NymBroker.Endpoint.RabbitMq;
 
 public static class NymBrokerBuilderRabbitMqExtensions
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true
-    };
-
     public static NymBrokerBuilder AddRabbitMqEndPoint(
         this NymBrokerBuilder builder, string name, RabbitMqSettings? settings = null,
         EndpointMode mode = EndpointMode.ReadWrite)
@@ -28,7 +20,7 @@ public static class NymBrokerBuilderRabbitMqExtensions
 
     /// <summary>
     /// Processes any RabbitMq endpoints from a previously loaded configuration file.
-    /// Call after <c>LoadConfiguration()</c>:
+    /// Call after <c>LoadConfiguration()</c> or <c>ApplyConfiguration()</c>:
     /// <code>
     ///   services.AddNymBroker()
     ///       .LoadConfiguration("queuesettings.json")
@@ -37,20 +29,6 @@ public static class NymBrokerBuilderRabbitMqExtensions
     /// </code>
     /// </summary>
     public static NymBrokerBuilder WithRabbitMq(this NymBrokerBuilder builder)
-    {
-        if (builder.LoadedConfiguration is null) return builder;
-
-        foreach (var ep in builder.LoadedConfiguration.Endpoints)
-        {
-            if (ep.IsType(EndPointType.RabbitMq))
-                builder.AddRabbitMqEndPoint(ep.Name, ToSettings(ep), ep.Mode);
-        }
-
-        return builder;
-    }
-
-    private static RabbitMqSettings ToSettings(EndPointConfiguration ep)
-        => ep.Config.HasValue
-            ? JsonSerializer.Deserialize<RabbitMqSettings>(ep.Config.Value.GetRawText(), JsonOptions) ?? new()
-            : new();
+        => builder.AddConfiguredEndPoints(EndPointType.RabbitMq,
+            ep => builder.AddRabbitMqEndPoint(ep.Name, ep.GetSettings<RabbitMqSettings>(), ep.Mode));
 }

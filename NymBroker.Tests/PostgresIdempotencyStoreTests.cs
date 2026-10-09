@@ -112,7 +112,7 @@ public sealed class PostgresIdempotencyStoreTests : IAsyncLifetime
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<PostgresIdempotencyStore>(provider.GetRequiredService<IIdempotencyStore>());
-        Assert.Contains(provider.GetServices<IHostedService>(), service => service is PostgresIdempotencyCleanupService);
+        Assert.Contains(provider.GetServices<IHostedService>(), service => service is IdempotencyCleanupService<PostgresIdempotencyStore>);
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public sealed class PostgresIdempotencyStoreTests : IAsyncLifetime
         }).Build();
         await using var provider = services.BuildServiceProvider();
 
-        Assert.DoesNotContain(provider.GetServices<IHostedService>(), service => service is PostgresIdempotencyCleanupService);
+        Assert.DoesNotContain(provider.GetServices<IHostedService>(), service => service is IdempotencyCleanupService<PostgresIdempotencyStore>);
     }
 
     [Fact]

@@ -33,7 +33,7 @@ public sealed class SubscriberDispatcher(IServiceScopeFactory scopeFactory, ILog
                 await dispatch(subscriber, message, context, ct);
                 RecordConsumed(context, message, serviceKey, "success");
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 throw;
             }

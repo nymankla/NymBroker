@@ -42,6 +42,32 @@ public sealed class ProcessResultTests
             => throw new InvalidOperationException("consumer failed");
     }
 
+    /// <summary>Throws what HttpClient throws on a timeout, while the broker's token is not cancelled.</summary>
+    public sealed class TimingOutConsumer : IConsume<ResultOrder>
+    {
+        public Task ConsumeAsync(ResultOrder message, IMessageContext context, CancellationToken ct = default)
+            => throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout.");
+    }
+
+    public sealed class TimingOutSubscriber : ISubscribe<ResultOrder>
+    {
+        public Task ReceiveAsync(ResultOrder message, IMessageContext context, CancellationToken ct = default)
+            => throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout.");
+    }
+
+    /// <summary>Simulates the broker stopping while the consumer runs: cancels the broker's token, then observes it.</summary>
+    public sealed class CancellingConsumer : IConsume<ResultOrder>
+    {
+        public static CancellationTokenSource? Source { get; set; }
+
+        public Task ConsumeAsync(ResultOrder message, IMessageContext context, CancellationToken ct = default)
+        {
+            Source!.Cancel();
+            ct.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+    }
+
     public sealed class ThrowingSubscriber : ISubscribe<ResultOrder>
     {
         public Task ReceiveAsync(ResultOrder message, IMessageContext context, CancellationToken ct = default)
@@ -233,6 +259,48 @@ public sealed class ProcessResultTests
         Assert.Single(await h.DrainDeadLettersAsync());
     }
 
+    // --- A consumer's own cancellation (e.g. an HTTP timeout) is a failure, not a shutdown ---
+
+    [Theory]
+    [InlineData(Native, ProcessOutcome.Retry, 0)]
+    [InlineData(Plain, ProcessOutcome.Completed, 1)]
+    public async Task ConsumerTimeout_IsAFailure_NotAShutdown(string source, ProcessOutcome expected, int expectedOnDeadLetterEndpoint)
+    {
+        var h = Build(b => b.AddConsumer<TimingOutConsumer>());
+
+        var result = await h.Broker.ProcessAsync(Envelope(h.Serializer, new ResultOrder { Id = 5 }), source, TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, result.Outcome);
+        if (expected == ProcessOutcome.Retry)
+            Assert.IsType<TaskCanceledException>(result.Exception);
+        Assert.Equal(expectedOnDeadLetterEndpoint, (await h.DrainDeadLettersAsync()).Count);
+    }
+
+    [Theory]
+    [InlineData(Native, ProcessOutcome.Retry, 0)]
+    [InlineData(Plain, ProcessOutcome.Completed, 1)]
+    public async Task SubscriberTimeout_IsAFailure_NotAShutdown(string source, ProcessOutcome expected, int expectedOnDeadLetterEndpoint)
+    {
+        var h = Build(b => b.AddTopic<ResultOrder>("orders").SubscribeWith<TimingOutSubscriber>().Build());
+
+        var result = await h.Broker.ProcessAsync(Envelope(h.Serializer, new ResultOrder { Id = 6 }), source, TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, result.Outcome);
+        Assert.Equal(expectedOnDeadLetterEndpoint, (await h.DrainDeadLettersAsync()).Count);
+    }
+
+    [Fact]
+    public async Task Cancellation_OfTheBrokersToken_StillPropagates()
+    {
+        var h = Build(b => b.AddConsumer<CancellingConsumer>());
+        using var cts = new CancellationTokenSource();
+        CancellingConsumer.Source = cts;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => h.Broker.ProcessAsync(Envelope(h.Serializer, new ResultOrder { Id = 7 }), Native, cts.Token));
+        Assert.Empty(await h.DrainDeadLettersAsync());
+    }
+
     // --- Topic fan-out throws ---
 
     [Theory]
@@ -349,6 +417,30 @@ public sealed class ProcessResultTests
         await handled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.Contains(logger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Error && e.Message.Contains("cannot be redelivered"));
+        await cts.CancelAsync();
+    }
+
+    [Fact]
+    public async Task MemoryEndpoint_KeepsListening_WhenTheHandlerThrowsItsOwnCancellation()
+    {
+        // Before the fix the handler's TaskCanceledException ended the listener loop silently.
+        var logger = new CapturingLogger<MemoryQueueEndPoint>();
+        var ep = new MemoryQueueEndPoint("mem", logger: logger);
+        var handled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await ep.StartListeningAsync((_, _) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1) throw new TaskCanceledException("timed out");
+            handled.TrySetResult();
+            return Task.FromResult(ProcessResult.Completed);
+        }, cts.Token);
+
+        await ep.EnqueueAsync("{}", TestContext.Current.CancellationToken);
+        await ep.EnqueueAsync("{}", TestContext.Current.CancellationToken);
+        await handled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Contains(logger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Error && e.Message.Contains("Unhandled error dispatching"));
         await cts.CancelAsync();
     }
 }

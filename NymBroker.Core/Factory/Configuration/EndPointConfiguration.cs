@@ -20,8 +20,14 @@ public sealed class EndPointConfiguration
     /// <summary>Raw JSON config object — deserialized to the concrete settings type per <see cref="Type"/>.</summary>
     public JsonElement? Config { get; set; }
 
-    public FileSettings ToFileSettings()
+    public FileSettings ToFileSettings() => GetSettings<FileSettings>();
+
+    /// <summary>
+    /// Deserializes <see cref="Config"/> (camelCase, case-insensitive) into an endpoint's settings type; a missing
+    /// <c>Config</c> gives the type's defaults. Used by the transport packages' <c>With…()</c> extensions.
+    /// </summary>
+    public T GetSettings<T>() where T : class, new()
         => Config.HasValue
-            ? JsonSerializer.Deserialize<FileSettings>(Config.Value.GetRawText(), Serialize.MessageSerializerJson.JsonOptions) ?? new()
+            ? JsonSerializer.Deserialize<T>(Config.Value.GetRawText(), Serialize.MessageSerializerJson.JsonOptions) ?? new()
             : new();
 }

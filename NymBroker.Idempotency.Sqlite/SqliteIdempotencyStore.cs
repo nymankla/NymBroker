@@ -9,7 +9,7 @@ namespace NymBroker.Idempotency.Sqlite;
 /// One persistent connection (also required for <c>Data Source=:memory:</c>), serialized by a semaphore as in
 /// <c>SqliteEndPoint</c>. File databases use WAL mode and a busy timeout so several processes on the host can share them.
 /// </summary>
-public sealed class SqliteIdempotencyStore : IIdempotencyStore, IAsyncDisposable
+public sealed class SqliteIdempotencyStore : IExpiringIdempotencyStore, IAsyncDisposable
 {
     private readonly SqliteIdempotencySettings _settings;
     private readonly ILogger<SqliteIdempotencyStore> _logger;

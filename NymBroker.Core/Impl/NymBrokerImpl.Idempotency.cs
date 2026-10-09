@@ -49,7 +49,7 @@ public sealed partial class NymBrokerImpl
         {
             claim = await store.TryClaimAsync(messageId, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             recordFailure(ex);
             _logger.LogError(ex, "Idempotency store failed to claim message {MessageId}; returning Retry so it is not processed without the duplicate check", messageId);

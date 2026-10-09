@@ -58,7 +58,7 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogge
             tags.Add("outcome", "success");
             NymBrokerDiagnostics.MessagesConsumed.Add(1, tags);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }

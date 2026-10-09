@@ -4,13 +4,15 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
+using NymBroker.Core.Endpoint.Queue;
 
 namespace NymBroker.Endpoint.Sqlite;
 
 /// <summary>
 /// Queue table in SQLite. One connection, serialized by <see cref="_dbLock"/> (a <see cref="SqliteConnection"/> is not
 /// safe for concurrent use), with every statement prepared once. The listener claims a batch with one
-/// <c>UPDATE … RETURNING</c>, and writes the batch's outcomes in the same transaction as the next claim.
+/// <c>UPDATE … RETURNING</c>, and writes the batch's outcomes in the same transaction as the next claim. The loop itself
+/// is the shared <see cref="LeasedQueueListener"/>.
 /// </summary>
 public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
 {
@@ -23,8 +25,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
     private readonly SemaphoreSlim _dbLock = new(1, 1);
     private SqliteConnection? _connection;
     private PreparedCommands? _commands;
-    private CancellationTokenSource? _listeningCts;
-    private Task? _loop;
+    private readonly Listener _listener;
     private bool _disposed;
 
     public EndpointMode Mode { get; }
@@ -36,6 +37,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         Mode = mode;
         _settings = settings;
         _logger = logger;
+        _listener = new Listener(this);
     }
 
     // ── IEndPointEventDriven ────────────────────────────────────────────────
@@ -45,22 +47,12 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
-        _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var token = _listeningCts.Token;
-        _loop = Task.Run(() => ListenAsync(handler, token), CancellationToken.None);
+        _listener.Start(handler, ct);
         return Task.CompletedTask;
     }
 
     /// <summary>Stops polling and waits for the loop to finish, so no handler runs after this returns.</summary>
-    public async Task StopListeningAsync()
-    {
-        _listeningCts?.Cancel();
-        if (_loop is not null)
-        {
-            await _loop;
-            _loop = null;
-        }
-    }
+    public Task StopListeningAsync() => _listener.StopAsync();
 
     /// <summary>
     /// Claims one batch and yields its payloads (UTF-8 decoded). An item is completed when the caller moves past it,
@@ -83,8 +75,8 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
             finally
             {
                 var outcome = completed
-                    ? new Outcome(message, Kind: OutcomeKind.Completed, Error: null)
-                    : new Outcome(message, Kind: OutcomeKind.Pending, Error: ReadAsyncLeaseReturnedMessage);
+                    ? QueueMessageOutcome.Completed(message)
+                    : new QueueMessageOutcome(message, QueueMessageStatus.Pending, ReadAsyncLeaseReturnedMessage);
                 await FinalizeAndClaimAsync([outcome], claim: false, CancellationToken.None);
             }
         }
@@ -135,25 +127,17 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
     }
 
     public IHealthCheckResult HealthCheck()
-    {
-        try
+        => HealthCheckResult.FromProbe("SQLite", _name, _logger, async ct =>
         {
             if (_connection?.State == System.Data.ConnectionState.Open)
-                return HealthCheckResult.Healthy();
+                return;
 
-            using var probe = new SqliteConnection(_settings.ConnectionString);
-            probe.Open();
-            using var command = probe.CreateCommand();
+            await using var probe = new SqliteConnection(_settings.ConnectionString);
+            await probe.OpenAsync(ct);
+            await using var command = probe.CreateCommand();
             command.CommandText = "SELECT 1";
-            command.ExecuteScalar();
-            return HealthCheckResult.Healthy();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "SQLite endpoint '{Name}' health check failed", _name);
-            return HealthCheckResult.Unhealthy(ex.Message);
-        }
-    }
+            await command.ExecuteScalarAsync(ct);
+        });
 
     // ── IAsyncDisposable ────────────────────────────────────────────────────
 
@@ -163,8 +147,6 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         _disposed = true;
 
         await StopListeningAsync();
-        _listeningCts?.Dispose();
-        _listeningCts = null;
         _commands?.Dispose();
         _commands = null;
         if (_connection is not null)
@@ -175,131 +157,13 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         _dbLock.Dispose();
     }
 
-    // ── Listener loop ───────────────────────────────────────────────────────
-
-    private async Task ListenAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token)
-    {
-        // Outcomes of handled messages not yet written; written together with the next claim.
-        var outcomes = new List<Outcome>();
-        try
-        {
-            while (!token.IsCancellationRequested)
-            {
-                List<ClaimedMessage> batch;
-                try
-                {
-                    batch = await FinalizeAndClaimAsync(outcomes, claim: true, token);
-                    outcomes.Clear();
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    // Rolled back: the outcomes are kept and written on the next attempt; nothing was claimed.
-                    _logger.LogError(ex, "Poll error on endpoint '{Name}'", _name);
-                    if (!await DelayAsync(token)) break;
-                    continue;
-                }
-
-                if (batch.Count == 0)
-                {
-                    // Back to back while messages are waiting; PollInterval only applies after an empty poll.
-                    if (!await DelayAsync(token)) break;
-                    continue;
-                }
-
-                foreach (var message in batch)
-                {
-                    ProcessResult result;
-                    try
-                    {
-                        result = await handler(message.Payload, token);
-                    }
-                    catch (OperationCanceledException) when (token.IsCancellationRequested)
-                    {
-                        // Stopping mid-handler: leave this and the rest of the batch to lease expiry.
-                        return;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
-                        result = ProcessResult.Retry(ex);
-                    }
-                    outcomes.Add(ToOutcome(message, result));
-                }
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", _name);
-        }
-        finally
-        {
-            await FinalizeOnShutdownAsync(outcomes);
-        }
-    }
-
-    /// <summary>The messages were handled, so record their outcomes even though the loop is stopping.</summary>
-    private async Task FinalizeOnShutdownAsync(List<Outcome> outcomes)
-    {
-        if (outcomes.Count == 0) return;
-        try
-        {
-            await FinalizeAndClaimAsync(outcomes, claim: false, CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Endpoint '{Name}' could not write the results of {Count} handled message(s) on shutdown; they are redelivered after lease expiry",
-                _name, outcomes.Count);
-        }
-    }
-
-    private async Task<bool> DelayAsync(CancellationToken token)
-    {
-        var delay = _settings.PollInterval > TimeSpan.Zero ? _settings.PollInterval : TimeSpan.FromMilliseconds(1);
-        try
-        {
-            await Task.Delay(delay, token);
-            return true;
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-    }
-
-    private Outcome ToOutcome(ClaimedMessage message, ProcessResult result)
-    {
-        switch (result.Outcome)
-        {
-            case ProcessOutcome.Completed:
-                return new Outcome(message, OutcomeKind.Completed, null);
-
-            case ProcessOutcome.DeadLetter:
-                _logger.LogWarning("Message {MessageId} on endpoint '{Name}' dead-lettered (marked Failed): {Failure}",
-                    message.MessageIdText, _name, result.FailureText);
-                return new Outcome(message, OutcomeKind.Failed, result.FailureText);
-
-            default:
-                if (message.AttemptCount >= _settings.MaxRetryCount)
-                {
-                    _logger.LogWarning("Message {MessageId} on endpoint '{Name}' marked Failed after {Attempts} attempts (terminal state); last error: {Error}",
-                        message.MessageIdText, _name, message.AttemptCount, result.FailureText);
-                    return new Outcome(message, OutcomeKind.Failed, result.FailureText);
-                }
-                return new Outcome(message, OutcomeKind.Pending, result.FailureText);
-        }
-    }
-
     // ── Data access ─────────────────────────────────────────────────────────
 
     /// <summary>
     /// Writes <paramref name="outcomes"/> and (when <paramref name="claim"/>) claims the next batch, in one
     /// <c>BEGIN IMMEDIATE</c> transaction: one commit per batch instead of one per message.
     /// </summary>
-    private async Task<List<ClaimedMessage>> FinalizeAndClaimAsync(IReadOnlyList<Outcome> outcomes, bool claim, CancellationToken ct)
+    private async Task<List<QueueMessage>> FinalizeAndClaimAsync(IReadOnlyList<QueueMessageOutcome> outcomes, bool claim, CancellationToken ct)
     {
         if (outcomes.Count == 0 && !claim) return [];
 
@@ -336,20 +200,20 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         await commands.Insert.ExecuteNonQueryAsync(ct);
     }
 
-    private async Task<List<ClaimedMessage>> ExecuteClaimAsync(PreparedCommands commands, CancellationToken ct)
+    private async Task<List<QueueMessage>> ExecuteClaimAsync(PreparedCommands commands, CancellationToken ct)
     {
-        commands.ClaimLeaseSeconds.Value = GetLeaseTimeoutSeconds();
+        commands.ClaimLeaseSeconds.Value = LeasedQueueListener.GetLeaseTimeoutSeconds(_settings);
         commands.ClaimBatchSize.Value = _settings.BatchSize;
 
-        var claimed = new List<ClaimedMessage>(_settings.BatchSize);
+        var claimed = new List<QueueMessage>(_settings.BatchSize);
         await using (var reader = await commands.Claim.ExecuteReaderAsync(ct))
         {
             while (await reader.ReadAsync(ct))
-                claimed.Add(new ClaimedMessage(
+                claimed.Add(new QueueMessage(
                     QueueId: reader.GetInt64(0),
-                    MessageId: reader.GetFieldValue<byte[]>(1),
+                    AttemptCount: reader.GetInt32(3),
                     Payload: reader.GetFieldValue<byte[]>(2),
-                    AttemptCount: reader.GetInt32(3)));
+                    MessageId: MessageIdText(reader.GetFieldValue<byte[]>(1))));
         }
 
         // RETURNING doesn't guarantee order; handle in queue order.
@@ -357,12 +221,12 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         return claimed;
     }
 
-    private static async Task ExecuteFinalizeAsync(PreparedCommands commands, Outcome outcome, CancellationToken ct)
+    private static async Task ExecuteFinalizeAsync(PreparedCommands commands, QueueMessageOutcome outcome, CancellationToken ct)
     {
-        var (command, id, attempt, error) = outcome.Kind switch
+        var (command, id, attempt, error) = outcome.Status switch
         {
-            OutcomeKind.Completed => (commands.MarkCompleted, commands.CompletedId, commands.CompletedAttempt, null),
-            OutcomeKind.Failed => (commands.MarkFailed, commands.FailedId, commands.FailedAttempt, commands.FailedError),
+            QueueMessageStatus.Completed => (commands.MarkCompleted, commands.CompletedId, commands.CompletedAttempt, null),
+            QueueMessageStatus.Failed => (commands.MarkFailed, commands.FailedId, commands.FailedAttempt, commands.FailedError),
             _ => (commands.MarkPending, commands.PendingId, commands.PendingAttempt, commands.PendingError)
         };
 
@@ -491,20 +355,21 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private int GetLeaseTimeoutSeconds()
-        => (int)Math.Max(1, Math.Ceiling(_settings.LeaseTimeout.TotalSeconds));
+    /// <summary>16 bytes → the GUID; anything else (rows migrated from a TEXT id) → UTF-8 text. Only logged.</summary>
+    private static string MessageIdText(byte[] messageId)
+        => messageId.Length == 16 ? new Guid(messageId).ToString() : Encoding.UTF8.GetString(messageId);
 
     // ── Types ───────────────────────────────────────────────────────────────
 
-    private sealed record ClaimedMessage(long QueueId, byte[] MessageId, byte[] Payload, int AttemptCount)
+    /// <summary>The shared queue loop over this endpoint's finalize-and-claim transaction.</summary>
+    private sealed class Listener(SqliteEndPoint owner) : LeasedQueueListener(owner._name, owner._settings, owner._logger)
     {
-        /// <summary>16 bytes → the GUID; anything else (rows migrated from a TEXT id) → UTF-8 text.</summary>
-        public string MessageIdText => MessageId.Length == 16 ? new Guid(MessageId).ToString() : Encoding.UTF8.GetString(MessageId);
+        protected override async Task<IReadOnlyList<QueueMessage>> FinalizeAndClaimAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
+            => await owner.FinalizeAndClaimAsync(outcomes, claim: true, ct);
+
+        protected override Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
+            => owner.FinalizeAndClaimAsync(outcomes, claim: false, ct);
     }
-
-    private enum OutcomeKind { Completed, Failed, Pending }
-
-    private sealed record Outcome(ClaimedMessage Message, OutcomeKind Kind, string? Error);
 
     /// <summary>Every statement prepared once on the endpoint's connection; only parameter values change per call.</summary>
     private sealed class PreparedCommands : IDisposable

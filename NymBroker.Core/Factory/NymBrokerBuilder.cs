@@ -196,6 +196,39 @@ public sealed class NymBrokerBuilder
         return this;
     }
 
+    /// <summary>
+    /// Register an idempotent receiver backed by a database store that needs periodic cleanup (what the
+    /// <c>NymBroker.Idempotency.*</c> packages call). <paramref name="factory"/> creates the store once (singleton); when
+    /// <paramref name="cleanupInterval"/> is positive a hosted service calls
+    /// <see cref="IExpiringIdempotencyStore.DeleteExpiredAsync"/> on that interval, logging failures and retrying at the
+    /// next one. One store per broker; the last registration wins.
+    /// </summary>
+    /// <param name="tableName">Where the entries live, for log messages.</param>
+    public NymBrokerBuilder AddIdempotencyStore<TStore>(Func<IServiceProvider, TStore> factory, TimeSpan cleanupInterval, string tableName)
+        where TStore : class, IExpiringIdempotencyStore
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        _services.RemoveAll<TStore>();
+        _services.AddSingleton(factory);
+        AddIdempotentReceiver(sp => sp.GetRequiredService<TStore>());
+
+        // Replace an earlier registration of the same store type, including its cleanup service.
+        _services.RemoveAll<IdempotencyCleanupOptions<TStore>>();
+        for (var i = _services.Count - 1; i >= 0; i--)
+        {
+            if (_services[i].ServiceType == typeof(IHostedService) && _services[i].ImplementationType == typeof(IdempotencyCleanupService<TStore>))
+                _services.RemoveAt(i);
+        }
+
+        if (cleanupInterval > TimeSpan.Zero)
+        {
+            _services.AddSingleton(new IdempotencyCleanupOptions<TStore>(cleanupInterval, tableName));
+            _services.AddSingleton<IHostedService, IdempotencyCleanupService<TStore>>();
+        }
+        return this;
+    }
+
     // --- Health check ---
 
     /// <summary>
@@ -212,13 +245,16 @@ public sealed class NymBrokerBuilder
     // --- Load from config file ---
 
     public NymBrokerBuilder LoadConfiguration(string filePath)
-    {
-        LoadedConfiguration = BrokerConfigurationReader.Read(filePath);
-        return ApplyConfiguration(LoadedConfiguration);
-    }
+        => ApplyConfiguration(BrokerConfigurationReader.Read(filePath));
 
+    /// <summary>
+    /// Registers the File and Memory endpoints and the topics of <paramref name="config"/>, and keeps it as
+    /// <see cref="LoadedConfiguration"/> so the transport packages' <c>With…()</c> calls that follow register theirs.
+    /// </summary>
     public NymBrokerBuilder ApplyConfiguration(BrokerConfiguration config)
     {
+        ArgumentNullException.ThrowIfNull(config);
+        LoadedConfiguration = config;
         foreach (var ep in config.Endpoints)
         {
             if (ep.IsType(EndPointType.File)) AddFileEndPoint(ep.Name, ep.ToFileSettings(), ep.Mode);
@@ -229,6 +265,24 @@ public sealed class NymBrokerBuilder
         foreach (var topic in config.Topics)
             _configTopics.Add(topic);
 
+        return this;
+    }
+
+    /// <summary>
+    /// Calls <paramref name="register"/> for every endpoint of type <paramref name="type"/> (case-insensitive) in
+    /// <see cref="LoadedConfiguration"/>; does nothing when no configuration was loaded. For transport packages:
+    /// <c>builder.AddConfiguredEndPoints("Kafka", ep =&gt; builder.AddKafkaEndPoint(ep.Name, ep.GetSettings&lt;KafkaSettings&gt;(), ep.Mode))</c>.
+    /// </summary>
+    public NymBrokerBuilder AddConfiguredEndPoints(string type, Action<EndPointConfiguration> register)
+    {
+        ArgumentNullException.ThrowIfNull(register);
+        if (LoadedConfiguration is null) return this;
+
+        foreach (var ep in LoadedConfiguration.Endpoints)
+        {
+            if (ep.IsType(type))
+                register(ep);
+        }
         return this;
     }
 

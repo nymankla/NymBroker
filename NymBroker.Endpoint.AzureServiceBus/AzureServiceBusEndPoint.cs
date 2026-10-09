@@ -15,8 +15,6 @@ namespace NymBroker.Endpoint.AzureServiceBus;
 /// </summary>
 public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDisposable
 {
-    private static readonly TimeSpan HealthCheckTimeout = TimeSpan.FromSeconds(5);
-
     private readonly string _name;
     private readonly AzureServiceBusSettings _settings;
     private readonly ILogger<AzureServiceBusEndPoint> _logger;
@@ -151,20 +149,10 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDispos
 
     public IHealthCheckResult HealthCheck()
     {
-        try
-        {
-            if (_processor is { IsProcessing: false, IsClosed: false })
-                return HealthCheckResult.Unhealthy($"Azure Service Bus endpoint '{_name}' is not processing messages");
+        if (_processor is { IsProcessing: false, IsClosed: false })
+            return HealthCheckResult.Unhealthy($"Azure Service Bus endpoint '{_name}' is not processing messages");
 
-            using var cts = new CancellationTokenSource(HealthCheckTimeout);
-            ProbeAsync(cts.Token).GetAwaiter().GetResult();
-            return HealthCheckResult.Healthy();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Azure Service Bus endpoint '{Name}' health check failed", _name);
-            return HealthCheckResult.Unhealthy(ex.Message);
-        }
+        return HealthCheckResult.FromProbe("Azure Service Bus", _name, _logger, ProbeAsync);
     }
 
     public async ValueTask DisposeAsync()
@@ -183,17 +171,13 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDispos
         ProcessResult result;
         try
         {
-            result = await handler(BuildBody(message, _settings.ReadDeadLetterQueue, _name), args.CancellationToken);
+            result = await EndpointHandler.InvokeAsync(handler, BuildBody(message, _settings.ReadDeadLetterQueue, _name), _logger, _name,
+                args.CancellationToken, message.MessageId);
         }
         catch (OperationCanceledException) when (args.CancellationToken.IsCancellationRequested)
         {
             // Shutting down: leave the message unsettled; its lock expires and Service Bus redelivers it.
             return;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unhandled error dispatching message {MessageId} on endpoint '{Name}'", message.MessageId, _name);
-            result = ProcessResult.Retry(ex);
         }
 
         try

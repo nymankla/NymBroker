@@ -333,6 +333,70 @@ public sealed class BuilderConfigurationTests
         }
     }
 
+    [Fact]
+    public async Task ApplyConfiguration_FromIConfiguration_IsSeenByWithExtensions()
+    {
+        // Before the fix only LoadConfiguration(file) set LoadedConfiguration, so With…() ignored these entries.
+        var json = """
+            {
+              "NymBroker": {
+                "Endpoints": [
+                  { "name": "Pg1", "type": "Postgres", "config": { "tableName": "orders_queue", "autoCreateTable": false } }
+                ]
+              }
+            }
+            """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var configuration = new ConfigurationBuilder().AddJsonStream(stream).Build();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddNymBroker()
+            .ApplyConfiguration(BrokerConfigurationReader.Read(configuration))
+            .WithPostgres()
+            .Build();
+
+        await using var sp = services.BuildServiceProvider();
+        Assert.IsType<PostgresEndPoint>(sp.GetRequiredKeyedService<IEndPoint>("Pg1"));
+    }
+
+    public sealed class CustomSettings
+    {
+        public string Topic { get; set; } = "default-topic";
+        public int Partitions { get; set; } = 1;
+    }
+
+    [Fact]
+    public void AddConfiguredEndPoints_CallsRegisterForMatchingTypes_WithDeserializedSettings()
+    {
+        var config = new BrokerConfiguration
+        {
+            Endpoints =
+            [
+                new EndPointConfiguration { Name = "K1", Type = "kafka", Config = System.Text.Json.JsonDocument.Parse("""{ "topic": "orders", "partitions": 3 }""").RootElement },
+                new EndPointConfiguration { Name = "K2", Type = "Kafka" },
+                new EndPointConfiguration { Name = "Mem", Type = "Memory" }
+            ]
+        };
+
+        var seen = new List<(string Name, CustomSettings Settings)>();
+        new ServiceCollection().AddNymBroker()
+            .ApplyConfiguration(config)
+            .AddConfiguredEndPoints("Kafka", ep => seen.Add((ep.Name, ep.GetSettings<CustomSettings>())));
+
+        Assert.Collection(seen,
+            k1 => { Assert.Equal("K1", k1.Name); Assert.Equal("orders", k1.Settings.Topic); Assert.Equal(3, k1.Settings.Partitions); },
+            k2 => { Assert.Equal("K2", k2.Name); Assert.Equal("default-topic", k2.Settings.Topic); });
+    }
+
+    [Fact]
+    public void AddConfiguredEndPoints_WithoutLoadedConfiguration_DoesNothing()
+    {
+        var called = false;
+        new ServiceCollection().AddNymBroker().AddConfiguredEndPoints("Kafka", _ => called = true);
+        Assert.False(called);
+    }
+
     // --- EndPointConfiguration.ToFileSettings ---
 
     [Fact]

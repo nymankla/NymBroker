@@ -231,22 +231,18 @@ public sealed class UdpEndPoint : IEndPointEventDriven, IAsyncDisposable
             while (!token.IsCancellationRequested)
             {
                 var datagram = await listener.ReceiveAsync(token);
-                try
-                {
-                    // UDP has no redelivery and no dead-letter queue (UsesNativeDeadLetter stays false), so anything
-                    // but Completed means the message is lost — log it and keep the loop alive.
-                    var result = await handler(datagram.Buffer, token);
-                    if (result.Outcome != ProcessOutcome.Completed)
-                        _logger.LogError(result.Exception, "Message on endpoint '{Name}' was not processed ({Failure}) and cannot be redelivered",
-                            _name, result.FailureText);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}'", _name);
-                }
+
+                // A handler exception is logged and comes back as Retry; only the stop token's cancellation is rethrown.
+                var result = await EndpointHandler.InvokeAsync(handler, datagram.Buffer, _logger, _name, token);
+
+                // UDP has no redelivery and no dead-letter queue (UsesNativeDeadLetter stays false), so anything
+                // but Completed means the message is lost — log it and keep the loop alive.
+                if (result.Outcome != ProcessOutcome.Completed)
+                    _logger.LogError(result.Exception, "Message on endpoint '{Name}' was not processed ({Failure}) and cannot be redelivered",
+                        _name, result.FailureText);
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
             _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", _name);
@@ -282,8 +278,8 @@ The patterns every listening endpoint should copy:
 2. **Use a linked `CancellationTokenSource`.** Then the loop stops either when the host token is cancelled or when `StopListeningAsync` runs.
 3. **Settle every message by its result.** UDP can't redeliver or dead-letter, so `UsesNativeDeadLetter` stays `false` and anything other than `Completed` is logged as lost.
 4. **Use three catch layers**, the same as the built-in endpoints:
-   - Per message: `catch (Exception ex) when (ex is not OperationCanceledException)` → `LogError`, then continue.
-   - Loop: `catch (OperationCanceledException) { }`, because that is a clean shutdown, not an error.
+   - Per message: call the handler through `EndpointHandler.InvokeAsync` (`NymBroker.Core.Endpoint`). It logs a handler exception at `Error` and returns `Retry`, and rethrows only an `OperationCanceledException` while your stop token is cancelled. A cancellation the handler raises itself, such as an HTTP timeout, is a failure, not a shutdown.
+   - Loop: `catch (OperationCanceledException) when (token.IsCancellationRequested) { }`, because that is a clean shutdown, not an error.
    - Anything else that kills the loop → `LogCritical`.
 5. **Await the loop in `StopListeningAsync`,** so shutdown doesn't cut off a message mid-dispatch.
 6. **Report a dead loop in `HealthCheck`.** A listener that has stopped while it should be running is unhealthy.
@@ -410,18 +406,8 @@ public sealed class BrokeredQueueEndPoint : IEndPointEventDriven
 
     private async Task DispatchAsync(RemoteMessage message, Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token)
     {
-        ProcessResult result;
-        try
-        {
-            result = await handler(message.Body, token);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Defensive: ProcessAsync does not throw, but a handler might. Treat it like Retry.
-            _logger.LogError(ex, "Unhandled error dispatching message on endpoint '{Name}' (delivery {Count})",
-                _name, message.DeliveryCount);
-            result = ProcessResult.Retry(ex);
-        }
+        // Defensive: ProcessAsync does not throw, but a handler might — InvokeAsync logs it and returns Retry.
+        var result = await EndpointHandler.InvokeAsync(handler, message.Body, _logger, _name, token, message.LockToken);
 
         switch (result.Outcome)
         {
@@ -453,20 +439,9 @@ public sealed class BrokeredQueueEndPoint : IEndPointEventDriven
         _listeningCts = null;
     }
 
+    // Runs the probe with a 5 s timeout; a failure is logged at Error and reported unhealthy. Never throws.
     public IHealthCheckResult HealthCheck()
-    {
-        try
-        {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            _client.PingAsync(cts.Token).GetAwaiter().GetResult();
-            return HealthCheckResult.Healthy();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Health check failed for endpoint '{Name}'", _name);
-            return HealthCheckResult.Unhealthy(ex.Message);
-        }
-    }
+        => HealthCheckResult.FromProbe("Brokered queue", _name, _logger, ct => _client.PingAsync(ct));
 }
 ```
 
@@ -485,7 +460,29 @@ What this sample adds beyond Sample B:
   - prepare statements once;
   - use literal (not parameterized) status values when the table has a filtered or partial index.
 
-  When the loop stops, write the outcomes of messages already handled with `CancellationToken.None`. Measured gains were 10× to 1 000× over a per-message design; see CLAUDE.md, *SQLite / PostgreSQL / SQL Server Endpoint*.
+  When the loop stops, write the outcomes of messages already handled with a fresh token. Measured gains were 10× to 1 000× over a per-message design; see CLAUDE.md, *SQLite / PostgreSQL / SQL Server Endpoint*.
+
+  **Don't write that loop yourself:** derive from `LeasedQueueListener` (`NymBroker.Core.Endpoint.Queue`), which the three SQL endpoints use. It runs the drain/idle loop, calls the handler, maps each `ProcessResult` to a row outcome (`Completed`; `DeadLetter` → `Failed`; `Retry` → `Pending`, or `Failed` at `MaxRetryCount`) with the standard log messages, and writes the handled outcomes on shutdown. You supply the data access; your settings class implements `ILeasedQueueSettings`:
+
+  ```csharp
+  private sealed class Listener(MyQueueEndPoint owner) : LeasedQueueListener(owner._name, owner._settings, owner._logger)
+  {
+      // Write the outcomes (may be empty) and claim the next batch, ideally in one transaction.
+      protected override Task<IReadOnlyList<QueueMessage>> FinalizeAndClaimAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
+          => owner.FinalizeAndClaimAsync(outcomes, ct);
+
+      // Write the outcomes without claiming (called once when the loop stops).
+      protected override Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
+          => owner.FinalizeAsync(outcomes, ct);
+
+      // Optional: wake up early on a notification instead of waiting the whole PollInterval (see PostgresEndPoint).
+      // protected override Task WaitWhenIdleAsync(CancellationToken ct) => ...;
+  }
+
+  // In the endpoint: StartListeningAsync → _listener.Start(handler, ct); StopListeningAsync → _listener.StopAsync().
+  ```
+
+  Status values are `QueueMessageStatus` (`Pending = 0`, `InProgress = 1`, `Completed = 2`, `Failed = 3`); `LeasedQueueListener.GetLeaseTimeoutSeconds(settings)` gives the lease for the claim statement.
 
 > **Concurrency:** this loop dispatches one message at a time, which keeps ordering and is the right default. If you add parallel dispatch (for example a `SemaphoreSlim(n)`), document that ordering is no longer guaranteed. If your client isn't thread-safe, serialize access to it the way `SqliteEndPoint` does with `_dbLock`.
 
@@ -550,7 +547,7 @@ The hosted service starts the broker, and the broker starts your listener. You d
 
 ## 7. Loading from `queuesettings.json`
 
-Config-driven endpoints follow a `With<Transport>()` pattern. It reads the matching entries from `builder.LoadedConfiguration` and calls your `Add…EndPoint`.
+Config-driven endpoints follow a `With<Transport>()` pattern. It reads the matching entries from `builder.LoadedConfiguration` and calls your `Add…EndPoint`; `AddConfiguredEndPoints` does the loop and `GetSettings<T>()` deserializes the entry's `Config` (camelCase, case-insensitive; a missing `Config` gives the defaults).
 
 `Type` is an open string, so your package defines its own type name; Core needs no changes:
 
@@ -561,28 +558,8 @@ public static class UdpEndPointType
 }
 
 public static NymBrokerBuilder WithUdp(this NymBrokerBuilder builder)
-{
-    if (builder.LoadedConfiguration is null) return builder;
-
-    foreach (var ep in builder.LoadedConfiguration.Endpoints)
-    {
-        if (ep.IsType(UdpEndPointType.Udp))   // case-insensitive
-            builder.AddUdpEndPoint(ep.Name, ToSettings(ep), ep.Mode);
-    }
-
-    return builder;
-}
-
-private static readonly JsonSerializerOptions JsonOptions = new()
-{
-    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    PropertyNameCaseInsensitive = true
-};
-
-private static UdpSettings ToSettings(EndPointConfiguration ep)
-    => ep.Config.HasValue
-        ? JsonSerializer.Deserialize<UdpSettings>(ep.Config.Value.GetRawText(), JsonOptions) ?? new()
-        : new();
+    => builder.AddConfiguredEndPoints(UdpEndPointType.Udp,   // case-insensitive
+        ep => builder.AddUdpEndPoint(ep.Name, ep.GetSettings<UdpSettings>(), ep.Mode));
 ```
 
 ```json
@@ -597,7 +574,7 @@ private static UdpSettings ToSettings(EndPointConfiguration ep)
 
 How the pieces fit:
 
-- `LoadConfiguration` loads **every** entry, whatever its `Type`, and registers only `File` and `Memory` itself. Every other entry waits for the `With*()` call that recognises its type.
+- `LoadConfiguration` (or `ApplyConfiguration` with a configuration read from `IConfiguration`) loads **every** entry, whatever its `Type`, and registers only `File` and `Memory` itself. Every other entry waits for the `With*()` call that recognises its type.
 - `NymBroker.Core.Factory.EndPointType` holds the built-in names as string constants (`File`, `RabbitMq`, `Memory`, `Sql`, `Postgres`) and lists them in `EndPointType.BuiltIn`. Don't add your type there; keep the constant in your own package.
 - Pick a type name that won't clash with the built-ins or other packages. Matching is case-insensitive.
 - An entry whose `With*()` is never called is silently ignored, so posting to that endpoint name fails at runtime with *"No endpoint registered with name …"*. Remind users to call your `With*()` after `LoadConfiguration`.

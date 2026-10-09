@@ -78,16 +78,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
                     var consumer = new AsyncEventingBasicConsumer(channel);
                     consumer.ReceivedAsync += async (_, ea) =>
                     {
-                        ProcessResult result;
-                        try
-                        {
-                            result = await handler(ea.Body.ToArray(), token);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error processing message from {Queue}", _settings.ReadQueueName);
-                            result = ProcessResult.Retry(ex);
-                        }
+                        var result = await EndpointHandler.InvokeAsync(handler, ea.Body.ToArray(), _logger, _name, token, ea.DeliveryTag);
 
                         if (result.Outcome == ProcessOutcome.Completed)
                         {

@@ -153,7 +153,7 @@ public sealed partial class NymBrokerImpl
             resultTag = ResultTag(result.Outcome);
             return result;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             // Unexpected failure (e.g. posting to a route's destination threw): the source endpoint
             // decides what Retry means for its transport (redeliver, or log and drop).
@@ -358,7 +358,7 @@ public sealed partial class NymBrokerImpl
             {
                 await FanOutTopicAsync(topic, deserializedMessage, context, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 recordFailure(ex);
                 if (nativeDeadLetter)
@@ -392,7 +392,7 @@ public sealed partial class NymBrokerImpl
             {
                 await _consumerDispatcher.DispatchAsync(messageType, message, context, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 recordFailure(ex);
                 if (nativeDeadLetter)

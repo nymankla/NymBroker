@@ -1,20 +1,12 @@
-using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Factory;
-using NymBroker.Core.Factory.Configuration;
 
 namespace NymBroker.Endpoint.Sqlite;
 
 public static class NymBrokerBuilderSqliteExtensions
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true
-    };
-
     public static NymBrokerBuilder AddSqliteEndPoint(
         this NymBrokerBuilder builder, string name, SqliteSettings? settings = null,
         EndpointMode mode = EndpointMode.ReadWrite)
@@ -28,23 +20,9 @@ public static class NymBrokerBuilderSqliteExtensions
 
     /// <summary>
     /// Processes any Sql endpoints from a previously loaded configuration file.
-    /// Call after <c>LoadConfiguration()</c>.
+    /// Call after <c>LoadConfiguration()</c> or <c>ApplyConfiguration()</c>.
     /// </summary>
     public static NymBrokerBuilder WithSql(this NymBrokerBuilder builder)
-    {
-        if (builder.LoadedConfiguration is null) return builder;
-
-        foreach (var ep in builder.LoadedConfiguration.Endpoints)
-        {
-            if (ep.IsType(EndPointType.Sql))
-                builder.AddSqliteEndPoint(ep.Name, ToSettings(ep), ep.Mode);
-        }
-
-        return builder;
-    }
-
-    private static SqliteSettings ToSettings(EndPointConfiguration ep)
-        => ep.Config.HasValue
-            ? JsonSerializer.Deserialize<SqliteSettings>(ep.Config.Value.GetRawText(), JsonOptions) ?? new()
-            : new();
+        => builder.AddConfiguredEndPoints(EndPointType.Sql,
+            ep => builder.AddSqliteEndPoint(ep.Name, ep.GetSettings<SqliteSettings>(), ep.Mode));
 }

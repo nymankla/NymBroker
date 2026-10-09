@@ -1,6 +1,8 @@
+using NymBroker.Core.Endpoint.Queue;
+
 namespace NymBroker.Endpoint.Sqlite;
 
-public sealed class SqliteSettings
+public sealed class SqliteSettings : ILeasedQueueSettings
 {
     public string ConnectionString { get; set; } = "Data Source=messages.db";
 

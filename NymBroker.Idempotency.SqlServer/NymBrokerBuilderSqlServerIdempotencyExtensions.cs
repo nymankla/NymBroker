@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Factory;
 
@@ -19,14 +18,8 @@ public static class NymBrokerBuilderSqlServerIdempotencyExtensions
         s.Validate();
 
         builder.Services.RemoveAll<SqlServerIdempotencySettings>();
-        builder.Services.RemoveAll<SqlServerIdempotencyStore>();
         builder.Services.AddSingleton(s);
-        builder.Services.AddSingleton(sp => new SqlServerIdempotencyStore(s, sp.GetRequiredService<ILogger<SqlServerIdempotencyStore>>()));
-        builder.AddIdempotentReceiver(sp => sp.GetRequiredService<SqlServerIdempotencyStore>());
-
-        if (s.CleanupInterval > TimeSpan.Zero)
-            builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SqlServerIdempotencyCleanupService>());
-
-        return builder;
+        return builder.AddIdempotencyStore(
+            sp => new SqlServerIdempotencyStore(s, sp.GetRequiredService<ILogger<SqlServerIdempotencyStore>>()), s.CleanupInterval, s.TableName);
     }
 }

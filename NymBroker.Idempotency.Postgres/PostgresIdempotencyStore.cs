@@ -9,7 +9,7 @@ namespace NymBroker.Idempotency.Postgres;
 /// Durable <see cref="IIdempotencyStore"/> in PostgreSQL, shared by all broker instances using the same table.
 /// Each operation opens a pooled connection from a thread-safe data source.
 /// </summary>
-public sealed class PostgresIdempotencyStore : IIdempotencyStore, IAsyncDisposable
+public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, IAsyncDisposable
 {
     private readonly PostgresIdempotencySettings _settings;
     private readonly ILogger<PostgresIdempotencyStore> _logger;
