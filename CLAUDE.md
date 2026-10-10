@@ -67,6 +67,7 @@ Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker comp
 | `samples/NymBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
 | `samples/NymBroker.SqlSample` | SQLite endpoint demo — posts orders, broker claims and dispatches |
 | `samples/NymBroker.SqlServerSample` | SQL Server endpoint demo — same flow as the Postgres sample; needs `scripts/setup-sqlserver.ps1` |
+| `samples/NymBroker.MediatRSample` | MediatR patterns (command / notification / query / pipeline) in a CQRS minimal API; `--demo` is a self-checking round trip, `--sqlite` makes the command queue durable. Explained in [docs/mediatr-comparison.md](docs/mediatr-comparison.md) |
 | `samples/NymBroker.AzureServiceBusSample` | Service Bus demo — a failing order is retried, dead-lettered by Service Bus, then read back via `ReadDeadLetterQueue`; needs `scripts/setup-servicebus.ps1` |
 | `samples/NymBroker.Benchmarks` | Throughput + allocation benchmark — Memory, File, SQLite and split scenarios always; Postgres, SQL Server, Azure Service Bus (emulator queue `nymbroker.bench`) and RabbitMQ scenarios when reachable on localhost (skipped otherwise) |
 

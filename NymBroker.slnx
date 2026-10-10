@@ -20,6 +20,7 @@
   <Project Path="samples/NymBroker.ConsumerSample/NymBroker.ConsumerSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
+  <Project Path="samples/NymBroker.MediatRSample/NymBroker.MediatRSample.csproj" />
   <Project Path="samples/NymBroker.PostgresSample/NymBroker.PostgresSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>

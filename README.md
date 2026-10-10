@@ -68,6 +68,7 @@ The [user guide](https://github.com/nymankla/NymBroker/blob/master/docs/user-gui
 - [Metrics, tracing, and health checks](https://github.com/nymankla/NymBroker/blob/master/docs/observability.md)
 - [Writing an endpoint](https://github.com/nymankla/NymBroker/blob/master/docs/writing-an-endpoint.md)
 - [Samples](https://github.com/nymankla/NymBroker/blob/master/docs/samples.md)
+- [MediatR patterns and CQRS](https://github.com/nymankla/NymBroker/blob/master/docs/mediatr-comparison.md)
 - [Benchmarks](https://github.com/nymankla/NymBroker/blob/master/docs/benchmarks.md)
 
 ## Community and project policies

@@ -19,6 +19,7 @@ dotnet run --project samples/<SampleName>
 | [NymBroker.CsvSample](../samples/NymBroker.CsvSample) | An input transformer that turns CSV lines into typed messages; invalid lines are dropped | `NymBroker` | — |
 | [NymBroker.RoutingSample](../samples/NymBroker.RoutingSample) | Routing from an inbox to VIP / Standard queues, a topic with two subscribers and an endpoint subscription, source guards against routing loops | `NymBroker`, `NymBroker.Endpoint.Sqlite` | — (in-memory SQLite) |
 | [NymBroker.SqlSample](../samples/NymBroker.SqlSample) | SQLite queue table: messages posted before start are claimed and dispatched once the broker starts | `NymBroker`, `NymBroker.Endpoint.Sqlite` | — (file `sqlsample.db`) |
+| [NymBroker.MediatRSample](../samples/NymBroker.MediatRSample/README.md) | MediatR patterns (command, notification, query, pipeline behavior) with NymBroker in a CQRS order API; self-checking `--demo`, `--sqlite` for a durable command queue — see [MediatR patterns](mediatr-comparison.md) | `NymBroker`, `NymBroker.Endpoint.Sqlite` | — |
 | [NymBroker.WebSample](../samples/NymBroker.WebSample) | ASP.NET Core minimal API that posts orders to a SQLite queue; OpenAPI + Scalar UI | `NymBroker`, `NymBroker.Endpoint.Sqlite` | — |
 | [NymBroker.PostgresSample](../samples/NymBroker.PostgresSample) | Same flow as the SQLite sample on a PostgreSQL queue table | `NymBroker`, `NymBroker.Endpoint.Postgres` | `./scripts/setup-postgres.ps1` |
 | [NymBroker.SqlServerSample](../samples/NymBroker.SqlServerSample) | Same flow on a SQL Server queue table | `NymBroker`, `NymBroker.Endpoint.SqlServer` | `./scripts/setup-sqlserver.ps1` |
@@ -47,4 +48,5 @@ These credentials are for local development only.
 - Separate producer and worker processes: **NymBroker.ProducerSample** with **NymBroker.ConsumerSample**.
 - Dead-lettering and retries: **NymBroker.AzureServiceBusSample**, and [Reliability](reliability.md).
 - Non-JSON input: **NymBroker.CsvSample**, and [Pipeline extensions](pipeline-extensions.md).
+- Coming from MediatR, or building CQRS: **NymBroker.MediatRSample**, explained in [MediatR patterns with NymBroker](mediatr-comparison.md).
 - Comparing transport and feature performance: **NymBroker.Benchmarks**, explained in [Benchmarks](benchmarks.md).
