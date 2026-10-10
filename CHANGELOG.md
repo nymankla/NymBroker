@@ -4,6 +4,12 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-11
+
+### Added
+
+- `samples/NymBroker.MediatRSample` and [MediatR patterns with NymBroker](docs/mediatr-comparison.md): commands, notifications, queries and pipeline behaviors as in MediatR, in a CQRS order API, with the reasoning and the pros and cons.
+
 ### Fixed
 
 - RabbitMQ endpoint: stopping the listener now works properly (#73). `StopListeningAsync` stops new deliveries, waits for the message being handled, acks the pending batch (`BatchAckSize > 1`), then ends the listener. Previously the listener loop and the reconnect attempts kept running after stop, a message handled during stop and the unacked part of the batch were redelivered, handlers never saw the stop, and exceptions in the delivery callback were swallowed by RabbitMQ.Client. Starting an endpoint that is already listening now throws.
