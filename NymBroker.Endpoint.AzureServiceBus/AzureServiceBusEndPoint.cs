@@ -113,7 +113,15 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDispos
             processor.ProcessErrorAsync += OnErrorAsync;
 
             // Starts the receive loop in the background and returns; connection problems surface via ProcessErrorAsync.
-            await processor.StartProcessingAsync(ct);
+            try
+            {
+                await processor.StartProcessingAsync(ct);
+            }
+            catch
+            {
+                await processor.DisposeAsync();   // not yet in _processor, so StopListeningAsync could not release it
+                throw;
+            }
             _processor = processor;
             _logger.LogInformation("Azure Service Bus endpoint '{Name}' listening on '{Entity}'{SubQueue}",
                 _name, processor.EntityPath, _settings.ReadDeadLetterQueue ? " (dead-letter queue)" : "");

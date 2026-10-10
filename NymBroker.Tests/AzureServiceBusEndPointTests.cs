@@ -322,6 +322,37 @@ public sealed class AzureServiceBusEndPointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task StopListening_WhileHandlerRuns_WaitsAndCompletesTheMessage()
+    {
+        // #73: stopping must not leave a handled message unsettled (it would be delivered again).
+        RequireServiceBus();
+        var ep = CreateEndPoint();
+        var calls = 0;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await ep.StartListeningAsync(async (_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            started.TrySetResult();
+            await release.Task;   // ignores the token on purpose: the handler finishes after stop has begun
+            return ProcessResult.Completed;
+        }, TestContext.Current.CancellationToken);
+        await ep.PostAsync("in-flight"u8.ToArray(), TestContext.Current.CancellationToken);
+        await started.Task.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        var stop = ep.StopListeningAsync();
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        Assert.False(stop.IsCompleted, "StopListeningAsync must wait for the running handler.");
+
+        release.SetResult();
+        await stop.WaitAsync(Timeout, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, Volatile.Read(ref calls));
+        Assert.Null(await PeekAsync(SubQueue.None));   // completed, not left in the queue
+    }
+
+    [Fact]
     public async Task ReadDeadLetterQueue_ReceivesDeadLetteredMessages_AndRemovesThemOnDeadLetterResult()
     {
         RequireServiceBus();
