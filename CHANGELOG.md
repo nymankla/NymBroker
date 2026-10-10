@@ -4,6 +4,11 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Fixed
+
+- RabbitMQ endpoint: stopping the listener now works properly (#73). `StopListeningAsync` stops new deliveries, waits for the message being handled, acks the pending batch (`BatchAckSize > 1`), then ends the listener. Previously the listener loop and the reconnect attempts kept running after stop, a message handled during stop and the unacked part of the batch were redelivered, handlers never saw the stop, and exceptions in the delivery callback were swallowed by RabbitMQ.Client. Starting an endpoint that is already listening now throws.
+- Azure Service Bus endpoint: the processor is disposed when `StartProcessingAsync` fails (#73).
+
 ## [0.9.3] - 2026-10-10
 
 ### Added
