@@ -1,9 +1,1 @@
 #nullable enable
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ClientCertificatePassword.get -> string?
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ClientCertificatePassword.set -> void
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ClientCertificatePath.get -> string?
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ClientCertificatePath.set -> void
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.TlsServerName.get -> string?
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.TlsServerName.set -> void
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseTls.get -> bool
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseTls.set -> void

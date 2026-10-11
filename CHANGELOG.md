@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-10-11
+
 ### Added
 
 - RabbitMQ TLS: `RabbitMqSettings.UseTls`, `TlsServerName`, `ClientCertificatePath` and `ClientCertificatePassword`. The server certificate is always verified.

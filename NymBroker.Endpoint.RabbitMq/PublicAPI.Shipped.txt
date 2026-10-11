@@ -35,3 +35,11 @@ NymBroker.Endpoint.RabbitMq.RabbitMqSettings.WriteQueueName.get -> string!
 NymBroker.Endpoint.RabbitMq.RabbitMqSettings.WriteQueueName.set -> void
 static NymBroker.Endpoint.RabbitMq.NymBrokerBuilderRabbitMqExtensions.AddRabbitMqEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.RabbitMq.RabbitMqSettings? settings = null, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> NymBroker.Core.Factory.NymBrokerBuilder!
 static NymBroker.Endpoint.RabbitMq.NymBrokerBuilderRabbitMqExtensions.WithRabbitMq(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ClientCertificatePassword.get -> string?
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ClientCertificatePassword.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ClientCertificatePath.get -> string?
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.ClientCertificatePath.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.TlsServerName.get -> string?
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.TlsServerName.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseTls.get -> bool
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseTls.set -> void
