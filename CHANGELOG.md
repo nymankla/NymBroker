@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-11
+
 ### Added
 
 - `INymBroker.PostRawAsync(endpoint, Stream | ReadOnlyMemory<byte>, …)` posts bytes as-is: an existing envelope, or raw input for an input transformer (#74). A stream is read from its current position to the end, so non-seekable streams (a request body) work; the bytes are copied.
