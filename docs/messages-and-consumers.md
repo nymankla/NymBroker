@@ -97,6 +97,12 @@ Every consumer and subscriber call receives the envelope's metadata:
 
 `context.Address.From` is how one consumer can behave differently depending on where a message came from — for example a consumer that also reads from a dead-letter endpoint.
 
+## Database transactions in a consumer
+
+Because each message gets its own DI scope, a scoped `DbContext` (or connection, or unit of work) is shared by everything resolved for that message, so one transaction covers it all. Commit before returning; throw to roll back — the broker then returns `Retry` and the transport redelivers the message.
+
+The transaction does not include the queue's acknowledgement, which is written separately by the endpoint, so a message can still arrive again after your commit. Register a durable idempotency store (`AddSqlServerIdempotency`, `AddPostgresIdempotency`, `AddSqliteIdempotency`) so the broker drops redeliveries before the consumer runs ([Reliability](reliability.md#duplicate-detection)). [`samples/NymBroker.EfCoreTransactionSample`](../samples/NymBroker.EfCoreTransactionSample/README.md) shows the full pattern with EF Core and SQL Server, including what happens on a duplicate and on a rollback.
+
 ## Sending from a consumer
 
 Inject `INymBroker` to send follow-up messages:
