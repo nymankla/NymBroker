@@ -42,6 +42,46 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
         Assert.Equal(warningsAtStop, ReconnectWarnings(logger));
     }
 
+    [Fact]
+    public void ConnectionFactory_Tls_IsOffByDefault()
+    {
+        var ssl = RabbitMqEndPoint.CreateConnectionFactory(new RabbitMqSettings()).Ssl;
+
+        Assert.False(ssl.Enabled);
+    }
+
+    [Fact]
+    public void ConnectionFactory_Tls_VerifiesTheServerCertificate()
+    {
+        var factory = RabbitMqEndPoint.CreateConnectionFactory(new RabbitMqSettings
+        {
+            HostName = "rabbit.internal",
+            Port = 5671,
+            UseTls = true,
+            ClientCertificatePath = "client.pfx",
+            ClientCertificatePassword = "secret"
+        });
+
+        Assert.True(factory.Ssl.Enabled);
+        Assert.Equal("rabbit.internal", factory.Ssl.ServerName);   // defaults to HostName
+        Assert.Equal(System.Net.Security.SslPolicyErrors.None, factory.Ssl.AcceptablePolicyErrors);   // nothing tolerated
+        Assert.Null(factory.Ssl.CertificateValidationCallback);
+        Assert.Equal("client.pfx", factory.Ssl.CertPath);
+        Assert.Equal("secret", factory.Ssl.CertPassphrase);
+        Assert.Equal(5671, factory.Port);
+    }
+
+    [Fact]
+    public void ConnectionFactory_Tls_ServerNameOverride()
+    {
+        var ssl = RabbitMqEndPoint.CreateConnectionFactory(new RabbitMqSettings
+        {
+            HostName = "10.0.0.5", UseTls = true, TlsServerName = "rabbit.example.com"
+        }).Ssl;
+
+        Assert.Equal("rabbit.example.com", ssl.ServerName);
+    }
+
     // --- Integration ---
 
     [Fact]
@@ -93,6 +133,23 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
         await ep.StopListeningAsync().WaitAsync(Timeout, TestContext.Current.CancellationToken);
 
         Assert.Equal(0u, await ReadyMessageCountAsync());   // 3 < BatchAckSize: before #73 all three were redelivered
+    }
+
+    [Fact]
+    public async Task UseTls_AgainstThePlaintextPort_DoesNotConnect()
+    {
+        // Proves UseTls really reaches the connection: the container's 5672 speaks plain AMQP, so the TLS handshake fails.
+        RequireRabbitMq();
+        var logger = new CapturingLogger<RabbitMqEndPoint>();
+        var ep = new RabbitMqEndPoint("RabbitTls",
+            new RabbitMqSettings { HostName = Host!, Port = 5672, UseTls = true, ReadQueueName = _queue, ReconnectDelaySeconds = 1 }, logger);
+        _endpoints.Add(ep);
+
+        await ep.StartListeningAsync((_, _) => Task.FromResult(ProcessResult.Completed), TestContext.Current.CancellationToken);
+        await WaitUntilAsync(() => ReconnectWarnings(logger) > 0);
+
+        Assert.False(ep.HealthCheck().IsHealthy);
+        Assert.DoesNotContain(logger.Entries, e => e.Message.Contains("connected to"));
     }
 
     [Fact]

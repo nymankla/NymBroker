@@ -72,9 +72,12 @@ Each endpoint's settings type defines its available options and defaults. The mo
 | `LeaseTimeout`, `MaxRetryCount` | SQL endpoints | how long a claimed row is locked; attempts before a row becomes `Failed` |
 | `UseNotifications` | PostgreSQL | wake idle listeners with `NOTIFY` instead of waiting out `PollInterval` |
 | `ReadQueueName`, `WriteQueueName` | RabbitMQ | queue to consume from / publish to |
+| `UseTls`, `TlsServerName`, `ClientCertificatePath` | RabbitMQ | TLS with verified server certificate, optional client certificate — see [Production security](security.md#rabbitmq) |
 | `MaxConcurrentCalls`, `PrefetchCount` | Azure Service Bus | parallel handlers (above 1 gives up ordering); messages fetched ahead |
 | `ReadDeadLetterQueue` | Azure Service Bus | read the entity's dead-letter queue instead (repair / replay) |
 | `UseNativeDeadLetter` | RabbitMQ, Service Bus, SQL endpoints | let the transport retry and dead-letter (default `true`) — see [Reliability](reliability.md) |
+
+The default connection settings, and the connection strings in the samples, match the local Docker containers — plaintext RabbitMQ, `TrustServerCertificate=True` for SQL Server, well-known passwords. For production, see [Production security](security.md).
 
 Local Docker setups for PostgreSQL, SQL Server, RabbitMQ and the Service Bus emulator are in `scripts/` (`setup-postgres.ps1`, `setup-sqlserver.ps1`, `setup-rabbitmq.ps1`, `setup-servicebus.ps1`).
 

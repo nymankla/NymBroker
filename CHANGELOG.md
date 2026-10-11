@@ -4,6 +4,11 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- RabbitMQ TLS: `RabbitMqSettings.UseTls`, `TlsServerName`, `ClientCertificatePath` and `ClientCertificatePassword`. The server certificate is always verified.
+- [Production security](docs/security.md): TLS and certificate verification for RabbitMQ, SQL Server, PostgreSQL and Azure Service Bus, secrets, least-privilege permissions, and what can leak.
+
 ## [0.9.4] - 2026-10-11
 
 ### Added

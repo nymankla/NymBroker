@@ -52,6 +52,7 @@ flowchart LR
 | [Retry policy](resilience.md) | `RetryPolicy` options, backoff and jitter, how the File and RabbitMQ endpoints use it |
 | [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, scheduled actions |
 | [Observability](observability.md) | Metrics, tracing, logging and health checks |
+| [Production security](security.md) | TLS and certificate verification per transport (RabbitMQ, SQL Server, PostgreSQL, Service Bus), secrets, least privilege, what can leak |
 | [Samples](samples.md) | The runnable sample apps, what each shows, and the local infrastructure they need |
 | [MediatR patterns](mediatr-comparison.md) | Commands, notifications, queries and pipeline behaviors as in MediatR, CQRS with NymBroker, and when to use which |
 | [Benchmarks](benchmarks.md) | Running the throughput benchmark, its scenarios, and how to read the results |

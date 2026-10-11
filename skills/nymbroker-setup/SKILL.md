@@ -87,7 +87,7 @@ Settings per transport (only set what differs from the defaults):
 | SQLite | `SqliteSettings { ConnectionString, TableName, AutoCreateTable, BatchSize, PollInterval, LeaseTimeout, MaxRetryCount }` | `Data Source=queue.db` |
 | PostgreSQL | `PostgresSettings { ConnectionString, TableName, AutoCreateTable, UseNotifications, … }` | same SQL options as SQLite |
 | SQL Server | `SqlServerSettings { ConnectionString, TableName = "dbo.x", AutoCreateTable, … }` | same SQL options |
-| RabbitMQ | `RabbitMqSettings { HostName, ReadQueueName, WriteQueueName }` | omit `ReadQueueName` for a producer |
+| RabbitMQ | `RabbitMqSettings { HostName, ReadQueueName, WriteQueueName, UseTls, Port }` | omit `ReadQueueName` for a producer; production: `UseTls = true`, `Port = 5671` |
 | Service Bus | `AzureServiceBusSettings { ConnectionString or FullyQualifiedNamespace + Credential, QueueName or TopicName (+ SubscriptionName), MaxConcurrentCalls, PrefetchCount }` | `Credential` (e.g. `DefaultAzureCredential`) needs code, not JSON |
 
 **Role:** producer-only → pass `EndpointMode.WriteOnly` as the last argument (`AddSqliteEndPoint("Orders", settings, EndpointMode.WriteOnly)`). Consumer or both → default `ReadWrite`.
@@ -148,6 +148,15 @@ await broker.PostBatchAsync("Orders", orders, ct);   // many messages, one round
 ```
 
 In a console app without DI-driven startup, call `await host.StartAsync()` before relying on consumers; posting before start is fine — messages wait in the transport.
+
+## 6b. Production security
+
+For anything beyond local development (https://github.com/nymankla/NymBroker/blob/master/docs/security.md):
+
+- Never rely on the default connection settings — they are the local Docker containers' (`sa` / `TrustServerCertificate=True` for SQL Server, `postgres/postgres`, RabbitMQ `guest` without TLS).
+- SQL Server: `Encrypt=Mandatory` or `Strict`, `TrustServerCertificate=False`; Azure SQL with `Authentication=Active Directory Managed Identity` needs the `Microsoft.Data.SqlClient.Extensions.Azure` package. PostgreSQL: `SSL Mode=VerifyFull`. RabbitMQ: `UseTls = true`, `Port = 5671`. Service Bus: `FullyQualifiedNamespace` + a managed-identity `Credential`.
+- Secrets from user secrets / environment variables / a secret store via `ApplyConfiguration(BrokerConfigurationReader.Read(builder.Configuration))`, never in `queuesettings.json`.
+- Create queue tables in a deployment step and run with `AutoCreateTable = false` and only `SELECT, INSERT, UPDATE` rights.
 
 ## 7. Finish
 

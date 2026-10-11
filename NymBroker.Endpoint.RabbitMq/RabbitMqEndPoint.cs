@@ -280,6 +280,23 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         return _consumeChannel;
     }
 
+    internal static ConnectionFactory CreateConnectionFactory(RabbitMqSettings settings) => new()
+    {
+        HostName = settings.HostName,
+        Port = settings.Port,
+        UserName = settings.User,
+        Password = settings.Password,
+        VirtualHost = settings.VirtualHost,
+        // AcceptablePolicyErrors stays None: an untrusted, expired or mismatched server certificate fails the connection.
+        Ssl = new SslOption
+        {
+            Enabled = settings.UseTls,
+            ServerName = settings.TlsServerName ?? settings.HostName,
+            CertPath = settings.ClientCertificatePath ?? string.Empty,
+            CertPassphrase = settings.ClientCertificatePassword ?? string.Empty
+        }
+    };
+
     private async Task<IConnection> EnsureConnectionAsync(CancellationToken ct)
     {
         if (_connection?.IsOpen == true) return _connection;
@@ -289,17 +306,9 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         {
             if (_connection?.IsOpen == true) return _connection;
 
-            var factory = new ConnectionFactory
-            {
-                HostName = _settings.HostName,
-                Port = _settings.Port,
-                UserName = _settings.User,
-                Password = _settings.Password,
-                VirtualHost = _settings.VirtualHost
-            };
-
-            _connection = await factory.CreateConnectionAsync(ct);
-            _logger.LogInformation("RabbitMQ [{Name}] connected to {Host}:{Port}", _name, _settings.HostName, _settings.Port);
+            _connection = await CreateConnectionFactory(_settings).CreateConnectionAsync(ct);
+            _logger.LogInformation("RabbitMQ [{Name}] connected to {Host}:{Port}{Tls}", _name, _settings.HostName, _settings.Port,
+                _settings.UseTls ? " (TLS)" : "");
             return _connection;
         }
         finally

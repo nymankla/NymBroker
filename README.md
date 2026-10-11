@@ -66,6 +66,7 @@ The [user guide](https://github.com/nymankla/NymBroker/blob/master/docs/user-gui
 - [Retry policy](https://github.com/nymankla/NymBroker/blob/master/docs/resilience.md)
 - [Pipeline extensions](https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md)
 - [Metrics, tracing, and health checks](https://github.com/nymankla/NymBroker/blob/master/docs/observability.md)
+- [Production security](https://github.com/nymankla/NymBroker/blob/master/docs/security.md)
 - [Writing an endpoint](https://github.com/nymankla/NymBroker/blob/master/docs/writing-an-endpoint.md)
 - [Samples](https://github.com/nymankla/NymBroker/blob/master/docs/samples.md)
 - [MediatR patterns and CQRS](https://github.com/nymankla/NymBroker/blob/master/docs/mediatr-comparison.md)
