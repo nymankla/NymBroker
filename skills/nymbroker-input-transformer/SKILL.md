@@ -79,7 +79,7 @@ builder.Services.AddNymBroker()
 
 - A File endpoint's default `SearchPattern` is `*.json` — set it for other extensions.
 - An endpoint with a transformer only accepts the foreign format; NymBroker envelopes posted to it go through the transformer too. Use a separate endpoint for normal messages.
-- To push raw bytes from code (tests, an HTTP webhook): `await broker.PostAsync("CsvInbox", stream)` with a `Stream`.
+- To push raw bytes from code (tests, an HTTP webhook): `await broker.PostRawAsync("CsvInbox", bytes)` (a `byte[]`, or a `Stream` such as a request body). Don't pass bytes or streams to `PostAsync` — it serializes its argument as a message and throws for bytes.
 
 ## 4. Test
 

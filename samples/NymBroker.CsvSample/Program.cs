@@ -53,7 +53,7 @@ Console.WriteLine();
 foreach (var line in csvLines)
 {
     var bytes = Encoding.UTF8.GetBytes(line);
-    await broker.PostAsync(Endpoint, (Stream)new MemoryStream(bytes));
+    await broker.PostRawAsync(Endpoint, bytes);
     Console.WriteLine($"  posted: {line}");
 }
 

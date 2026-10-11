@@ -23,12 +23,19 @@ public interface INymBroker
     Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true) where T : class;
 
     /// <summary>
-    /// Post a pre-serialized stream to a named endpoint.
-    /// When <paramref name="splitThresholdBytes"/> is set and the stream exceeds it, the payload
-    /// is transparently split into <see cref="Aggregator.SplitMessage"/> parts and posted individually.
+    /// Post bytes as-is to a named endpoint: an existing NymBroker envelope, or raw input for an endpoint with an
+    /// input transformer. The stream is read from its current position to the end.
+    /// When <paramref name="splitThresholdBytes"/> is set and the payload exceeds it, it is transparently split into
+    /// <see cref="Aggregator.SplitMessage"/> parts and posted individually.
     /// See <see cref="PostAsync{T}"/> for the <paramref name="compress"/> behavior.
     /// </summary>
-    Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true);
+    // RS0026: the two overloads differ in a required parameter (Stream / ReadOnlyMemory<byte>), so calls are never ambiguous.
+#pragma warning disable RS0026
+    Task PostRawAsync(string endpointName, Stream message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true);
+
+    /// <summary>Post bytes as-is to a named endpoint. See <see cref="PostRawAsync(string, Stream, CancellationToken, int?, bool)"/>.</summary>
+    Task PostRawAsync(string endpointName, ReadOnlyMemory<byte> message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true);
+#pragma warning restore RS0026
 
     /// <summary>Start a fluent route definition for message type T.</summary>
     IRouteBuilder<T> Route<T>() where T : class;

@@ -82,12 +82,12 @@ public sealed class NymBrokerAdditionalTests
     }
 
     [Fact]
-    public async Task PostAsync_Stream_ThrowsInvalidOperationException_WhenEndpointNotFound()
+    public async Task PostRawAsync_Stream_ThrowsInvalidOperationException_WhenEndpointNotFound()
     {
         var (broker, _) = BuildBroker();
         using var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("{}"));
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => broker.PostAsync("Unknown", ms, TestContext.Current.CancellationToken));
+            () => broker.PostRawAsync("Unknown", ms, TestContext.Current.CancellationToken));
     }
 
     // --- ProcessAsync with invalid JSON ---

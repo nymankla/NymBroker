@@ -88,8 +88,8 @@ await WaitUntilAsync(async _ => await CompletedIdempotencyRowsAsync() == 1);
 // --- 2. Redelivery: the same envelope (same message id) arrives twice -----------------------------------------------
 Console.WriteLine("2. Deliver the same message twice (what a redelivery after a lost ack looks like)");
 var envelope = Envelope(Guid.NewGuid(), new PlaceOrder("ORD-2", "Bob", [new("WIDGET", 1)]));
-await broker.PostAsync("Orders", (Stream)new MemoryStream(envelope));   // typed as Stream: posts the bytes as-is
-await broker.PostAsync("Orders", (Stream)new MemoryStream(envelope));
+await broker.PostRawAsync("Orders", envelope);   // posts the bytes as-is
+await broker.PostRawAsync("Orders", envelope);
 await WaitUntilAsync(async _ => await QueueCountAsync(status: 2) == 3);   // 3 rows Completed: ORD-1 and ORD-2 twice
 Check(await QueryAsync(db => db.Orders.CountAsync(o => o.OrderId == "ORD-2")) == 1
       && await StockAsync("WIDGET") == 7, "applied once (WIDGET 8 → 7, not 6); the broker drops the second delivery as a duplicate");

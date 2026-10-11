@@ -17,22 +17,30 @@ public sealed partial class NymBrokerImpl
 {
     public async Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true) where T : class
     {
-        var context = new MessageContext<T>
-        {
-            Message = message,
-            Address = EndpointAddress.Create(endpointName)
-        };
+        var context = NewContext(message, endpointName);
 
         using var stream = _serializer.Serialize(context);
         await PostToEndpointAsync(endpointName, StreamToBytes(stream), splitThresholdBytes, compress, ct);
     }
 
-    public async Task PostAsync(string endpointName, Stream messageStream, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true)
-        => await PostToEndpointAsync(endpointName, StreamToBytes(messageStream), splitThresholdBytes, compress, ct);
+#pragma warning disable RS0026 // see INymBroker.PostRawAsync: the overloads differ in a required parameter
+    public async Task PostRawAsync(string endpointName, Stream message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        // From the current position to the end, like Stream.CopyTo — works for non-seekable streams (e.g. a request body).
+        using var copy = new MemoryStream();
+        await message.CopyToAsync(copy, ct);
+        await PostToEndpointAsync(endpointName, copy.ToArray(), splitThresholdBytes, compress, ct);
+    }
+
+    // Copied: endpoints may keep the array (the Memory endpoint queues it), so the caller's buffer must not be shared.
+    public Task PostRawAsync(string endpointName, ReadOnlyMemory<byte> message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true)
+        => PostToEndpointAsync(endpointName, message.ToArray(), splitThresholdBytes, compress, ct);
+#pragma warning restore RS0026
 
     public async Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
-        var context = new MessageContext<T> { Message = message };
+        var context = NewContext(message);
         using var stream = _serializer.Serialize(context);
         var result = await ProcessAsync(StreamToBytes(stream), null, ct);
 
@@ -48,6 +56,7 @@ public sealed partial class NymBrokerImpl
 
     public async Task PublishAsync<T>(string topicName, T message, CancellationToken ct = default) where T : class
     {
+        var context = NewContext(message);   // before the topic lookup, so bytes are rejected even without a topic
         var topic = _topics.FirstOrDefault(t => string.Equals(t.TopicName, topicName, StringComparison.OrdinalIgnoreCase));
         if (topic == null)
         {
@@ -55,7 +64,6 @@ public sealed partial class NymBrokerImpl
             return;
         }
 
-        var context = new MessageContext<T> { Message = message };
         await FanOutTopicAsync(topic, message, context, ct);
     }
 
@@ -69,11 +77,7 @@ public sealed partial class NymBrokerImpl
         var wire = new List<byte[]>(batch.Count);
         foreach (var message in batch)
         {
-            var context = new MessageContext<T>
-            {
-                Message = message,
-                Address = EndpointAddress.Create(endpointName)
-            };
+            var context = NewContext(message, endpointName);
             if (correlationId.HasValue) context.CorrelationId = correlationId.Value;
 
             using var stream = _serializer.Serialize(context);
@@ -95,6 +99,7 @@ public sealed partial class NymBrokerImpl
     public async Task PublishBatchAsync<T>(string topicName, IEnumerable<T> messages, CancellationToken ct = default) where T : class
     {
         var batch = ToBatchList(messages);
+        var contexts = batch.Select(m => (IMessageContext)NewContext(m)).ToList();   // before the topic lookup, like PublishAsync
         var topic = _topics.FirstOrDefault(t => string.Equals(t.TopicName, topicName, StringComparison.OrdinalIgnoreCase));
         if (topic == null)
         {
@@ -103,13 +108,30 @@ public sealed partial class NymBrokerImpl
         }
         if (batch.Count == 0) return;
 
-        var contexts = batch.Select(m => (IMessageContext)new MessageContext<T> { Message = m }).ToList();
         await DeliverToTopicEndpointsAsync(topic, contexts, MessageTypeName.Get(typeof(T)), ct);
 
         // Subscribers receive the messages one by one.
         if (topic.SubscriberDispatchers.Count > 0)
             for (var i = 0; i < batch.Count; i++)
                 await _subscriberDispatcher.DispatchAsync(topic.SubscriberDispatchers, batch[i], contexts[i], ct);
+    }
+
+    /// <summary>
+    /// Wraps a message in its envelope — the one place every Post/Publish method creates one. Bytes and streams are
+    /// rejected: serialized as a message they would become a Base64 or meaningless payload the receiver drops (#74).
+    /// </summary>
+    private static MessageContext<T> NewContext<T>(T message, string? endpointName = null) where T : class
+    {
+        if (message is Stream or byte[] or ReadOnlyMemory<byte> or Memory<byte>)
+            throw new ArgumentException(
+                $"A {message.GetType().Name} is not a message. To post bytes as-is (an existing envelope, or raw input for an input transformer), use PostRawAsync.",
+                nameof(message));
+
+        return new MessageContext<T>
+        {
+            Message = message,
+            Address = endpointName is null ? null : EndpointAddress.Create(endpointName)
+        };
     }
 
     private static List<T> ToBatchList<T>(IEnumerable<T> messages) where T : class

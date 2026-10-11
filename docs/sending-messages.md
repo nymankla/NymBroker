@@ -8,7 +8,7 @@ There are two ways to send: **post** to a named endpoint, or **publish** without
 |---|---|---|
 | `PostAsync<T>(endpoint, message)` | one endpoint | commands, work items, anything with a known destination |
 | `PostBatchAsync<T>(endpoint, messages)` | one endpoint, many messages in one call | bulk imports, fan-in of many items |
-| `PostAsync(endpoint, stream)` | one endpoint, pre-serialized bytes | raw input for an [input transformer](pipeline-extensions.md#input-transformers) |
+| `PostRawAsync(endpoint, bytes)` | one endpoint, pre-serialized bytes | raw input for an [input transformer](pipeline-extensions.md#input-transformers), envelopes you built yourself |
 | `PublishAsync<T>(message)` | processed in-process: routes, topics, consumers | events raised inside the same application |
 | `PublishAsync<T>(topicName, message)` | one named topic | events with known subscribers |
 | `PublishBatchAsync<T>(...)` | as above, many messages | bulk events |
@@ -25,11 +25,14 @@ The message is serialized into an envelope and handed to the endpoint, which sto
 
 ### Pre-serialized bytes
 
-`PostAsync(string, Stream)` posts the bytes as they are — use it for input that an [input transformer](pipeline-extensions.md#input-transformers) turns into a message, or for envelopes you built yourself. Cast to `Stream`, or C# picks the generic overload and serializes the stream object as a message:
+`PostRawAsync` posts bytes as they are — use it for input that an [input transformer](pipeline-extensions.md#input-transformers) turns into a message, or for envelopes you built yourself. It takes a `byte[]` / `ReadOnlyMemory<byte>`, or a `Stream`, which is read from its current position to the end (non-seekable streams such as a request body work too). The bytes are copied, so you can reuse your buffer afterwards. `splitThresholdBytes` and `compress` work as for `PostAsync`.
 
 ```csharp
-await broker.PostAsync("CsvInbox", (Stream)new MemoryStream(Encoding.UTF8.GetBytes("ORD-1,Alice,49.90,high")));
+await broker.PostRawAsync("CsvInbox", Encoding.UTF8.GetBytes("ORD-1,Alice,49.90,high"));
+await broker.PostRawAsync("CsvInbox", httpContext.Request.Body, ct);
 ```
+
+Passing bytes or a stream to `PostAsync`, `PostBatchAsync`, `PublishAsync` or `PublishBatchAsync` throws `ArgumentException`: those methods serialize their argument as a message, which for bytes would produce a payload no consumer understands. (Before 0.10.0 the stream variant was a `PostAsync` overload that needed a `(Stream)` cast to be picked.)
 
 ## Posting a batch
 

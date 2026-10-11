@@ -135,7 +135,7 @@ An optional `deadLetter` object (`DeadLetterInfo`: `reason`, `description` cappe
 
 ```csharp
 broker.PostAsync<T>(endpoint, message)              // serialize + send
-broker.PostAsync(endpoint, stream)                  // send pre-serialized
+broker.PostRawAsync(endpoint, bytes | stream)       // send pre-serialized bytes as-is (#74; replaced PostAsync(Stream))
 broker.PostBatchAsync<T>(endpoint, messages, …, correlationId?) // many envelopes, one IEndPoint.PostBatchAsync call (#45)
 broker.PublishBatchAsync<T>(messages) / (topicName, messages)   // per-message publish / one batch per topic endpoint
 // Both overloads take a trailing `int? splitThresholdBytes = null` and `bool compress = true`:
@@ -185,7 +185,7 @@ broker.CheckHealthAsync(ct)                         // → BrokerHealthReport (#
 | `AndRouteCondition` | `.And(lhs, rhs)` |
 | `OrRouteCondition` | `.Or(lhs, rhs)` |
 
-Predicates receive the **message payload** element (not the full envelope). `IAnyMessage` routes match every type. Chained content conditions (`When`, `WhenMessageIsOlderThan`, `And`, `Or`; topics' `When`) are AND-ed via `RouteConditions.Combine`, also with a `Condition` preset on a factory-created `RouteContext` (#47; before 0.3.3 each replaced the previous). `WhenFrom`/`WhenNotFrom` are single fields. `IRouteBuilder<T>.Transform(fileName)` / `RouteContext.Transform` were never implemented and are `[Obsolete]` no-ops (#48) — don't use or extend them; remove in a future minor version.
+Predicates receive the **message payload** element (not the full envelope). `IAnyMessage` routes match every type. Chained content conditions (`When`, `WhenMessageIsOlderThan`, `And`, `Or`; topics' `When`) are AND-ed via `RouteConditions.Combine`, also with a `Condition` preset on a factory-created `RouteContext` (#47; before 0.3.3 each replaced the previous). `WhenFrom`/`WhenNotFrom` are single fields. Every Post/Publish method creates its envelope through `NymBrokerImpl.NewContext`, which throws `ArgumentException` for a `Stream`, `byte[]`, `ReadOnlyMemory<byte>` or `Memory<byte>` message (they would be serialized as a meaningless payload) and points to `PostRawAsync` (#74). `IRouteBuilder<T>.Transform(fileName)` / `RouteContext.Transform` were never implemented and are `[Obsolete]` no-ops (#48) — don't use or extend them; remove in a future minor version.
 
 ```csharp
 broker.Route<Order>()
@@ -227,7 +227,7 @@ Interval-based actions fire on a timer. Cron-based actions use the internal `Cro
 
 `SplitterImpl.Split(byte[], ISplitCondition)` partitions large payloads into `SplitMessage` parts (Base64 chunks, shared `CorrelationId`). `AggregatorImpl` collects parts by correlation ID and returns reassembled bytes when `GroupSize` is met. Incomplete aggregates expire after 2 hours.
 
-`PostAsync<T>`/`PostAsync(Stream)` can drive this automatically: pass `splitThresholdBytes` and `NymBrokerImpl` calls `ISplitter` internally (via `DefaultSplitCondition(splitThresholdBytes)`) when the serialized envelope exceeds it, posting each part to the same endpoint instead of manually calling `ISplitter.Split` yourself.
+`PostAsync<T>`/`PostRawAsync` can drive this automatically: pass `splitThresholdBytes` and `NymBrokerImpl` calls `ISplitter` internally (via `DefaultSplitCondition(splitThresholdBytes)`) when the serialized envelope exceeds it, posting each part to the same endpoint instead of manually calling `ISplitter.Split` yourself.
 
 **Compression**: since Base64 inflates each chunk ~33%, `PostAsync` also compresses the envelope via `ICompressor` (`BrotliCompressor` by default, built on `System.IO.Compression.BrotliStream`) before splitting, whenever `compress` is true (the default) *and* compression actually reduces the size — this typically more than cancels out the Base64 overhead for compressible text/JSON payloads, and the size check means already-compressed/binary payloads fall back to uncompressed splitting automatically rather than paying compression cost for no benefit. Compressed parts carry `SplitMessage.Compression` (the `ICompressor.Name`, e.g. `"brotli"`); `ProcessAsync`'s aggregator branch decompresses using the same `ICompressor` before treating the reassembled bytes as envelope JSON, and drops the message with a logged error if the codec name doesn't match. If compression alone brings the payload under `splitThresholdBytes`, it still ships as a single-part `SplitMessage` group (`GroupSize = 1`) — compressed bytes aren't valid JSON on their own, so they still need the `SplitMessage` carrier even when they'd otherwise fit.
 

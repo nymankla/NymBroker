@@ -4,6 +4,19 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- `INymBroker.PostRawAsync(endpoint, Stream | ReadOnlyMemory<byte>, …)` posts bytes as-is: an existing envelope, or raw input for an input transformer (#74). A stream is read from its current position to the end, so non-seekable streams (a request body) work; the bytes are copied.
+- `samples/NymBroker.EfCoreTransactionSample`: a consumer writing three tables with EF Core in one SQL Server transaction, with the SQL Server idempotency store.
+
+### Removed
+
+- **Breaking:** `INymBroker.PostAsync(string, Stream, …)` (#74). Passing a concrete stream such as `new MemoryStream(bytes)` bound to `PostAsync<T>` instead and failed at runtime; only a `(Stream)` cast reached it. Migration: `PostAsync(endpoint, (Stream)stream, …)` → `PostRawAsync(endpoint, stream, …)` — same parameters.
+
+### Changed
+
+- **Breaking:** `PostAsync<T>`, `PostBatchAsync<T>`, `PublishAsync<T>` and `PublishBatchAsync<T>` throw `ArgumentException` (pointing to `PostRawAsync`) when the message is a `Stream`, `byte[]`, `ReadOnlyMemory<byte>` or `Memory<byte>` (#74). Previously a stream failed with a serializer error, and bytes were posted as a Base64 message of type `System.Byte[]` that the receiver dropped as unknown.
+
 ## [0.9.5] - 2026-10-11
 
 ### Added
