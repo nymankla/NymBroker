@@ -50,6 +50,8 @@ const string SqsQueue      = "nymbroker-bench";
 const string MySqlConnStr  = "Server=localhost;Port=3306;Database=nymbroker;User ID=root;Password=NymBroker!Dev123";
 const string MySqlTable    = "nymbroker_bench";
 var Settings = Path.Combine(AppContext.BaseDirectory, "benchmarksettings.json");
+// --latency: also collect the broker's own metrics (slows the run; see LatencyRecorder).
+var Latency = args.Contains("--latency");
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 Console.WriteLine("NymBroker Throughput Benchmarks");
@@ -62,6 +64,7 @@ Console.WriteLine($"  SQL Server scen. : {MssqlCount:N0} messages");
 Console.WriteLine($"  Service Bus scen.: {SbCount:N0} messages");
 Console.WriteLine($"  RabbitMQ scenarios: {RabbitCount:N0} messages (direct + batch/100)");
 Console.WriteLine($"  Split scenarios  : {SplitCount:N0} messages (threshold={SplitThresholdBytes / 1024} KB)");
+if (Latency) Console.WriteLine("  --latency        : broker metrics collected; Msg/sec is lower than without it");
 Console.WriteLine();
 
 // Large, highly compressible payload — big enough to require several split parts at
@@ -502,13 +505,13 @@ async Task<BenchmarkResult> RunAsync(
     // optimized code, so the measured runs don't include compilation.
     if (warmup > 0)
     {
-        await MeasureAsync(warmup);
+        await MeasureAsync(warmup, collectLatency: false);
         await Task.Delay(500);
     }
 
     var measuredRuns = new List<BenchmarkResult>(runs);
     for (var run = 0; run < runs; run++)
-        measuredRuns.Add(await MeasureAsync(count));
+        measuredRuns.Add(await MeasureAsync(count, collectLatency: Latency && !isWarmup));
     var result = measuredRuns.OrderBy(r => r.ElapsedMs).ElementAt(runs / 2);   // median run
 
     await broker.StopAsync();
@@ -520,7 +523,7 @@ async Task<BenchmarkResult> RunAsync(
 
     return result;
 
-    async Task<BenchmarkResult> MeasureAsync(int messages)
+    async Task<BenchmarkResult> MeasureAsync(int messages, bool collectLatency)
     {
         // Clean GC baseline before measuring.
         GC.Collect(2, GCCollectionMode.Forced, blocking: true);
@@ -532,6 +535,7 @@ async Task<BenchmarkResult> RunAsync(
         var gen2Before  = GC.CollectionCount(2);
         var allocBefore = GC.GetTotalAllocatedBytes(precise: true);
 
+        using var recorder = collectLatency ? new LatencyRecorder() : null;
         var completion = tracker.Prepare(messages * signalsPerMessage);
         var sw         = Stopwatch.StartNew();
 
@@ -568,7 +572,7 @@ async Task<BenchmarkResult> RunAsync(
         var gen1      = GC.CollectionCount(1) - gen1Before;
         var gen2      = GC.CollectionCount(2) - gen2Before;
         var allocated = (long)(GC.GetTotalAllocatedBytes(precise: true) - allocBefore);
-        return new BenchmarkResult(name, messages, sw.ElapsedMilliseconds, gen0, gen1, gen2, allocated);
+        return new BenchmarkResult(name, messages, sw.ElapsedMilliseconds, gen0, gen1, gen2, allocated, recorder?.Stop());
     }
 }
 
@@ -593,7 +597,21 @@ void PrintTable(List<BenchmarkResult> rows)
             $"{FormatBytes(allocPerMsg)}/msg"));
     }
     Console.WriteLine();
+
+    if (!Latency) return;
+    const string lfmt = "{0,-27} {1,11} {2,11} {3,11} {4,8} {5,8}";
+    Console.WriteLine(string.Format(lfmt, "Scenario", "Proc p50", "Proc p99", "Age p99", "Failed", "Retries"));
+    Console.WriteLine(new string('─', 86));
+    foreach (var r in rows.Where(r => r.Latency != null))
+    {
+        var l = r.Latency!;
+        Console.WriteLine(string.Format(lfmt, r.Name,
+            FormatMs(l.ProcessingP50Ms), FormatMs(l.ProcessingP99Ms), FormatMs(l.AgeP99Ms), l.Failed, l.Retries));
+    }
+    Console.WriteLine();
 }
+
+string FormatMs(double ms) => double.IsNaN(ms) ? "–" : ms < 10 ? $"{ms:F3} ms" : $"{ms:N0} ms";
 
 string FormatBytes(long bytes) => bytes switch
 {
