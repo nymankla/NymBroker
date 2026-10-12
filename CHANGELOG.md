@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-12
+
 ### Added
 
 - Metric `nymbroker.message.age` (histogram, seconds, tag `source`): how old each message is when the broker starts processing it, measured from the envelope's `created`. It rises when a backlog builds, on every transport. Queue depth is still not measured by the broker; [docs/observability.md](docs/observability.md) lists where to read it for each transport.
