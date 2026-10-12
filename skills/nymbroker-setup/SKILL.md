@@ -29,6 +29,7 @@ Inspect the project first so you only ask what the code doesn't answer:
    - RabbitMQ — an existing RabbitMQ broker
    - Azure Service Bus — managed queues/topics in Azure
    - Amazon SQS — managed queues in AWS (standard or FIFO)
+   - HTTP (send only) — call another system's REST API or webhook; combine with a durable queue (outbox) above
    - File — files in a folder (file drops, simple integration)
 2. **Role of this app** — produces messages, consumes them, or both? (A producer-only process uses `EndpointMode.WriteOnly` so no listener starts.)
 3. **Configuration** — endpoints in code (default) or from `appsettings.json` (lets ops change connections without a rebuild)?
@@ -59,6 +60,7 @@ dotnet add package Microsoft.Extensions.Hosting          # only for a console ap
 | RabbitMQ | `NymBroker.Endpoint.RabbitMq` | `AddRabbitMqEndPoint`, `WithRabbitMq()` (`NymBroker.Endpoint.RabbitMq`) |
 | Azure Service Bus | `NymBroker.Endpoint.AzureServiceBus` | `AddAzureServiceBusEndPoint`, `WithAzureServiceBus()` (`NymBroker.Endpoint.AzureServiceBus`) |
 | Amazon SQS | `NymBroker.Endpoint.AwsSqs` | `AddAwsSqsEndPoint`, `WithAwsSqs()` (`NymBroker.Endpoint.AwsSqs`) |
+| HTTP (send) | `NymBroker.Endpoint.Http` | `AddHttpEndPoint`, `WithHttp()` (`NymBroker.Endpoint.Http`) |
 | Durable dedup, one host | `NymBroker.Idempotency.Sqlite` | `AddSqliteIdempotency` (`NymBroker.Idempotency.Sqlite`) |
 | Durable dedup, shared | `NymBroker.Idempotency.Postgres` / `.SqlServer` / `.MySql` | `AddPostgresIdempotency` / `AddSqlServerIdempotency` / `AddMySqlIdempotency` |
 
@@ -119,7 +121,7 @@ builder.Services.AddNymBroker()
     .Build();
 ```
 
-`Type` values: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `SqlServer`, `MySql`, `RabbitMq`, `AzureServiceBus`, `AwsSqs`. An entry whose `With…()` is missing is silently ignored and posting to it fails with "No endpoint registered". `"Mode": "WriteOnly"` sets the mode. Consumers, routes and topics always stay in code.
+`Type` values: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `SqlServer`, `MySql`, `RabbitMq`, `AzureServiceBus`, `AwsSqs`, `Http`. An entry whose `With…()` is missing is silently ignored and posting to it fails with "No endpoint registered". `"Mode": "WriteOnly"` sets the mode. Consumers, routes and topics always stay in code.
 
 ## 5. Extras
 

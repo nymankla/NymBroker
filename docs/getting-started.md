@@ -17,6 +17,7 @@
 | `NymBroker.Endpoint.RabbitMq` | RabbitMQ queues | `AddRabbitMqEndPoint`, `WithRabbitMq` |
 | `NymBroker.Endpoint.AzureServiceBus` | Azure Service Bus queues and topics | `AddAzureServiceBusEndPoint`, `WithAzureServiceBus` |
 | `NymBroker.Endpoint.AwsSqs` | Amazon SQS standard and FIFO queues | `AddAwsSqsEndPoint`, `WithAwsSqs` |
+| `NymBroker.Endpoint.Http` | Send messages to a URL (REST API, webhook) | `AddHttpEndPoint`, `WithHttp` |
 | `NymBroker.Idempotency.SqlServer` | Durable duplicate detection shared by all instances | `AddSqlServerIdempotency` |
 | `NymBroker.Idempotency.MySql` | Durable duplicate detection shared by all instances | `AddMySqlIdempotency` |
 | `NymBroker.Idempotency.Postgres` | Durable duplicate detection shared by all instances | `AddPostgresIdempotency` |
@@ -45,6 +46,7 @@ dotnet add package NymBroker.Endpoint.MySql             # MySQL / MariaDB queue
 dotnet add package NymBroker.Endpoint.RabbitMq          # RabbitMQ
 dotnet add package NymBroker.Endpoint.AzureServiceBus   # Azure Service Bus
 dotnet add package NymBroker.Endpoint.AwsSqs            # Amazon SQS
+dotnet add package NymBroker.Endpoint.Http              # HTTP / webhooks (send)
 dotnet add package NymBroker.Idempotency.Sqlite         # durable duplicate detection, one host
 dotnet add package NymBroker.Idempotency.Postgres       # durable duplicate detection, shared
 dotnet add package NymBroker.Idempotency.SqlServer      # durable duplicate detection, shared

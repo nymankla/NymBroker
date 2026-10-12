@@ -16,6 +16,7 @@ An **endpoint** is a named connection to a transport. You post to endpoints by n
 | **MySQL** | `NymBroker.Endpoint.MySql` | yes | polling a table | retried, then `Failed` row | one statement | multi-instance apps already on MySQL 8.0+ / MariaDB 10.6+ |
 | **RabbitMQ** | `NymBroker.Endpoint.RabbitMq` | yes | push (consumer) | requeued, then the queue's dead-letter exchange | one by one | a message broker you already run |
 | **Azure Service Bus** | `NymBroker.Endpoint.AzureServiceBus` | yes | push (processor) | abandoned, then the queue's dead-letter queue | Service Bus batches | Azure, managed queues and topics |
+| **HTTP** | `NymBroker.Endpoint.Http` | — (send only) | — (receive in your web app, see below) | the source retries; see [HTTP notes](#http-notes) | one request per message | REST APIs and webhooks of other systems |
 | **Amazon SQS** | `NymBroker.Endpoint.AwsSqs` | yes | long polling | retried, then the queue's redrive dead-letter queue; messages that can never succeed go to the broker dead-letter endpoint | batches of 10 (not atomic) | AWS, managed queues (standard and FIFO) |
 
 "Failed messages" is explained in [Reliability](reliability.md). PostgreSQL, SQL Server and MySQL let several application instances poll the same table safely; SQLite is meant for a single machine.
@@ -69,6 +70,14 @@ services.AddNymBroker()
         QueueName = "orders"                                  // or TopicName (+ SubscriptionName to receive)
     })
 
+    // NymBroker.Endpoint.Http (send only)
+    .AddHttpEndPoint("PartnerHook", new HttpSettings
+    {
+        Url           = "https://partner.example.com/hooks/orders",
+        SigningSecret = "<from a secret store>",   // adds an HMAC-SHA256 X-NymBroker-Signature header
+        Headers       = { ["X-Api-Key"] = "<from a secret store>" }
+    })
+
     // NymBroker.Endpoint.AwsSqs
     .AddAwsSqsEndPoint("Sqs", new AwsSqsSettings
     {
@@ -93,6 +102,9 @@ Each endpoint's settings type defines its available options and defaults. The mo
 | `ReadDeadLetterQueue` | Azure Service Bus | read the entity's dead-letter queue instead (repair / replay) |
 | `WaitTimeSeconds`, `MaxNumberOfMessages`, `VisibilityTimeout` | Amazon SQS | long-poll wait (default 20 s); messages per receive (1–10); invisibility while a receive batch is handled (must cover the whole batch) |
 | `RetryDelay`, `MessageGroupId` | Amazon SQS | how long a failed message stays invisible before redelivery (default 0); FIFO group (default: the envelope's correlation id) |
+| `Url`, `Method`, `Headers`, `Timeout` | HTTP | where and how each message is sent; extra headers (never logged); timeout per attempt |
+| `BodyFormat`, `SigningSecret` | HTTP | `Envelope` (default) or only the `Payload`; HMAC signature for the receiver to verify |
+| `MaxRetryAttempts`, `RetryDelay`, `HealthCheckUrl` | HTTP | retries for transient failures (default 3, from 1 s, exponential); URL the health check GETs (unset: no probe) |
 | `UseNativeDeadLetter` | RabbitMQ, Service Bus, SQL endpoints | let the transport retry and dead-letter (default `true`) — see [Reliability](reliability.md) |
 
 The default connection settings, and the connection strings in the samples, match the local Docker containers — plaintext RabbitMQ, `TrustServerCertificate=True` for SQL Server, well-known passwords. For production, see [Production security](security.md).
@@ -107,6 +119,25 @@ Local Docker setups for PostgreSQL, SQL Server, MySQL, RabbitMQ, the Service Bus
 - **Bytes.** NymBroker envelopes are sent as text. Bytes posted with `PostRawAsync` that SQS cannot carry as text (not UTF-8, or control characters) are sent as Base64 with the message attribute `nymbroker-encoding` and decoded on receive.
 - **FIFO queues** (`.fifo`): the message group is `MessageGroupId`, or else the envelope's `correlationId`; the deduplication id is the envelope's `id`, so posting the same envelope twice within SQS's deduplication window delivers it once.
 - **Size.** Check the queue's maximum message size and post larger messages with `splitThresholdBytes`. `PostBatchAsync` sends up to 10 messages and 256 KB per request and is not atomic: a failed entry throws, and the messages before it stay sent.
+
+### HTTP notes
+
+The HTTP endpoint only **sends**: each message posted or routed to it becomes one request (`POST` by default).
+
+- **Body and headers.** `BodyFormat = Envelope` (default) sends the NymBroker envelope as-is — right for another NymBroker instance. `Payload` sends only the envelope's `message`, for a third-party API with its own JSON. Bytes that are not an envelope (`PostRawAsync`) are sent unchanged. Every envelope also travels as headers: `X-NymBroker-Message-Id`, `-Message-Type`, `-Correlation-Id`, and `Idempotency-Key` = the message id, so the receiver can drop repeats.
+- **Failures.** A 2xx response is success. Timeouts, network errors, 408, 429 and 5xx are retried `MaxRetryAttempts` times with exponential backoff (a `Retry-After` header is honoured, up to 60 s); then — and at once for any other status, such as 400 or 401 — `PostAsync` throws an `HttpRequestException` with the `StatusCode`. When the HTTP endpoint is a **route or topic destination**, that exception makes the broker return `Retry`, so the source queue redelivers the message and finally dead-letters it. A permanent failure like 400 is therefore retried until the source's retry limit (for example `MaxRetryCount` of a SQL queue) before it is dead-lettered.
+- **Reliable sending (outbox).** Posting straight to the HTTP endpoint from a web request ties the request to the remote server. To survive outages, post to a durable queue and route it to the HTTP endpoint; a failed call is then retried by the queue:
+
+  ```csharp
+  .AddSqliteEndPoint("Outbox", new SqliteSettings { ConnectionString = "Data Source=outbox.db" })
+  .AddHttpEndPoint("PartnerHook", new HttpSettings { Url = "https://partner.example.com/hooks/orders" })
+  …
+  broker.Route<OrderCreated>().To("PartnerHook").WhenFrom("Outbox").Build();
+  await broker.PostAsync("Outbox", order);   // durable at once; delivered (and retried) by the queue
+  ```
+
+- **HttpClient.** `AddHttpEndPoint` registers a named client (`"NymBroker.Http." + name`) with `IHttpClientFactory`. Its last parameter configures it, e.g. `client => client.AddHttpMessageHandler<MyAuthHandler>()` for OAuth tokens or a proxy.
+- **Receiving webhooks** belongs in your ASP.NET Core app: verify the request (signature or API key), `await broker.PostRawAsync("Inbox", body)` to a **durable** queue, and return `202 Accepted`. Never run the consumer inside the request — the response would then depend on the consumer and its retries. Use an [input transformer](pipeline-extensions.md#input-transformers) for another system's JSON. [NymBroker.WebhookSample](../samples/NymBroker.WebhookSample) shows both directions, including signature verification with replay protection.
 
 ## Endpoint modes
 
@@ -166,11 +197,12 @@ services.AddNymBroker()
     .WithAzureServiceBus()
     .WithAwsSqs()
     .WithMySql()
+    .WithHttp()
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
 
-- `Type` is matched case-insensitively. Built-in types: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `RabbitMq`; add-ons define `SqlServer`, `MySql`, `AzureServiceBus` and `AwsSqs`. An entry is only registered if the matching `With…()` is called — otherwise it is ignored, and posting to it fails with "No endpoint registered".
+- `Type` is matched case-insensitively. Built-in types: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `RabbitMq`; add-ons define `SqlServer`, `MySql`, `AzureServiceBus`, `AwsSqs` and `Http`. An entry is only registered if the matching `With…()` is called — otherwise it is ignored, and posting to it fails with "No endpoint registered".
 - `Config` holds the endpoint's settings in camelCase.
 - `Mode` is a name, case-insensitive (`"ReadWrite"`, `"ReadOnly"`, `"WriteOnly"`), or a number (`0`, `1`, `2`). Omitted means `ReadWrite`. An unknown value makes the configuration fail to load with a `JsonException`.
 - Secrets such as a Service Bus `TokenCredential` cannot come from the file; register those endpoints in code.

@@ -156,6 +156,13 @@ Connections use HTTPS with certificate verification; nothing to configure (only 
 - Grant only what the endpoint uses, on the queue's ARN. A producer needs `sqs:SendMessage` (plus `sqs:GetQueueUrl` when you set `QueueName`, and `sqs:GetQueueAttributes` for the health check); a consumer needs `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` and `sqs:GetQueueAttributes`.
 - Turn on server-side encryption (SSE-SQS or SSE-KMS) for queues that carry personal or confidential data; with KMS, the role also needs `kms:Decrypt` and `kms:GenerateDataKey` on the key.
 
+## HTTP
+
+- Use `https://` URLs; the server certificate is always verified (there is no setting to turn that off). Plain `http://` is for local development only.
+- **Signing.** With `SigningSecret` set, every request carries `X-NymBroker-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256>` over `"<t>." + body`. The receiver recomputes it with the same secret, compares in constant time and rejects timestamps more than a few minutes old (replays) — [NymBroker.WebhookSample](../samples/NymBroker.WebhookSample) has a verifier. Use a long random secret per receiver and rotate it like a password.
+- API keys and tokens go in `Headers` or, better, in a handler added through `AddHttpEndPoint`'s client configuration (refreshing OAuth tokens). Header values are never logged; keep them out of `queuesettings.json` — load them from a secret store.
+- **Receiving:** authenticate every webhook (signature or API key) before storing anything, limit the body size, and answer quickly (store, then `202`).
+
 ## SQLite
 
 SQLite has no network or authentication: whoever can open the file can read and change the queue.

@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="NymBroker.Endpoint.AzureServiceBus/NymBroker.Endpoint.AzureServiceBus.csproj" />
   <Project Path="NymBroker.Endpoint.AwsSqs/NymBroker.Endpoint.AwsSqs.csproj" />
+  <Project Path="NymBroker.Endpoint.Http/NymBroker.Endpoint.Http.csproj" />
   <Project Path="NymBroker.Endpoint.MySql/NymBroker.Endpoint.MySql.csproj" />
   <Project Path="NymBroker.Idempotency.MySql/NymBroker.Idempotency.MySql.csproj" />
   <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
@@ -43,6 +44,7 @@
   <Project Path="samples/NymBroker.SqlServerSample/NymBroker.SqlServerSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
+  <Project Path="samples/NymBroker.WebhookSample/NymBroker.WebhookSample.csproj" />
   <Project Path="samples/NymBroker.WebSample/NymBroker.WebSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>

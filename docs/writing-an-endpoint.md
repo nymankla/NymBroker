@@ -107,7 +107,7 @@ Your endpoint doesn't need to check `Mode` itself.
 
 | Shape | Implement | Receive model | Existing examples |
 |---|---|---|---|
-| **Sink** (send only) | `IEndPoint`, `Mode => WriteOnly` | none | (Sample A) |
+| **Sink** (send only) | `IEndPoint`, `Mode => WriteOnly` | none | (Sample A); in repo: `HttpEndPoint` |
 | **Push** | `IEndPointEventDriven` | The transport calls you (socket, SDK callback, file watcher) | `MemoryQueueEndPoint`, `FileEndPoint`, `RabbitMqEndPoint` |
 | **Pull** | `IEndPointEventDriven` | You poll in a background loop and call `handler` per message | `SqliteEndPoint`, `PostgresEndPoint` |
 
