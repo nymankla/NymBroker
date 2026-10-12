@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="NymBroker.Endpoint.AzureServiceBus/NymBroker.Endpoint.AzureServiceBus.csproj" />
+  <Project Path="NymBroker.Endpoint.AwsSqs/NymBroker.Endpoint.AwsSqs.csproj" />
   <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
   <Project Path="NymBroker.Endpoint.RabbitMq/NymBroker.Endpoint.RabbitMq.csproj" />
   <Project Path="NymBroker.Endpoint.Sqlite/NymBroker.Endpoint.Sqlite.csproj" />
@@ -9,6 +10,9 @@
   <Project Path="NymBroker.Idempotency.Postgres/NymBroker.Idempotency.Postgres.csproj" />
   <Project Path="NymBroker.Idempotency.Sqlite/NymBroker.Idempotency.Sqlite.csproj" />
   <Project Path="NymBroker.Tests/NymBroker.Tests.csproj" />
+  <Project Path="samples/NymBroker.AwsSqsSample/NymBroker.AwsSqsSample.csproj">
+    <Build Solution="Debug|*" Project="false" />
+  </Project>
   <Project Path="samples/NymBroker.AzureServiceBusSample/NymBroker.AzureServiceBusSample.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>

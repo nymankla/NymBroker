@@ -28,7 +28,7 @@ Out of the box, NymBroker is set up for the local Docker containers in `scripts/
 
   With the default configuration providers, an environment variable such as `NymBroker__Endpoints__0__Config__connectionString` overrides the value from `appsettings.json`.
 - Prefer identities over passwords where the service supports them: a managed identity for Azure Service Bus and Azure SQL (below), Windows integrated authentication for on-premises SQL Server.
-- A `TokenCredential` can only be set in code (`AzureServiceBusSettings.Credential` is `[JsonIgnore]`), so it never ends up in a config file.
+- A `TokenCredential` can only be set in code (`AzureServiceBusSettings.Credential` is `[JsonIgnore]`), so it never ends up in a config file. The same goes for `AwsSqsSettings.Credentials`.
 
 ## RabbitMQ
 
@@ -128,6 +128,14 @@ Connections always use TLS with certificate verification; nothing to configure. 
 
   Assign the identity the **Azure Service Bus Data Sender** and/or **Data Receiver** role on the queue or topic, not the whole namespace.
 - If you must use a connection string, use a shared access policy scoped to the entity with only `Send` or `Listen` rights — never `RootManageSharedAccessKey` (the emulator's key) or `Manage`.
+
+## Amazon SQS
+
+Connections use HTTPS with certificate verification; nothing to configure (only point `ServiceUrl` at an `http://` address for local development). What matters is the identity:
+
+- **Use an IAM role** (EC2 instance profile, ECS task role, EKS service account) and leave `Credentials` unset: the AWS SDK's default chain picks it up. Never put access keys in `queuesettings.json`.
+- Grant only what the endpoint uses, on the queue's ARN. A producer needs `sqs:SendMessage` (plus `sqs:GetQueueUrl` when you set `QueueName`, and `sqs:GetQueueAttributes` for the health check); a consumer needs `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` and `sqs:GetQueueAttributes`.
+- Turn on server-side encryption (SSE-SQS or SSE-KMS) for queues that carry personal or confidential data; with KMS, the role also needs `kms:Decrypt` and `kms:GenerateDataKey` on the key.
 
 ## SQLite
 

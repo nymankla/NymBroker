@@ -14,16 +14,17 @@ From the repository root, in Release:
 dotnet run -c Release --project samples/NymBroker.Benchmarks
 ```
 
-The Memory, File, SQLite and split scenarios always run. The Postgres, SQL Server, Azure Service Bus and RabbitMQ scenarios run only when that service is reachable on localhost, and are reported as `skipped` otherwise. Start the ones you want first (Docker Desktop required, see [Local infrastructure](samples.md#local-infrastructure)):
+The Memory, File, SQLite and split scenarios always run. The Postgres, SQL Server, Azure Service Bus, RabbitMQ and SQS scenarios run only when that service is reachable on localhost, and are reported as `skipped` otherwise. Start the ones you want first (Docker Desktop required, see [Local infrastructure](samples.md#local-infrastructure)):
 
 ```powershell
 ./scripts/setup-postgres.ps1
 ./scripts/setup-sqlserver.ps1
 ./scripts/setup-servicebus.ps1    # uses the queue nymbroker.bench from scripts/servicebus/Config.json
 ./scripts/setup-rabbitmq.ps1
+./scripts/setup-sqs.ps1           # ElasticMQ; the benchmark creates its queue nymbroker-bench
 ```
 
-The benchmark drops and recreates its own tables (`nymbroker_bench`, `dbo.nymbroker_bench`) and drains or purges its own queues (`nymbroker.bench`) before each scenario, so it does not touch the samples' data.
+The benchmark drops and recreates its own tables (`nymbroker_bench`, `dbo.nymbroker_bench`) and drains or purges its own queues (`nymbroker.bench`, `nymbroker-bench`) before each scenario, so it does not touch the samples' data.
 
 ## How a scenario is measured
 
@@ -55,6 +56,7 @@ Before the scenarios it also runs a short `FileSystemWatcher` check (`OK (5/5)`)
 | Postgres – direct / batch/100 | 1 000 | PostgreSQL queue table with single `PostAsync`, then `PostBatchAsync` in batches of 100 |
 | SqlServer – direct / batch/100 | 1 000 | SQL Server queue table, single posts and batches of 100 |
 | ServiceBus – direct / batch/100 | 1 000 | Azure Service Bus emulator queue (`PrefetchCount = 100`), single posts and batches of 100 |
+| SQS – direct / batch/100 | 1 000 | Amazon SQS API on ElasticMQ (queue `nymbroker-bench`), single posts and batches of 100 |
 | RabbitMQ – direct / batch/100 | 1 000 | RabbitMQ queue, acking every message (`BatchAckSize = 1`) and then every 100 (`BatchAckSize = 100`) |
 
 The database scenarios use `PollInterval = TimeSpan.Zero`, so they show drain speed rather than polling delay. The message counts are constants at the top of `Program.cs`; raise them for steadier numbers on fast transports.

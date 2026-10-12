@@ -77,6 +77,14 @@ services:
     volumes:
       - ./servicebus/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
 
+  elasticmq:
+    # SQS-compatible server for the AWS SQS endpoint. Queues are created by the tests and samples (no config file).
+    image: softwaremill/elasticmq-native:1.7.1
+    container_name: messagebroker-elasticmq
+    ports:
+      - "9324:9324"   # SQS API
+      - "9325:9325"   # web UI
+
 volumes:
   postgres_data:
   rabbitmq_data:

@@ -51,7 +51,7 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - Ensure proper disposal of resources and handle exceptions gracefully to maintain system stability.
 - Follow consistent naming conventions and code style to improve readability and maintainability.
 
-For a new project, mirror `NymBroker.Endpoint.RabbitMq/`. The folder, project file, `PackageId` and namespace are all `NymBroker.Endpoint.<Transport>`. The project has a csproj that references only `NymBroker.Core` plus the client package, with `PackageId`/`PackageDescription` set; `<Transport>Settings.cs`; `<Transport>EndPoint.cs`; `NymBrokerBuilder<Transport>Extensions.cs`. Add the project to `NymBroker.slnx`; `scripts/pack.ps1` picks up `NymBroker.*` projects automatically.
+For a new project, mirror `NymBroker.Endpoint.RabbitMq/`. The folder, project file, `PackageId` and namespace are all `NymBroker.Endpoint.<Transport>`. The project has a csproj that references only `NymBroker.Core` plus the client package, with `PackageId`/`PackageDescription` set; `<Transport>Settings.cs`; `<Transport>EndPoint.cs`; `NymBrokerBuilder<Transport>Extensions.cs`. Add the project to `NymBroker.slnx`; `scripts/pack.ps1` picks up `NymBroker.*` projects automatically. Also add its name to the `IsNymBrokerPackage` condition in `Directory.Build.props` — otherwise the PublicAPI analyzers, SourceLink and package validation are silently off — and fill `PublicAPI.Unshipped.txt` from the RS0016 warnings.
 
 ## 4. Register
 
