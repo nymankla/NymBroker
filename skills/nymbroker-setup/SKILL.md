@@ -28,6 +28,7 @@ Inspect the project first so you only ask what the code doesn't answer:
    - PostgreSQL / SQL Server — durable, several app instances share one queue table
    - RabbitMQ — an existing RabbitMQ broker
    - Azure Service Bus — managed queues/topics in Azure
+   - Amazon SQS — managed queues in AWS (standard or FIFO)
    - File — files in a folder (file drops, simple integration)
 2. **Role of this app** — produces messages, consumes them, or both? (A producer-only process uses `EndpointMode.WriteOnly` so no listener starts.)
 3. **Configuration** — endpoints in code (default) or from `appsettings.json` (lets ops change connections without a rebuild)?
@@ -56,6 +57,7 @@ dotnet add package Microsoft.Extensions.Hosting          # only for a console ap
 | SQL Server | `NymBroker.Endpoint.SqlServer` | `AddSqlServerEndPoint`, `WithSqlServer()` (`NymBroker.Endpoint.SqlServer`) |
 | RabbitMQ | `NymBroker.Endpoint.RabbitMq` | `AddRabbitMqEndPoint`, `WithRabbitMq()` (`NymBroker.Endpoint.RabbitMq`) |
 | Azure Service Bus | `NymBroker.Endpoint.AzureServiceBus` | `AddAzureServiceBusEndPoint`, `WithAzureServiceBus()` (`NymBroker.Endpoint.AzureServiceBus`) |
+| Amazon SQS | `NymBroker.Endpoint.AwsSqs` | `AddAwsSqsEndPoint`, `WithAwsSqs()` (`NymBroker.Endpoint.AwsSqs`) |
 | Durable dedup, one host | `NymBroker.Idempotency.Sqlite` | `AddSqliteIdempotency` (`NymBroker.Idempotency.Sqlite`) |
 | Durable dedup, shared | `NymBroker.Idempotency.Postgres` / `.SqlServer` | `AddPostgresIdempotency` / `AddSqlServerIdempotency` |
 
@@ -89,6 +91,7 @@ Settings per transport (only set what differs from the defaults):
 | SQL Server | `SqlServerSettings { ConnectionString, TableName = "dbo.x", AutoCreateTable, … }` | same SQL options |
 | RabbitMQ | `RabbitMqSettings { HostName, ReadQueueName, WriteQueueName, UseTls, Port }` | omit `ReadQueueName` for a producer; production: `UseTls = true`, `Port = 5671` |
 | Service Bus | `AzureServiceBusSettings { ConnectionString or FullyQualifiedNamespace + Credential, QueueName or TopicName (+ SubscriptionName), MaxConcurrentCalls, PrefetchCount }` | `Credential` (e.g. `DefaultAzureCredential`) needs code, not JSON |
+| Amazon SQS | `AwsSqsSettings { QueueName or QueueUrl, Region, VisibilityTimeout, RetryDelay, MessageGroupId (FIFO) }` | credentials from the AWS default chain (IAM role); needs a dead-letter endpoint and a redrive policy on the queue; local: `ServiceUrl = "http://localhost:9324"` (ElasticMQ) |
 
 **Role:** producer-only → pass `EndpointMode.WriteOnly` as the last argument (`AddSqliteEndPoint("Orders", settings, EndpointMode.WriteOnly)`). Consumer or both → default `ReadWrite`.
 
@@ -114,7 +117,7 @@ builder.Services.AddNymBroker()
     .Build();
 ```
 
-`Type` values: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `SqlServer`, `RabbitMq`, `AzureServiceBus`. An entry whose `With…()` is missing is silently ignored and posting to it fails with "No endpoint registered". `"Mode": "WriteOnly"` sets the mode. Consumers, routes and topics always stay in code.
+`Type` values: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `SqlServer`, `RabbitMq`, `AzureServiceBus`, `AwsSqs`. An entry whose `With…()` is missing is silently ignored and posting to it fails with "No endpoint registered". `"Mode": "WriteOnly"` sets the mode. Consumers, routes and topics always stay in code.
 
 ## 5. Extras
 
@@ -154,7 +157,7 @@ In a console app without DI-driven startup, call `await host.StartAsync()` befor
 For anything beyond local development (https://github.com/nymankla/NymBroker/blob/master/docs/security.md):
 
 - Never rely on the default connection settings — they are the local Docker containers' (`sa` / `TrustServerCertificate=True` for SQL Server, `postgres/postgres`, RabbitMQ `guest` without TLS).
-- SQL Server: `Encrypt=Mandatory` or `Strict`, `TrustServerCertificate=False`; Azure SQL with `Authentication=Active Directory Managed Identity` needs the `Microsoft.Data.SqlClient.Extensions.Azure` package. PostgreSQL: `SSL Mode=VerifyFull`. RabbitMQ: `UseTls = true`, `Port = 5671`. Service Bus: `FullyQualifiedNamespace` + a managed-identity `Credential`.
+- SQL Server: `Encrypt=Mandatory` or `Strict`, `TrustServerCertificate=False`; Azure SQL with `Authentication=Active Directory Managed Identity` needs the `Microsoft.Data.SqlClient.Extensions.Azure` package. PostgreSQL: `SSL Mode=VerifyFull`. RabbitMQ: `UseTls = true`, `Port = 5671`. Service Bus: `FullyQualifiedNamespace` + a managed-identity `Credential`. SQS: an IAM role with only the `sqs:` actions the endpoint uses; no access keys in config.
 - Secrets from user secrets / environment variables / a secret store via `ApplyConfiguration(BrokerConfigurationReader.Read(builder.Configuration))`, never in `queuesettings.json`.
 - Create queue tables in a deployment step and run with `AutoCreateTable = false` and only `SELECT, INSERT, UPDATE` rights.
 

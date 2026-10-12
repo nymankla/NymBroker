@@ -39,6 +39,7 @@ The samples that need a database or a message broker use Docker containers defin
 | `./scripts/setup-sqlserver.ps1` | SQL Server 2022 | `Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True` |
 | `./scripts/setup-rabbitmq.ps1` | RabbitMQ | `localhost:5672`, management UI on `http://localhost:15672` |
 | `./scripts/setup-servicebus.ps1` | Azure Service Bus emulator | AMQP on `localhost:5673`; queues from `scripts/servicebus/Config.json` |
+| `./scripts/setup-sqs.ps1` | ElasticMQ (Amazon SQS API) | `ServiceUrl = "http://localhost:9324"`, any access key; queues are created by the code that uses them |
 
 These credentials are for local development only.
 

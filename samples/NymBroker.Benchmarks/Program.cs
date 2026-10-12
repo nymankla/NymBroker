@@ -10,6 +10,9 @@ using NymBroker.Endpoint.Postgres;
 using NymBroker.Endpoint.RabbitMq;
 using NymBroker.Endpoint.SqlServer;
 using NymBroker.Endpoint.AzureServiceBus;
+using NymBroker.Endpoint.AwsSqs;
+using Amazon.Runtime;
+using Amazon.SQS;
 using Azure.Messaging.ServiceBus;
 using Npgsql;
 using Microsoft.Data.SqlClient;
@@ -23,6 +26,7 @@ const int    PgCount      = 1_000;
 const int    MssqlCount   = 1_000;
 const int    SbCount      = 1_000;
 const int    RabbitCount  = 1_000;
+const int    SqsCount     = 1_000;
 const int    SplitCount   = 200;
 const int    SplitThresholdBytes = 16 * 1024;
 const string PgConnStr    = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
@@ -33,6 +37,9 @@ const string MssqlConnStr = "Server=localhost,1433;Database=nymbroker;User Id=sa
 const string MssqlTable   = "dbo.nymbroker_bench";
 const string RabbitQueue  = "nymbroker.bench";
 const string RabbitMgmt   = "http://localhost:15672";
+// ElasticMQ (scripts/setup-sqs.ps1); the bench queue is created on first run.
+const string SqsServiceUrl = "http://localhost:9324";
+const string SqsQueue      = "nymbroker-bench";
 var Settings = Path.Combine(AppContext.BaseDirectory, "benchmarksettings.json");
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -209,7 +216,50 @@ else
     Console.WriteLine("  RabbitMQ – direct        ... skipped (RabbitMQ not available)");
 }
 
+if (await TryCreateSqsQueueAsync() is { } sqsQueueUrl)
+{
+    var sqsSettings = new AwsSqsSettings
+    {
+        QueueUrl        = sqsQueueUrl,
+        ServiceUrl      = SqsServiceUrl,
+        Credentials     = new BasicAWSCredentials("local", "local"),
+        WaitTimeSeconds = 1
+    };
+    await PurgeSqsQueueAsync(sqsQueueUrl);
+    results.Add(await RunAsync("SQS – direct", "SqsBench", SqsCount,
+        configureBuilder: b => b.AddAwsSqsEndPoint("SqsBench", sqsSettings)));
+    await PurgeSqsQueueAsync(sqsQueueUrl);
+    results.Add(await RunAsync("SQS – batch/100", "SqsBench", SqsCount, postBatchSize: 100,
+        configureBuilder: b => b.AddAwsSqsEndPoint("SqsBench", sqsSettings)));
+}
+else
+{
+    Console.WriteLine("  SQS – direct             ... skipped (ElasticMQ not available)");
+}
+
 PrintTable(results);
+
+// ─── sqs helpers ─────────────────────────────────────────────────────────────
+
+AmazonSQSClient CreateSqsClient()
+    => new(new BasicAWSCredentials("local", "local"), new AmazonSQSConfig { ServiceURL = SqsServiceUrl, AuthenticationRegion = "us-east-1", MaxErrorRetry = 0 });
+
+async Task<string?> TryCreateSqsQueueAsync()
+{
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        using var client = CreateSqsClient();
+        return (await client.CreateQueueAsync(SqsQueue, cts.Token)).QueueUrl;   // returns the existing queue's URL
+    }
+    catch { return null; }
+}
+
+async Task PurgeSqsQueueAsync(string queueUrl)
+{
+    using var client = CreateSqsClient();
+    await client.PurgeQueueAsync(queueUrl);
+}
 
 // ─── postgres helpers ────────────────────────────────────────────────────────
 

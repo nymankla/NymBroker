@@ -16,6 +16,7 @@ Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org 
 | [`NymBroker.Endpoint.SqlServer`](https://www.nuget.org/packages/NymBroker.Endpoint.SqlServer/) | SQL Server queue |
 | [`NymBroker.Endpoint.RabbitMq`](https://www.nuget.org/packages/NymBroker.Endpoint.RabbitMq/) | RabbitMQ |
 | [`NymBroker.Endpoint.AzureServiceBus`](https://www.nuget.org/packages/NymBroker.Endpoint.AzureServiceBus/) | Azure Service Bus |
+| [`NymBroker.Endpoint.AwsSqs`](https://www.nuget.org/packages/NymBroker.Endpoint.AwsSqs/) | Amazon SQS (standard and FIFO queues) |
 | [`NymBroker.Idempotency.Sqlite`](https://www.nuget.org/packages/NymBroker.Idempotency.Sqlite/) | Restart-safe idempotency on one host |
 | [`NymBroker.Idempotency.Postgres`](https://www.nuget.org/packages/NymBroker.Idempotency.Postgres/) | Shared durable idempotency |
 | [`NymBroker.Idempotency.SqlServer`](https://www.nuget.org/packages/NymBroker.Idempotency.SqlServer/) | Shared durable idempotency |

@@ -90,7 +90,7 @@ If your transport has its own dead-letter queue (a dead-letter exchange, a DLQ s
 
 When your endpoint *reads* a native dead-letter queue, call `DeadLetterEnvelope.Annotate(body, new DeadLetterInfo(reason, description, null, sourceEndpoint, deadLetteredAt, deliveryCount))` on each received body before handing it to the broker. The block (`context.DeadLetter`) is then the same whether the message came from the broker's dead-letter endpoint or the transport's own queue.
 
-So an endpoint **without** a native dead-letter queue only ever sees `Completed` or `Retry`, and failed messages end up on the broker's dead-letter endpoint. Endpoints in this repo: RabbitMQ (reject without requeue, i.e. the queue's dead-letter exchange), Azure Service Bus (`DeadLetterMessageAsync` with the reason) and the SQLite / PostgreSQL / SQL Server tables (`Failed` with the reason in the error column) dead-letter natively; Memory and File don't.
+So an endpoint **without** a native dead-letter queue only ever sees `Completed` or `Retry`, and failed messages end up on the broker's dead-letter endpoint. Endpoints in this repo: RabbitMQ (reject without requeue, i.e. the queue's dead-letter exchange), Azure Service Bus (`DeadLetterMessageAsync` with the reason) and the SQLite / PostgreSQL / SQL Server tables (`Failed` with the reason in the error column) dead-letter natively; Memory, File and Amazon SQS don't (SQS has a redrive dead-letter queue for repeatedly failing messages, but no call to dead-letter one on request, so it returns `false` and settles `Retry` by making the message visible again).
 
 ### `EndpointMode`
 

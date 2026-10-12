@@ -15,6 +15,7 @@ An **endpoint** is a named connection to a transport. You post to endpoints by n
 | **SQL Server** | `NymBroker.Endpoint.SqlServer` | yes | polling a table | retried, then `Failed` row | one statement | multi-instance apps already on SQL Server |
 | **RabbitMQ** | `NymBroker.Endpoint.RabbitMq` | yes | push (consumer) | requeued, then the queue's dead-letter exchange | one by one | a message broker you already run |
 | **Azure Service Bus** | `NymBroker.Endpoint.AzureServiceBus` | yes | push (processor) | abandoned, then the queue's dead-letter queue | Service Bus batches | Azure, managed queues and topics |
+| **Amazon SQS** | `NymBroker.Endpoint.AwsSqs` | yes | long polling | retried, then the queue's redrive dead-letter queue; messages that can never succeed go to the broker dead-letter endpoint | batches of 10 (not atomic) | AWS, managed queues (standard and FIFO) |
 
 "Failed messages" is explained in [Reliability](reliability.md). PostgreSQL and SQL Server let several application instances poll the same table safely; SQLite is meant for a single machine.
 
@@ -59,6 +60,13 @@ services.AddNymBroker()
         ConnectionString = "<namespace connection string>",   // or FullyQualifiedNamespace + Credential
         QueueName = "orders"                                  // or TopicName (+ SubscriptionName to receive)
     })
+
+    // NymBroker.Endpoint.AwsSqs
+    .AddAwsSqsEndPoint("Sqs", new AwsSqsSettings
+    {
+        QueueName = "orders",          // or QueueUrl; a name ending in .fifo is a FIFO queue
+        Region    = "eu-north-1"       // credentials: the AWS SDK's default chain, or Credentials in code
+    })
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
@@ -75,11 +83,21 @@ Each endpoint's settings type defines its available options and defaults. The mo
 | `UseTls`, `TlsServerName`, `ClientCertificatePath` | RabbitMQ | TLS with verified server certificate, optional client certificate — see [Production security](security.md#rabbitmq) |
 | `MaxConcurrentCalls`, `PrefetchCount` | Azure Service Bus | parallel handlers (above 1 gives up ordering); messages fetched ahead |
 | `ReadDeadLetterQueue` | Azure Service Bus | read the entity's dead-letter queue instead (repair / replay) |
+| `WaitTimeSeconds`, `MaxNumberOfMessages`, `VisibilityTimeout` | Amazon SQS | long-poll wait (default 20 s); messages per receive (1–10); invisibility while a receive batch is handled (must cover the whole batch) |
+| `RetryDelay`, `MessageGroupId` | Amazon SQS | how long a failed message stays invisible before redelivery (default 0); FIFO group (default: the envelope's correlation id) |
 | `UseNativeDeadLetter` | RabbitMQ, Service Bus, SQL endpoints | let the transport retry and dead-letter (default `true`) — see [Reliability](reliability.md) |
 
 The default connection settings, and the connection strings in the samples, match the local Docker containers — plaintext RabbitMQ, `TrustServerCertificate=True` for SQL Server, well-known passwords. For production, see [Production security](security.md).
 
-Local Docker setups for PostgreSQL, SQL Server, RabbitMQ and the Service Bus emulator are in `scripts/` (`setup-postgres.ps1`, `setup-sqlserver.ps1`, `setup-rabbitmq.ps1`, `setup-servicebus.ps1`).
+Local Docker setups for PostgreSQL, SQL Server, RabbitMQ, the Service Bus emulator and ElasticMQ (SQS-compatible) are in `scripts/` (`setup-postgres.ps1`, `setup-sqlserver.ps1`, `setup-rabbitmq.ps1`, `setup-servicebus.ps1`, `setup-sqs.ps1`).
+
+### Amazon SQS notes
+
+- **Failures.** SQS has no call to dead-letter a message on request. A failed message (`Retry`) becomes visible again after `RetryDelay`; give the queue a **redrive policy** (`maxReceiveCount` + a dead-letter queue), or it is retried until it succeeds or expires. Messages that can never succeed (undecodable, expired) and consumer failures go to the broker's `WithDeadLetterEndpoint`, so configure one.
+- **Visibility.** Messages are deleted (one `DeleteMessageBatch`) when the whole receive batch has been handled. Set the queue's visibility timeout, or `VisibilityTimeout`, longer than handling `MaxNumberOfMessages` messages takes; otherwise a message can be delivered twice.
+- **Bytes.** NymBroker envelopes are sent as text. Bytes posted with `PostRawAsync` that SQS cannot carry as text (not UTF-8, or control characters) are sent as Base64 with the message attribute `nymbroker-encoding` and decoded on receive.
+- **FIFO queues** (`.fifo`): the message group is `MessageGroupId`, or else the envelope's `correlationId`; the deduplication id is the envelope's `id`, so posting the same envelope twice within SQS's deduplication window delivers it once.
+- **Size.** Check the queue's maximum message size and post larger messages with `splitThresholdBytes`. `PostBatchAsync` sends up to 10 messages and 256 KB per request and is not atomic: a failed entry throws, and the messages before it stay sent.
 
 ## Endpoint modes
 
@@ -137,11 +155,12 @@ services.AddNymBroker()
     .LoadConfiguration("queuesettings.json")   // also registers File and Memory entries
     .WithSqlServer()                           // each add-on registers its own entries
     .WithAzureServiceBus()
+    .WithAwsSqs()
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
 
-- `Type` is matched case-insensitively. Built-in types: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `RabbitMq`; add-ons define `SqlServer` and `AzureServiceBus`. An entry is only registered if the matching `With…()` is called — otherwise it is ignored, and posting to it fails with "No endpoint registered".
+- `Type` is matched case-insensitively. Built-in types: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `RabbitMq`; add-ons define `SqlServer`, `AzureServiceBus` and `AwsSqs`. An entry is only registered if the matching `With…()` is called — otherwise it is ignored, and posting to it fails with "No endpoint registered".
 - `Config` holds the endpoint's settings in camelCase.
 - `Mode` is a name, case-insensitive (`"ReadWrite"`, `"ReadOnly"`, `"WriteOnly"`), or a number (`0`, `1`, `2`). Omitted means `ReadWrite`. An unknown value makes the configuration fail to load with a `JsonException`.
 - Secrets such as a Service Bus `TokenCredential` cannot come from the file; register those endpoints in code.

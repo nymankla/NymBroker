@@ -1,6 +1,6 @@
 # NymBroker user guide
 
-NymBroker moves typed .NET messages between parts of your system — in-process queues, files, databases, RabbitMQ or Azure Service Bus — and hands each one to the right piece of your code. You post a message to a named **endpoint**; the broker receives it there, decides what should happen to it (**route** it to another endpoint, **publish** it to topic subscribers, or **consume** it), and tells the transport whether it succeeded so failed messages are retried or dead-lettered.
+NymBroker moves typed .NET messages between parts of your system — in-process queues, files, databases, RabbitMQ, Azure Service Bus or Amazon SQS — and hands each one to the right piece of your code. You post a message to a named **endpoint**; the broker receives it there, decides what should happen to it (**route** it to another endpoint, **publish** it to topic subscribers, or **consume** it), and tells the transport whether it succeeded so failed messages are retried or dead-lettered.
 
 This guide is for application developers using the broker. If you want to add a new transport, see [Writing an endpoint](writing-an-endpoint.md).
 
@@ -34,7 +34,7 @@ flowchart LR
 ```
 
 - **Messages** are your own classes or records. The broker wraps each in a JSON **envelope** with an id, correlation id, type name and timestamp.
-- **Endpoints** are named connections to a transport: `Memory`, `File`, `SQLite`, `PostgreSQL`, `SQL Server`, `RabbitMQ`, `Azure Service Bus`. You post to an endpoint by name; the broker listens on every endpoint that can receive.
+- **Endpoints** are named connections to a transport: `Memory`, `File`, `SQLite`, `PostgreSQL`, `SQL Server`, `RabbitMQ`, `Azure Service Bus`, `Amazon SQS`. You post to an endpoint by name; the broker listens on every endpoint that can receive.
 - The **pipeline** decides what happens to each received message. A message that matches a **route** or a **topic** is forwarded there; otherwise it goes to the **consumer** registered for its type.
 - **Results flow back to the transport.** When a consumer fails, the endpoint's transport retries the message and eventually dead-letters it — or, for transports without that ability, the broker sends it to a dead-letter endpoint.
 
