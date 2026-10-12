@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-12
+
 ### Added
 
 - `NymBroker.Endpoint.Http`: a send-only HTTP / webhook endpoint (#77) — one request per message (`POST`, `PUT` or `PATCH`), the envelope or only its payload, `Idempotency-Key` and `X-NymBroker-*` headers, optional HMAC-SHA256 signature (`SigningSecret`), retries for timeouts, network errors, 408, 429 (honouring `Retry-After`) and 5xx, optional health-check URL, `AddHttpEndPoint` / `WithHttp()` (config type `Http`) on a named `IHttpClientFactory` client. A permanent failure such as 400 throws, so a route destination makes the source retry and then dead-letter the message.

@@ -1,1 +1,34 @@
 #nullable enable
+NymBroker.Endpoint.MySql.MySqlEndPoint
+NymBroker.Endpoint.MySql.MySqlEndPoint.DisposeAsync() -> System.Threading.Tasks.ValueTask
+NymBroker.Endpoint.MySql.MySqlEndPoint.HealthCheck() -> NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!
+NymBroker.Endpoint.MySql.MySqlEndPoint.Mode.get -> NymBroker.Core.Endpoint.EndpointMode
+NymBroker.Endpoint.MySql.MySqlEndPoint.MySqlEndPoint(string! name, NymBroker.Endpoint.MySql.MySqlSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Endpoint.MySql.MySqlEndPoint!>! logger, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> void
+NymBroker.Endpoint.MySql.MySqlEndPoint.PostAsync(byte[]! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.MySql.MySqlEndPoint.PostBatchAsync(System.Collections.Generic.IReadOnlyList<byte[]!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.MySql.MySqlEndPoint.StartListeningAsync(System.Func<byte[]!, System.Threading.CancellationToken, System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!>! handler, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.MySql.MySqlEndPoint.StopListeningAsync() -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.MySql.MySqlEndPoint.UsesNativeDeadLetter.get -> bool
+NymBroker.Endpoint.MySql.MySqlEndPointType
+NymBroker.Endpoint.MySql.MySqlSettings
+NymBroker.Endpoint.MySql.MySqlSettings.AutoCreateTable.get -> bool
+NymBroker.Endpoint.MySql.MySqlSettings.AutoCreateTable.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.BatchSize.get -> int
+NymBroker.Endpoint.MySql.MySqlSettings.BatchSize.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.ConnectionString.get -> string!
+NymBroker.Endpoint.MySql.MySqlSettings.ConnectionString.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.LeaseTimeout.get -> System.TimeSpan
+NymBroker.Endpoint.MySql.MySqlSettings.LeaseTimeout.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.MaxRetryCount.get -> int
+NymBroker.Endpoint.MySql.MySqlSettings.MaxRetryCount.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.MySqlSettings() -> void
+NymBroker.Endpoint.MySql.MySqlSettings.PollInterval.get -> System.TimeSpan
+NymBroker.Endpoint.MySql.MySqlSettings.PollInterval.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.TableName.get -> string!
+NymBroker.Endpoint.MySql.MySqlSettings.TableName.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.UseNativeDeadLetter.get -> bool
+NymBroker.Endpoint.MySql.MySqlSettings.UseNativeDeadLetter.set -> void
+NymBroker.Endpoint.MySql.NymBrokerBuilderMySqlExtensions
+const NymBroker.Endpoint.MySql.MySqlEndPointType.MySql = "MySql" -> string!
+static NymBroker.Endpoint.MySql.NymBrokerBuilderMySqlExtensions.AddMySqlEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.MySql.MySqlSettings? settings = null, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> NymBroker.Core.Factory.NymBrokerBuilder!
+static NymBroker.Endpoint.MySql.NymBrokerBuilderMySqlExtensions.WithMySql(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
