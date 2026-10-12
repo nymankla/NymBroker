@@ -97,7 +97,7 @@ So an endpoint **without** a native dead-letter queue only ever sees `Completed`
 Accept a `mode` constructor parameter (default `ReadWrite`) and expose it as `Mode`. The broker enforces it:
 
 - **`WriteOnly`**: `StartListeningAsync` is never called.
-- **`ReadOnly`**: posting to the endpoint throws `InvalidOperationException`. `StartAsync` fails fast if a route, topic, dead-letter or wire-tap target is read-only.
+- **`ReadOnly`**: posting to the endpoint throws `InvalidOperationException`. `StartAsync` fails fast if a route, topic, dead-letter or wire-tap target is read-only (or not registered at all).
 
 Your endpoint doesn't need to check `Mode` itself.
 

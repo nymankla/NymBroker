@@ -21,32 +21,17 @@ public sealed partial class NymBrokerImpl
                     _logger.LogInformation("Endpoint '{Name}' registered ({Mode})", name, endpoint.Mode.ToString());
 
             foreach (var route in _routes)
-            {
-                if (_endpoints.TryGetValue(route.DestinationEndpoint, out var dest) && dest.Mode == EndpointMode.ReadOnly)
-                    throw new InvalidOperationException(
-                        $"Route targets read-only endpoint '{route.DestinationEndpoint}'. Read-only endpoints cannot receive posted messages.");
-            }
+                ValidateTarget(route.DestinationEndpoint, "Route target");
 
             foreach (var topic in _topics)
-            {
                 foreach (var epName in topic.SubscriberEndpoints)
-                {
-                    if (_endpoints.TryGetValue(epName, out var dest) && dest.Mode == EndpointMode.ReadOnly)
-                        throw new InvalidOperationException(
-                            $"Topic '{topic.TopicName}' targets read-only endpoint '{epName}'. Read-only endpoints cannot receive posted messages.");
-                }
-            }
+                    ValidateTarget(epName, $"Topic '{topic.TopicName}' target");
 
-            if (_deadLetterEndpoint != null
-                && _endpoints.TryGetValue(_deadLetterEndpoint, out var dlqDest)
-                && dlqDest.Mode == EndpointMode.ReadOnly)
-                throw new InvalidOperationException(
-                    $"Dead letter endpoint '{_deadLetterEndpoint}' is read-only and cannot receive messages.");
+            if (_deadLetterEndpoint != null)
+                ValidateTarget(_deadLetterEndpoint, "Dead letter endpoint");
 
             foreach (var tapName in _wireTapEndpoints)
-                if (_endpoints.TryGetValue(tapName, out var tapDest) && tapDest.Mode == EndpointMode.ReadOnly)
-                    throw new InvalidOperationException(
-                        $"Wire tap endpoint '{tapName}' is read-only and cannot receive messages.");
+                ValidateTarget(tapName, "Wire tap endpoint");
 
             try
             {
@@ -109,5 +94,15 @@ public sealed partial class NymBrokerImpl
         {
             _lifecycleLock.Release();
         }
+    }
+
+    // A missing target would only show up when the first message is lost, so fail at startup instead.
+    private void ValidateTarget(string name, string what)
+    {
+        if (!_endpoints.TryGetValue(name, out var endpoint))
+            throw new InvalidOperationException($"{what} '{name}' is not a registered endpoint.");
+        if (endpoint.Mode == EndpointMode.ReadOnly)
+            throw new InvalidOperationException(
+                $"{what} '{name}' is read-only and cannot receive messages.");
     }
 }

@@ -9,6 +9,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 - Metric `nymbroker.message.age` (histogram, seconds, tag `source`): how old each message is when the broker starts processing it, measured from the envelope's `created`. It rises when a backlog builds, on every transport. Queue depth is still not measured by the broker; [docs/observability.md](docs/observability.md) lists where to read it for each transport.
 - `samples/NymBroker.Benchmarks -- --latency`: a second results table from the broker's own metrics, with processing time p50/p99, message age p99, failures and retries per scenario ([docs/benchmarks.md](docs/benchmarks.md)).
 
+### Changed
+
+- **Breaking:** `StartAsync` now throws `InvalidOperationException` when a route, topic, dead-letter (`WithDeadLetterEndpoint`) or wire-tap target is not a registered endpoint (#81). Before, the broker started and the mistake only showed up later: a dead-lettered message was logged as "not found" and lost, and a route to an unknown endpoint was skipped with a warning. Migration: fix the endpoint name, or register the endpoint. The read-only messages were reworded at the same time (e.g. `Route target 'X' is read-only and cannot receive messages.`).
+
 ## [0.11.0] - 2026-10-12
 
 ### Added
