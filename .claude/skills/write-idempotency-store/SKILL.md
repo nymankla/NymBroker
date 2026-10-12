@@ -118,7 +118,7 @@ Core's broker flow is already covered by `IdempotentReceiverTests` (in-memory st
 
 - `docs/reliability.md` (Duplicate detection): add the database to the store list and remove the "planned" link.
 - `README.md`: solution-layout row and the Idempotent Receiver section.
-- `CLAUDE.md`: solution-layout row.
+- Root `CLAUDE.md`: solution-layout row.
 - `docs/pipeline-extensions.md`, if the extension list names the stores.
 
 ## 6. Done when

@@ -85,7 +85,7 @@ Then run `dotnet build` (must have 0 warnings) and `dotnet test`, both without t
 
 ## 6. Document
 
-- Add the project to the CLAUDE.md solution table, and add its rows to the "Error Handling / Logging Guarantees" table.
-- Add a usage snippet to the CLAUDE.md "Factory / DI" section and to `README.md` (its Endpoints section and its "Solution layout" table).
+- Add the project to the root `CLAUDE.md` solution-layout table, and create `<project>/CLAUDE.md` with its internals: settlement, connections, stop/shutdown, error logging, and why each non-obvious choice was made (see the existing endpoint folders).
+- Add a usage snippet to `docs/endpoints-and-configuration.md` and to `README.md` (its Endpoints section and its "Solution layout" table).
 - Add the package to the package table in `docs/getting-started.md`, and a section for it in `docs/endpoints-and-configuration.md`.
 - If the endpoint revealed something the guide doesn't cover, update `docs/writing-an-endpoint.md` too.

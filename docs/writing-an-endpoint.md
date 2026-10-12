@@ -460,7 +460,7 @@ What this sample adds beyond Sample B:
   - prepare statements once;
   - use literal (not parameterized) status values when the table has a filtered or partial index.
 
-  When the loop stops, write the outcomes of messages already handled with a fresh token. Measured gains were 10× to 1 000× over a per-message design; see CLAUDE.md, *SQLite / PostgreSQL / SQL Server Endpoint*.
+  When the loop stops, write the outcomes of messages already handled with a fresh token. Measured gains were 10× to 1 000× over a per-message design; see the `CLAUDE.md` in the SQLite, PostgreSQL and SQL Server endpoint folders.
 
   **Don't write that loop yourself:** derive from `LeasedQueueListener` (`NymBroker.Core.Endpoint.Queue`), which the three SQL endpoints use. It runs the drain/idle loop, calls the handler, maps each `ProcessResult` to a row outcome (`Completed`; `DeadLetter` → `Failed`; `Retry` → `Pending`, or `Failed` at `MaxRetryCount`) with the standard log messages, and writes the handled outcomes on shutdown. You supply the data access; your settings class implements `ILeasedQueueSettings`:
 

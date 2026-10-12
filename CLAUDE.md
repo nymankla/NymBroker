@@ -1,438 +1,120 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. Details about one project live in a `CLAUDE.md` in that project's folder (see [Where the details are](#where-the-details-are)) and are loaded when you work there.
 
-## What This Is
+## What this is
 
-A .NET 10 enterprise message processing framework following EIP (Enterprise Integration Patterns). Messages flow as JSON envelopes through a configurable pipeline:
+A .NET 10 message-processing framework following Enterprise Integration Patterns, shipped as NuGet packages. Messages travel as JSON envelopes:
 
 ```
-Source Endpoint → Deserialize → Filter → Router → Consumer / Destination Endpoint
-                                              ↕
-                                    Aggregator / Splitter
+Source endpoint → deserialize → filter → route / topic / consumer → destination endpoint
+                                       ↕ aggregator / splitter
 ```
 
-Endpoints: **RabbitMQ**, **Azure Service Bus**, **SQLite**, **PostgreSQL**, **SQL Server**, **File**, **Memory** (in-process / tests).
+Endpoints: Memory, File (in Core), SQLite, PostgreSQL, SQL Server, RabbitMQ, Azure Service Bus (one package each).
 
 ## Commands
 
-Run from the solution root (`e:\utv\POC\NymBroker`):
+Run from the solution root (`e:\utv\NymBroker`):
 
 ```bash
-dotnet build
-dotnet test
-dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"   # single test class (MTP runner, see global.json)
-dotnet run --project samples/NymBroker.Sample            # fluent API demo
-dotnet run --project samples/NymBroker.ConfigSample      # JSON config demo
-dotnet run --project samples/NymBroker.SqlSample         # SQLite endpoint demo
-dotnet run --project samples/NymBroker.SqlServerSample   # SQL Server endpoint demo (run setup-sqlserver.ps1 first)
-dotnet run --project samples/NymBroker.AzureServiceBusSample   # Service Bus demo incl. dead-letter queue (run setup-servicebus.ps1 first)
-dotnet run --project samples/NymBroker.Benchmarks        # throughput benchmark
-
-# PostgreSQL / SQL Server integration tests (skipped unless the env vars are set)
-$env:NYMBROKER_POSTGRES_CS  = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres"
-$env:NYMBROKER_SQLSERVER_CS = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
-$env:NYMBROKER_SERVICEBUS_CS = "Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
-$env:NYMBROKER_RABBITMQ_HOST = "localhost"
-dotnet test --project NymBroker.Tests -- --filter-class "*EndPointTests"
-
-# Local infrastructure (Docker Desktop required) — services defined in scripts/docker-compose.yml
-./scripts/setup-rabbitmq.ps1          # start + wait for healthy
-./scripts/setup-rabbitmq.ps1 -Stop    # stop
-./scripts/setup-rabbitmq.ps1 -Logs    # tail logs
-./scripts/setup-postgres.ps1          # PostgreSQL on localhost:5432, db nymbroker (postgres/postgres); same -Stop/-Logs
-./scripts/setup-sqlserver.ps1         # SQL Server 2022 on localhost,1433, creates db nymbroker (sa / NymBroker!Dev123); same -Stop/-Logs
-./scripts/setup-servicebus.ps1        # Azure Service Bus emulator, AMQP on localhost:5673 (5672 is RabbitMQ); entities in scripts/servicebus/Config.json; same -Stop/-Logs
+dotnet build                                                                  # must end with 0 warnings
+dotnet test                                                                   # unit tests; integration tests are skipped
+dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"    # one class (Microsoft Testing Platform, see global.json)
+./scripts/test-all.ps1                                                        # starts Docker containers, runs EVERY test incl. integration
+./scripts/test-all.ps1 -Filter "*RabbitMqEndPointTests"                       # same, one class
+./scripts/pack.ps1                                                            # packs all packages + artifacts/nymbroker-skills.zip
+dotnet run -c Release --project samples/NymBroker.Benchmarks                  # throughput benchmark
 ```
 
-Note: `setup-rabbitmq.ps1 -Stop` and `setup-postgres.ps1 -Stop` run `docker compose down`, which stops **all** services in the compose file. `setup-sqlserver.ps1 -Stop` and `setup-servicebus.ps1 -Stop` stop only their own service. The Service Bus emulator stores its state in the `sqlserver` service (it starts with it).
+Integration tests run only when their variable is set — `test-all.ps1` sets all four:
 
-## Architecture
+```powershell
+$env:NYMBROKER_POSTGRES_CS   = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres"
+$env:NYMBROKER_SQLSERVER_CS  = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
+$env:NYMBROKER_SERVICEBUS_CS = "Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+$env:NYMBROKER_RABBITMQ_HOST = "localhost"
+```
 
-### Solution Layout
+Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml`, one script per service, each with `-Stop` / `-Logs`: `setup-rabbitmq.ps1` (5672, UI 15672), `setup-postgres.ps1` (5432), `setup-sqlserver.ps1` (1433, creates db `nymbroker`), `setup-servicebus.ps1` (emulator on 5673; starts SQL Server too, entities in `scripts/servicebus/Config.json`). `setup-rabbitmq -Stop` / `setup-postgres -Stop` run `docker compose down` and stop **all** services; the SQL Server / Service Bus `-Stop` stop only their own. If `docker` cannot connect, Docker Desktop is not running.
+
+## Solution layout
 
 | Project | Role |
 |---|---|
-| `NymBroker.Core` | Framework core — endpoints, serializer, routing, broker engine, factory. No transport dependency. Also holds the dependency-free retry policy (`NymBroker.Core.Resilience`: `RetryPolicy`, `RetryOptions`) — constant/exponential backoff with optional jitter; used by `FileEndPoint` (IOException retry) and `RabbitMqEndPoint` (reconnect). Replaces Polly. Options documented in [docs/resilience.md](docs/resilience.md). |
-| `NymBroker.Endpoint.RabbitMq` | Optional add-on — `RabbitMqEndPoint`, `RabbitMqSettings`, `AddRabbitMqEndPoint`/`WithRabbitMq`. |
-| `NymBroker.Endpoint.Sqlite` | Optional add-on — `SqliteEndPoint`, `SqliteSettings`, `AddSqliteEndPoint`/`WithSql`. Uses `Microsoft.Data.Sqlite` (no Dapper — removed from the solution in #60; don't re-add it). |
-| `NymBroker.Endpoint.Postgres` | Optional add-on — `PostgresEndPoint`, `PostgresSettings`, `AddPostgresEndPoint`/`WithPostgres`. Uses Npgsql. |
-| `NymBroker.Endpoint.SqlServer` | Optional add-on — `SqlServerEndPoint`, `SqlServerSettings`, `AddSqlServerEndPoint`/`WithSqlServer`, config type `SqlServerEndPointType.SqlServer`. Uses `Microsoft.Data.SqlClient`. |
-| `NymBroker.Idempotency.SqlServer` | Optional add-on (#55) — durable `IIdempotencyStore` in a SQL Server table: `SqlServerIdempotencyStore`, `SqlServerIdempotencySettings`, `AddSqlServerIdempotency`, with cleanup by Core's generic hosted service (`AddIdempotencyStore`). Independent of `NymBroker.Endpoint.SqlServer`. |
-| `NymBroker.Idempotency.Postgres` | Optional add-on (#56) — durable `IIdempotencyStore` in a PostgreSQL table: `PostgresIdempotencyStore`, `PostgresIdempotencySettings`, `AddPostgresIdempotency`, with cleanup by Core's generic hosted service (`AddIdempotencyStore`). Independent of `NymBroker.Endpoint.Postgres`. |
-| `NymBroker.Idempotency.Sqlite` | Optional add-on (#57) — durable `IIdempotencyStore` in a SQLite table (`INSERT … ON CONFLICT … RETURNING` claim, one persistent connection under a `SemaphoreSlim`, WAL for files): `SqliteIdempotencyStore`, `SqliteIdempotencySettings`, `AddSqliteIdempotency`, with cleanup by Core's generic hosted service (`AddIdempotencyStore`). Restart-safe on **one host** only. Independent of `NymBroker.Endpoint.Sqlite`. |
-| `NymBroker.Endpoint.AzureServiceBus` | Optional add-on — `AzureServiceBusEndPoint`, `AzureServiceBusSettings`, `AddAzureServiceBusEndPoint`/`WithAzureServiceBus`, config type `AzureServiceBusEndPointType.AzureServiceBus`. Uses `Azure.Messaging.ServiceBus` (no `Azure.Identity` dependency). |
-| `NymBroker.Tests` | xUnit tests — uses Memory and SQLite `:memory:` endpoints; no RabbitMQ/Postgres/file I/O. PostgreSQL / SQL Server / Service Bus / RabbitMQ integration tests (`PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `AzureServiceBusEndPointTests`, `RabbitMqEndPointTests`) run only when `NYMBROKER_POSTGRES_CS` / `NYMBROKER_SQLSERVER_CS` / `NYMBROKER_SERVICEBUS_CS` / `NYMBROKER_RABBITMQ_HOST` are set; otherwise they are skipped (their unit and health-check tests always run). |
-| `skills/` | Agent skills for **client** applications (`nymbroker-setup`, `-message`, `-consumer`, `-routing`, `-producer-worker`, `-input-transformer`, `-scheduled`, `-testing`, `-observability`, `-dead-letters`, `-troubleshoot`) — not for developing this repo (those are in `.claude/skills/`). `scripts/pack.ps1` zips them to `artifacts/nymbroker-skills.zip`; CI attaches it to the GitHub release of each `v*` tag. Update them when the public API or setup they describe changes. |
-| `samples/NymBroker.Sample` | Runnable demo with file + memory endpoints, scheduled actions, routing |
-| `samples/NymBroker.ConfigSample` | Demo using `queuesettings.json` for endpoint configuration |
-| `samples/NymBroker.SqlSample` | SQLite endpoint demo — posts orders, broker claims and dispatches |
-| `samples/NymBroker.SqlServerSample` | SQL Server endpoint demo — same flow as the Postgres sample; needs `scripts/setup-sqlserver.ps1` |
-| `samples/NymBroker.EfCoreTransactionSample` | Consumer writing `Orders`, `OrderLines` and `Products` (stock via a guarded `ExecuteUpdateAsync`) with EF Core in one SQL Server transaction, with `AddSqlServerIdempotency` dropping redeliveries; out of stock on a later line rolls back all three; EF SQL and transaction steps are logged; self-checking run (normal / duplicate / rollback → Failed row) on a throw-away database `nymbroker_ef_sample`; needs `scripts/setup-sqlserver.ps1` |
-| `samples/NymBroker.MediatRSample` | MediatR patterns (command / notification / query / pipeline) in a CQRS minimal API; `--demo` is a self-checking round trip, `--sqlite` makes the command queue durable. Explained in [docs/mediatr-comparison.md](docs/mediatr-comparison.md) |
-| `samples/NymBroker.AzureServiceBusSample` | Service Bus demo — a failing order is retried, dead-lettered by Service Bus, then read back via `ReadDeadLetterQueue`; needs `scripts/setup-servicebus.ps1` |
-| `samples/NymBroker.Benchmarks` | Throughput + allocation benchmark — Memory, File, SQLite and split scenarios always; Postgres, SQL Server, Azure Service Bus (emulator queue `nymbroker.bench`) and RabbitMQ scenarios when reachable on localhost (skipped otherwise) |
+| `NymBroker.Core` (package `NymBroker`) | Broker engine, serializer, routing, topics, splitter, idempotent receiver, scheduling, health checks, DI builder, Memory and File endpoints, `RetryPolicy`, and the shared endpoint building blocks |
+| `NymBroker.Endpoint.Sqlite` / `.Postgres` / `.SqlServer` | Lease-based queue tables (`Add…EndPoint`, `WithSql` / `WithPostgres` / `WithSqlServer`) |
+| `NymBroker.Endpoint.RabbitMq` / `.AzureServiceBus` | Broker transports (`AddRabbitMqEndPoint` / `WithRabbitMq`, `AddAzureServiceBusEndPoint` / `WithAzureServiceBus`) |
+| `NymBroker.Idempotency.Sqlite` / `.Postgres` / `.SqlServer` | Durable `IExpiringIdempotencyStore`s (`AddSqliteIdempotency` …) registered through Core's `AddIdempotencyStore`; independent of the endpoint packages. SQLite is restart-safe on one host only |
+| `NymBroker.Tests` | xUnit. Unit tests use Memory and SQLite `:memory:`; `PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `AzureServiceBusEndPointTests` and `RabbitMqEndPointTests` need their `NYMBROKER_*` variable (their unit tests always run) |
+| `samples/*` | Runnable apps — table in [docs/samples.md](docs/samples.md). Self-checking: `NymBroker.MediatRSample -- --demo`, `NymBroker.EfCoreTransactionSample` (needs SQL Server) |
+| `skills/` | Agent skills for **client** apps (`nymbroker-setup`, `-message`, `-consumer`, `-routing`, `-producer-worker`, `-input-transformer`, `-scheduled`, `-testing`, `-observability`, `-dead-letters`, `-troubleshoot`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`) |
+| `docs/` | User documentation, index in [docs/user-guide.md](docs/user-guide.md) |
 
-### Key Abstractions
+## Key abstractions
 
 ```
-IEndPoint                 ← all transports: Mode, PostAsync(byte[]), HealthCheck()
-  IEndPointEventDriven    ← inbound: StartListeningAsync(handler) / StopListeningAsync; UsesNativeDeadLetter
-EndpointMode              ← ReadWrite (default) | ReadOnly | WriteOnly
-ProcessResult             ← what the handler returns: Completed | Retry | DeadLetter(Reason, Description); FailureText
-DeadLetterReasons         ← DeserializationFailed, Expired, UnknownCompression, ConsumerFailed, TopicDeliveryFailed
-
-IMessageContext<T>        ← typed envelope (Id, CorrelationId, Address, MessageType, Created)
-DeadLetterInfo            ← why a message was dead-lettered (IMessageContext.DeadLetter); DeadLetterEnvelope.Annotate adds it to bytes
-RawMessageContext          ← internal deserialized form; holds JsonElement RawMessage for deferred typing
-
-INymBroker            ← engine facade (see below)
-IConsume<T>               ← consumer contract; implement + register via AddConsumer<T>()
-IRouteBuilder<T>          ← fluent route definition (see Routing section)
-IRouteCondition           ← composable predicate evaluated on (IMessageContext, JsonElement)
-
-LeasedQueueListener       ← shared loop of the lease-based queue endpoints (NymBroker.Core.Endpoint.Queue), see below
-EndpointHandler           ← InvokeAsync: call the handler; exception → LogError + Retry; rethrow only the stop token's cancellation
+IEndPoint                 ← every transport: Mode, PostAsync(byte[]), PostBatchAsync(IReadOnlyList<byte[]>), HealthCheck()
+  IEndPointEventDriven    ← receiving: StartListeningAsync(handler) / StopListeningAsync; UsesNativeDeadLetter
+EndpointMode              ← ReadWrite (default) | ReadOnly | WriteOnly (no listener)
+ProcessResult             ← handler result the endpoint settles by: Completed | Retry(ex) | DeadLetter(reason, description)
+INymBroker                ← PostAsync<T>, PostRawAsync (bytes as-is), PostBatchAsync<T>, PublishAsync<T>, Route<T>(), ProcessAsync, CheckHealthAsync
+IConsume<T> / ISubscribe<T> ← one consumer per message type / any number of topic subscribers
+IMessageContext           ← envelope metadata: Id, CorrelationId, Address, MessageType, Created, DeadLetter
+LeasedQueueListener       ← shared poll loop of the queue-table endpoints;  EndpointHandler.InvokeAsync ← call a handler safely
 ```
 
-**Shared endpoint building blocks.** The SQLite, PostgreSQL and SQL Server endpoints each have a private nested `Listener : LeasedQueueListener` and keep only their data access: `FinalizeAndClaimAsync` (write outcomes + claim the next batch, one transaction) and `FinalizeAsync` (shutdown write); PostgreSQL also overrides `WaitWhenIdleAsync` (LISTEN/NOTIFY) and `OnLoopExitAsync`. The base class owns start/stop, the drain/idle loop, the `ProcessResult` → `QueueMessageStatus` mapping (Completed; DeadLetter → Failed; Retry → Pending, or Failed at `MaxRetryCount`) and its log lines, poll-error / `Critical` logging, and the shutdown write with a fresh 10 s token. Settings implement `ILeasedQueueSettings` (an interface rather than a base class, so no shipped settings members moved). Every endpoint calls its handler through `EndpointHandler.InvokeAsync`, async health probes go through `HealthCheckResult.FromProbe(kind, name, logger, probe)` (5 s default), and `With…()` extensions are `builder.AddConfiguredEndPoints(type, ep => builder.Add…(ep.Name, ep.GetSettings<TSettings>(), ep.Mode))`.
+The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't `WriteOnly` and wires it to `ProcessAsync`, which never throws (except for the broker's own cancellation) and returns how to settle the message:
 
-`NymBrokerImpl.StartAsync` calls `StartListeningAsync` on every `IEndPointEventDriven` endpoint whose `Mode` is not `WriteOnly`, wiring the handler to `ProcessAsync(raw, endpointName, ct)`, which returns a `ProcessResult` the endpoint settles the message by (ack / redeliver / dead-letter). A plain `IEndPoint` is a send-only sink. Pull-based transports (`SqliteEndPoint`, `PostgresEndPoint`) still implement `IEndPointEventDriven` — their poll loop runs on `Task.Run` and calls the handler for each claimed message. `StartAsync` throws if a route, topic, dead-letter or wire-tap target is `ReadOnly`.
-
-**Processing results and native dead-lettering (0.2.0, #39).** `ProcessAsync` never throws (except `OperationCanceledException`); it returns:
-
-| Situation | Source has `UsesNativeDeadLetter = true` | Otherwise (Memory, File, opt-out, `PublishAsync`) |
+| Situation | Source with `UsesNativeDeadLetter` (SQL tables, RabbitMQ, Service Bus) | Otherwise (Memory, File, opt-out, `PublishAsync`) |
 |---|---|---|
-| Success, filtered, no consumer | `Completed` | `Completed` |
-| Undecodable / expired / unknown compression | `DeadLetter(reason)` | post to the `WithDeadLetterEndpoint` endpoint, `Completed` |
-| Consumer or topic fan-out throws | `Retry(ex)` — the transport redelivers, dead-letters at its limit | post to the dead-letter endpoint, `Completed` |
-| A route's destination throws (or any unexpected exception) | `Retry(ex)` | `Retry(ex)` |
+| Handled, filtered, or no consumer | `Completed` | `Completed` |
+| Undecodable / expired / unknown compression | `DeadLetter(reason)` | posted to the `WithDeadLetterEndpoint` endpoint, `Completed` |
+| Consumer or topic subscriber throws | `Retry(ex)` — the transport redelivers, then dead-letters | posted to the dead-letter endpoint, `Completed` |
+| A route's destination throws, or anything unexpected | `Retry(ex)` | `Retry(ex)` |
 
-`UsesNativeDeadLetter` is driven by `UseNativeDeadLetter` (default `true`) in `RabbitMqSettings`, `AzureServiceBusSettings`, `SqliteSettings`, `PostgresSettings`, `SqlServerSettings`; Memory/File return `false`. For split messages the part that completes the group carries the reassembled message's result. `PublishAsync<T>` rethrows a `Retry`'s exception (no transport to redeliver). The processing-duration histogram carries a `result` tag (`completed`/`retry`/`dead_letter`). Helper: `UsesNativeDeadLetter(source)` / `DeadLetterAsync(...)` in `NymBrokerImpl.Processing.cs`.
+## Where the details are
 
-`MemoryQueueEndPoint`, `FileEndPoint` and `SqliteEndPoint` also expose a non-interface `ReadAsync` (drains currently available items) — used by tests and samples to inspect what was posted. There is no `IEndPointPoll` interface any more.
-
-See [docs/writing-an-endpoint.md](docs/writing-an-endpoint.md) for how to implement a new endpoint.
-
-### Message Envelope (JSON wire format)
-
-```json
-{
-  "id": "guid",
-  "correlationId": "guid",
-  "address": { "to": "FileOut", "from": "RabbitIn" },
-  "messageType": "orders.created",
-  "created": "2025-01-01T00:00:00Z",
-  "message": { "...business payload..." }
-}
-```
-
-An optional `deadLetter` object (`DeadLetterInfo`: `reason`, `description` capped at 4 096 chars, `exceptionType`, `sourceEndpoint`, `deadLetteredAt`, `deliveryCount`) is added only when a message is dead-lettered (replaced if dead-lettered again); normal envelopes are byte-for-byte unchanged. It is exposed as `IMessageContext.DeadLetter` and survives routing. `DeadLetterEnvelope.Annotate(raw, info)` adds it to any bytes (preserving unknown properties); bytes that are not a JSON object become a new `nymbroker.undecodable` envelope (`UndecodableMessage`, pre-registered like `SplitMessage`). The broker's `TryPostToDeadLetterAsync` and the Service Bus endpoint (`ReadDeadLetterQueue = true`) use it. Counter `nymbroker.messages.dead_lettered` is tagged `reason`/`source`/`mode` (`broker`|`native`).
-
-`messageType` is resolved from `[MessageName("short.name")]` if present, otherwise the CLR `FullName`. `MessageTypeName.Get(type)` is the single resolver.
-
-### INymBroker API
-
-```csharp
-broker.PostAsync<T>(endpoint, message)              // serialize + send
-broker.PostRawAsync(endpoint, bytes | stream)       // send pre-serialized bytes as-is (#74; replaced PostAsync(Stream))
-broker.PostBatchAsync<T>(endpoint, messages, …, correlationId?) // many envelopes, one IEndPoint.PostBatchAsync call (#45)
-broker.PublishBatchAsync<T>(messages) / (topicName, messages)   // per-message publish / one batch per topic endpoint
-// Both overloads take a trailing `int? splitThresholdBytes = null` and `bool compress = true`:
-// when a threshold is set and the serialized envelope exceeds it, the message is transparently
-// split into SplitMessage parts (via ISplitter) and posted individually; ProcessAsync reassembles
-// them on arrival. When compress is also true, the envelope is compressed (ICompressor, Brotli by
-// default) before splitting whenever that actually shrinks it — offsets Base64's ~33% overhead for
-// compressible (text/JSON) payloads. See "Aggregator / Splitter" below.
-//
-// Batches: every message keeps its own envelope and is received and settled one by one; only the send is batched.
-// IEndPoint.PostBatchAsync(IReadOnlyList<byte[]>) is a default interface method (sequential PostAsync), overridden by
-// SqlServer (INSERT…SELECT FROM OPENJSON, base64 → VARBINARY), Postgres (INSERT…SELECT FROM unnest WITH ORDINALITY, one
-// NOTIFY), SQLite (one transaction) — all atomic and order-preserving — and Azure Service Bus (ServiceBusMessageBatch
-// chunks, atomic per chunk). RabbitMQ/File/Memory use the default. Split thresholds apply per message (NymBrokerImpl
-// .ToWireMessages, shared with PostAsync). Named PostBatchAsync, not a PostAsync overload: PostAsync(endpoint, list)
-// would bind to PostAsync<T> with T = List<…>.
-
-// Routing (all return IRouteBuilder<T> or RouteContext)
-broker.Route<Order>()...Build()                     // typed route
-broker.Route()...Build()                            // IAnyMessage route
-broker.Route(IRouteBuilder)                         // custom builder
-broker.Route(Func<RouteContext>)                    // custom factory
-
-broker.AddFilter(IMessageFilter)
-broker.AddScheduledAction(TimeSpan, Action)
-broker.AddScheduledAction<T1>(TimeSpan, Action<T1>, T1)
-broker.AddScheduledAction<T1,T2>(TimeSpan, Action<T1,T2>, T1, T2)
-broker.AddScheduledAction<T1>(string cronExpr, Action<T1>, T1)   // 5-field cron syntax
-
-broker.StartAsync(ct) / StopAsync(ct)              // called automatically by IHostedService
-broker.ProcessAsync(raw, sourceEndpoint, ct)        // entry point for endpoint listeners → Task<ProcessResult>
-broker.CheckHealthAsync(ct)                         // → BrokerHealthReport (#53), see below
-```
-
-**Broker health check (#53).** `CheckHealthAsync` (`NymBrokerImpl.HealthCheck.cs`) runs every endpoint's synchronous `HealthCheck()` on the thread pool in parallel, waits up to `BrokerHealthCheckOptions.Timeout` (default 10 s; a late endpoint → `Unhealthy` "timed out", its task left running), and never throws except caller cancellation. `BrokerHealthReport(Status, BrokerStarted, Endpoints, Duration, Message)` / `EndpointHealth(Name, Status, Message, Mode, Duration, IsCritical)` / `BrokerHealthStatus` live in `NymBroker.Core.Endpoint.HealthCheck`. Aggregate: broker not started or any critical endpoint unhealthy → `Unhealthy`; only non-critical ones unhealthy → `Degraded`; else `Healthy` (no endpoints = broker state only). Builder: `.ConfigureHealthCheck(o => { o.NonCritical("Audit"); o.Timeout = …; })` (`Build()` throws for unknown non-critical names). ASP.NET Core: `services.AddHealthChecks().AddNymBroker(name, failureStatus, tags, timeout)` registers `NymBrokerHealthCheck : IHealthCheck` (namespace `NymBroker.Core.DI`; Core references `Microsoft.Extensions.Diagnostics.HealthChecks`); `Data` = `brokerStarted` + one `"<name>": "<status>: <message>"` per endpoint.
-
-### Routing
-
-`RouteContext` is an open (non-sealed) class with a `virtual Evaluate()` — subclass it for custom routing logic. Route conditions implement `IRouteCondition`:
-
-| Condition class | Created by |
+| Working on | Read |
 |---|---|
-| `JsonRouteCondition` | `.When(Func<JsonElement, bool>)` |
-| `FromRouteCondition` | `.WhenFrom(name)` |
-| `NotFromRouteCondition` | `.WhenNotFrom(name)` |
-| `MessageAgeRouteCondition` | `.WhenMessageIsOlderThan(TimeSpan)` |
-| `AndRouteCondition` | `.And(lhs, rhs)` |
-| `OrRouteCondition` | `.Or(lhs, rhs)` |
+| Broker engine, envelope, routing, topics, consumers, idempotency, scheduling, splitter, health checks, configuration, Memory/File | [NymBroker.Core/CLAUDE.md](NymBroker.Core/CLAUDE.md) |
+| A queue-table endpoint | `NymBroker.Endpoint.Sqlite/`, `.Postgres/`, `.SqlServer/` `CLAUDE.md` |
+| RabbitMQ / Service Bus | `NymBroker.Endpoint.RabbitMq/CLAUDE.md`, `NymBroker.Endpoint.AzureServiceBus/CLAUDE.md` |
+| A new endpoint or idempotency store | `.claude/skills/write-endpoint`, `.claude/skills/write-idempotency-store`, [docs/writing-an-endpoint.md](docs/writing-an-endpoint.md) |
+| User-facing behaviour | `docs/` — the docs describe the public contract; keep them in step with the code |
+| Production configuration (TLS, secrets, permissions) | [docs/security.md](docs/security.md) |
+| Release history and why things changed | [CHANGELOG.md](CHANGELOG.md), GitHub issues referenced as `#NN` |
 
-Predicates receive the **message payload** element (not the full envelope). `IAnyMessage` routes match every type. Chained content conditions (`When`, `WhenMessageIsOlderThan`, `And`, `Or`; topics' `When`) are AND-ed via `RouteConditions.Combine`, also with a `Condition` preset on a factory-created `RouteContext` (#47; before 0.3.3 each replaced the previous). `WhenFrom`/`WhenNotFrom` are single fields. Every Post/Publish method creates its envelope through `NymBrokerImpl.NewContext`, which throws `ArgumentException` for a `Stream`, `byte[]`, `ReadOnlyMemory<byte>` or `Memory<byte>` message (they would be serialized as a meaningless payload) and points to `PostRawAsync` (#74). `IRouteBuilder<T>.Transform(fileName)` / `RouteContext.Transform` were never implemented and are `[Obsolete]` no-ops (#48) — don't use or extend them; remove in a future minor version.
+## Key design rules
 
-```csharp
-broker.Route<Order>()
-    .To("FileOut")
-    .WhenFrom("RabbitIn")
-    .When(msg => msg.GetProperty("priority").GetString() == "high")
-    .Build();
-```
+- **Ask before architectural decisions** (new projects, public API shape, new dependencies) — built incrementally with explicit sign-off.
+- **Never swallow exceptions silently** — every catch block and fire-and-forget boundary logs. `OperationCanceledException` from the component's *own* stop token is a clean exit; one raised by user code (e.g. an HTTP timeout) is a failure.
+- DI: `Microsoft.Extensions.DependencyInjection` only (no Autofac). Serialization: `System.Text.Json` only (no Newtonsoft). Retries: Core's `RetryPolicy` (no Polly). No Cronos in packable projects. No Dapper. No Windows-only endpoints.
+- **Package naming**: transports `NymBroker.Endpoint.<Transport>`, stores `NymBroker.Idempotency.<Db>` (folder = project = package ID = namespace). Config type names (`"Sql"`, `"RabbitMq"`, …) are separate and stable.
+- New receiving endpoints implement `IEndPointEventDriven`, call the handler through `EndpointHandler.InvokeAsync` and settle by its `ProcessResult`; a lease-based queue derives from `LeasedQueueListener`. `UsesNativeDeadLetter` only if the transport has its own dead-letter queue. Send-only sinks: plain `IEndPoint`, `Mode => WriteOnly`.
+- Routes use `IRouteCondition` / `Func<JsonElement, bool>`; no XML/XSLT. `RouteContext` stays non-sealed with a virtual `Evaluate()`.
+- Consumers are keyed services, key = `typeof(TConsumer).Name`.
+- **`README.md` is also the NuGet readme**: every link in it must be absolute (`https://github.com/nymankla/NymBroker/blob/master/...`). Relative links are fine in `docs/`.
+- **Versioning**: one `<Version>` in `Directory.Build.props` for all packages; the bump level is the user's call; never bump on an ordinary push. A breaking change needs a minor bump in 0.x. Public API is tracked by the PublicAPI analyzers (RS0016/RS0017 are errors).
 
-**Routing loop hazard**: any event-driven endpoint registered with the broker has `ProcessAsync` wired to its listener. Routing a message back to the same endpoint re-evaluates all routes — infinite loop without a source guard (`WhenFrom`/`WhenNotFrom`).
+## Definition of done
 
-### Consumer Dispatch (Performance)
+Before saying a change is finished:
 
-`ConsumerDispatcher` (separate from the broker, injected via DI) handles typed dispatch:
-- **Compiled Expression lambdas** built once per message type and cached in `ConcurrentDictionary` — avoids `MethodInfo.Invoke`.
-- **`IServiceScopeFactory`** creates a new async DI scope per dispatch — supports `Scoped` consumer lifetimes.
-- A consumer can implement multiple `IConsume<T>` interfaces; `AddConsumer<T>()` registers all of them.
-- **One consumer per message type** (#49): a second, different consumer for the same type throws at `AddConsumer<T>()` (and in `ConsumerDispatcher.RegisterConsumer`); the same consumer twice is a no-op; two consumer classes with the same simple name throw (DI key collision). Several handlers for one message → topic with `ISubscribe<T>`.
+- [ ] `dotnet build` — **0 warnings, 0 errors** (RS0026 and nullable warnings count).
+- [ ] Tests added or updated for the behaviour; `dotnet test` passes. If an endpoint, idempotency store or the broker pipeline changed: `./scripts/test-all.ps1` passes too. For a bug fix, the new test fails without the fix.
+- [ ] Public API changed → `PublicAPI.Unshipped.txt` of that project (removals as `*REMOVED*<line>`); never delete lines from `PublicAPI.Shipped.txt` by hand.
+- [ ] `CHANGELOG.md` → entry under `[Unreleased]` (Added / Changed / Fixed / Removed; mark breaking changes **Breaking** with the migration).
+- [ ] User-visible behaviour → `docs/` updated; public API or setup the client skills describe → `skills/*/SKILL.md` updated; the project's folder `CLAUDE.md` updated if its internals changed.
+- [ ] Samples that use the changed API still build (they are in the solution) and, for self-checking samples, still pass.
+- [ ] Commit message explains why; `Fixes #NN` when it closes an issue. After pushing to `master`, tell the user what the next release needs (changelog, PublicAPI, version level).
 
-### Message Type Resolution
+## Release checklist
 
-`MessageTypeRegistry` maps type names → CLR types using an `ImmutableDictionary`. Lookup order:
+Only when the user asks for a release and has chosen the level:
 
-1. `[MessageName("short.name")]` attribute value
-2. `Type.FullName`
-3. `Type.AssemblyQualifiedName`
-
-`SplitMessage` is pre-registered. All types used in routes or consumers are registered automatically at config time.
-
-### Idempotent Receiver
-
-`IIdempotencyStore` is async and two-phase (#55): `TryClaimAsync` → `Claimed | Duplicate | InProgress`, then `CompleteAsync` (remember for the TTL) or `ReleaseAsync` (forget an open claim; never a completed one). A claim is a lease. The broker (`NymBrokerImpl.Idempotency.cs`, `ProcessIdempotentlyAsync`) wraps routing/topics/consumer (`RouteAndDispatchAsync`) after decoding, filters and split reassembly — split parts are never claimed. `Duplicate` → `Completed` + `nymbroker.messages.duplicates`; `InProgress` → `Retry`; claim throws → `LogError` + `Retry` (fail closed); a `Retry` result or exception → release, anything else → complete (with `CancellationToken.None`; failure → `LogError`, lease expires). `Guid.Empty` IDs skip the check. There is no `IdempotentFilter` any more (it marked IDs before processing, losing redelivered retries). Register with `AddIdempotentReceiver(ttl)` (in-memory), `(IIdempotencyStore)`, `<TStore>()` or `(Func<IServiceProvider, IIdempotencyStore>)`; database packages call `AddIdempotencyStore<TStore>(factory, cleanupInterval, tableName)` — the store implements `IExpiringIdempotencyStore`, and Core adds the internal `IdempotencyCleanupService<TStore>` when the interval is positive. One store per broker.
-
-### Scheduled Actions
-
-Interval-based actions fire on a timer. Cron-based actions use the internal `CronSchedule` (`NymBroker.Core.Scheduling`; Cronos-compatible, Cronos is only a test oracle) with local timezone. Each action runs in a background `Task` managed by `ScheduledActionHandle` (implements `IAsyncDisposable`). An action added after `StartAsync` starts immediately and is stopped by `StopAsync` (#50); `_scheduledActions` / `_activeScheduledActions` / `_scheduledActionsRunning` are guarded by `_scheduleLock` (a sync `Lock`, never held across an await — not `_lifecycleLock`, so `AddScheduledAction` stays non-blocking and cannot deadlock against `StopAsync`). A throwing run is logged at `Error` and the schedule continues; an unexpected loop termination is logged at `Critical`; `ScheduledActionHandle.DisposeAsync` logs instead of rethrowing, so `StopAsync` never throws because of an action (#51).
-
-### Aggregator / Splitter
-
-`SplitterImpl.Split(byte[], ISplitCondition)` partitions large payloads into `SplitMessage` parts (Base64 chunks, shared `CorrelationId`). `AggregatorImpl` collects parts by correlation ID and returns reassembled bytes when `GroupSize` is met. Incomplete aggregates expire after 2 hours.
-
-`PostAsync<T>`/`PostRawAsync` can drive this automatically: pass `splitThresholdBytes` and `NymBrokerImpl` calls `ISplitter` internally (via `DefaultSplitCondition(splitThresholdBytes)`) when the serialized envelope exceeds it, posting each part to the same endpoint instead of manually calling `ISplitter.Split` yourself.
-
-**Compression**: since Base64 inflates each chunk ~33%, `PostAsync` also compresses the envelope via `ICompressor` (`BrotliCompressor` by default, built on `System.IO.Compression.BrotliStream`) before splitting, whenever `compress` is true (the default) *and* compression actually reduces the size — this typically more than cancels out the Base64 overhead for compressible text/JSON payloads, and the size check means already-compressed/binary payloads fall back to uncompressed splitting automatically rather than paying compression cost for no benefit. Compressed parts carry `SplitMessage.Compression` (the `ICompressor.Name`, e.g. `"brotli"`); `ProcessAsync`'s aggregator branch decompresses using the same `ICompressor` before treating the reassembled bytes as envelope JSON, and drops the message with a logged error if the codec name doesn't match. If compression alone brings the payload under `splitThresholdBytes`, it still ships as a single-part `SplitMessage` group (`GroupSize = 1`) — compressed bytes aren't valid JSON on their own, so they still need the `SplitMessage` carrier even when they'd otherwise fit.
-
-Thread-safety: each `Aggregate` instance is lock-guarded and carries an `IsCompleted` flag. The flag prevents a second concurrent caller that obtained the same `ConcurrentDictionary` slot from reassembling or re-removing an already-completed aggregate (TOCTOU guard).
-
-### Factory / DI
-
-```csharp
-// Core only:
-services.AddNymBroker()
-    .AddFileEndPoint("In",  new FileSettings { ReadPath = "in",  PostPath = "in-out" })
-    .AddMemoryEndPoint("Mem")
-    .AddConsumer<OrderConsumer>()
-    .Build();
-
-// With SQLite (reference NymBroker.Endpoint.Sqlite):
-services.AddNymBroker()
-    .AddSqliteEndPoint("SqlQueue", new SqliteSettings
-    {
-        ConnectionString = "Data Source=messages.db",
-        AutoCreateTable  = true,
-        LeaseTimeout     = TimeSpan.FromMinutes(5),
-        MaxRetryCount    = 5
-    })
-    .AddConsumer<OrderConsumer>()
-    .Build();
-
-// With PostgreSQL (reference NymBroker.Endpoint.Postgres):
-services.AddNymBroker()
-    .AddPostgresEndPoint("PgQueue", new PostgresSettings
-    {
-        ConnectionString = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres",
-        AutoCreateTable  = true
-    })
-    .AddConsumer<OrderConsumer>()
-    .Build();
-
-// With SQL Server (reference NymBroker.Endpoint.SqlServer):
-services.AddNymBroker()
-    .AddSqlServerEndPoint("SqlServerQueue", new SqlServerSettings
-    {
-        ConnectionString = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True",
-        TableName        = "dbo.orders",
-        AutoCreateTable  = true
-    })
-    .AddConsumer<OrderConsumer>()
-    .Build();
-
-// With Azure Service Bus (reference NymBroker.Endpoint.AzureServiceBus):
-services.AddNymBroker()
-    .AddAzureServiceBusEndPoint("Orders", new AzureServiceBusSettings
-    {
-        ConnectionString = "<namespace or emulator connection string>",   // or FullyQualifiedNamespace + Credential
-        QueueName        = "orders"                                       // or TopicName (+ SubscriptionName to receive)
-    })
-    .AddConsumer<OrderConsumer>()
-    .Build();
-
-// With RabbitMQ (reference NymBroker.Endpoint.RabbitMq):
-services.AddNymBroker()
-    .AddRabbitMqEndPoint("Rabbit", new RabbitMqSettings { HostName = "localhost", ReadQueueName = "q.in" })
-    .AddConsumer<OrderConsumer>()
-    .Build();
-```
-
-From a config file — each transport requires its own `With*()` call:
-
-```csharp
-services.AddNymBroker()
-    .LoadConfiguration("queuesettings.json")
-    .WithRabbitMq()     // processes Type=RabbitMq entries
-    .WithSql()          // processes Type=Sql entries (from NymBroker.Endpoint.Sqlite)
-    .WithPostgres()     // processes Type=Postgres entries
-    .WithSqlServer()    // processes Type=SqlServer entries (from NymBroker.Endpoint.SqlServer)
-    .WithAzureServiceBus()  // processes Type=AzureServiceBus entries (from NymBroker.Endpoint.AzureServiceBus)
-    .AddConsumer<OrderConsumer>()
-    .Build();
-```
-
-Config section key is `NymBroker` → `Endpoints[]` with `Name`, `Type`, `Config` (camelCase type-specific settings). `Type` is an **open string**, not an enum: `EndPointType` is a static class of string constants for the built-in types (`File|Memory|RabbitMq|Sql|Postgres`, also listed in `EndPointType.BuiltIn`). Unknown types load without error and are left for their package's `With*()` extension, which matches with `ep.IsType(name)` (case-insensitive). New transports define their type-name constant in their own package; Core does not change (e.g. `SqlServerEndPointType.SqlServer = "SqlServer"` lives in `NymBroker.Endpoint.SqlServer`). `File` and `Memory` are processed automatically by `LoadConfiguration` without a `With*()` call.
-
-`NymBrokerBuilder` exposes `Services` (the DI container) and `LoadedConfiguration` as public properties so extension packages in other assemblies can register their endpoint types. `LoadConfiguration(file)` and `ApplyConfiguration(config)` both set `LoadedConfiguration` (previously only the former did, so `ApplyConfiguration(BrokerConfigurationReader.Read(configuration)).WithSql()` registered nothing).
-
-### SQLite Endpoint
-
-`SqliteEndPoint` (project and namespace `NymBroker.Endpoint.Sqlite`) implements `IEndPointEventDriven` (internal poll loop) plus a non-interface `ReadAsync`.
-
-**Message lifecycle**: `Pending (0)` → `InProgress (1)` → `Completed (2)` or `Failed (3)`.
-
-Native `Microsoft.Data.Sqlite`, no Dapper (#60); SQL in `SqliteQueueSql`. Measured with a scratch harness (5 000 messages, file database), the #60 rewrite took backlog drain from ~70 to ~60 000 msg/s at `BatchSize=10` and from ~270 to ~130 000 msg/s at `BatchSize=100`, and single `PostAsync` from ~400 to ~20 000–28 000/s (mostly WAL + `synchronous=NORMAL`).
-
-- **One connection**, serialized by `SemaphoreSlim(1,1)` (`_dbLock`) — `SqliteConnection` is not safe for concurrent access. Every statement (insert, claim, three finalize updates) is **prepared once** (`PreparedCommands`) and only rebound per call; `SetTransaction` attaches them to the current transaction.
-- **PRAGMAs on open** (`SqliteSettings`): `journal_mode` (`JournalMode`, default WAL) and `synchronous` (`Synchronous`, default NORMAL — survives an app crash, the last commits can be lost on power loss; `Full` for strict durability) on file databases only; `busy_timeout` (`BusyTimeout`, 5 s) and `temp_store = MEMORY` always. Write transactions are `BEGIN IMMEDIATE` (`BeginTransaction(deferred: false)`), so several processes on one file wait for the write lock instead of failing an upgrade.
-- **Claim** = one `UPDATE … WHERE QueueId IN (SELECT … ORDER BY QueueId LIMIT $batchSize) RETURNING …` (SQLite ≥ 3.35). The subquery repeats the partial index's `Status IN (0, 1)` verbatim (literal statuses, never parameters) so the planner uses `IX_<table>_Active` — `Claim_UsesThePartialActiveIndex` checks the plan. Rows are sorted by `QueueId` after `RETURNING`.
-- **Finalize**: outcomes of batch N are written in the **same transaction as the claim of batch N+1** (`FinalizeAndClaimAsync`): one commit per batch. Each update is guarded by `Status = 1 AND AttemptCount = $attempt`, so a poller whose lease expired cannot overwrite a re-claimed row. A failed write rolls back, logs `LogError` and keeps the outcomes for the next attempt.
-- **Polling**: back to back while claims return rows; `PollInterval` (min 1 ms) only after an empty poll or an error.
-- **Retry**: `AttemptCount` is incremented on every claim. `Retry` (or a handler exception) → back to `Pending` until `AttemptCount >= MaxRetryCount`, then `Failed`; `DeadLetter` → `Failed` at once with `"{Reason}: {Description}"` in `LastError` (same in the Postgres / SQL Server endpoints). `LeaseTimeout` controls how long a claimed message stays locked.
-- **Shutdown**: `StopListeningAsync` awaits the loop (`LeasedQueueListener`), which writes the outcomes of handled messages with a fresh 10 s token and no claim (`LogWarning` if that fails — redelivered after lease expiry). A handler cancelled mid-batch leaves the rest to lease expiry. `ReadAsync` finalizes per item.
-- **Payloads are bytes** (`BLOB`), unchanged — no UTF-8 conversion (only `ReadAsync`, whose API returns strings, decodes).
-
-**Schema v2**: `QueueId INTEGER PRIMARY KEY` (no `AUTOINCREMENT` — avoids a `sqlite_sequence` write per insert), `MessageId BLOB` (16-byte GUID, not unique, no index — only logged), `Payload BLOB`, one partial index `(QueueId) WHERE Status IN (0, 1)`. `TableName` must match `^[A-Za-z_][A-Za-z0-9_]*$` (constructor throws) and is always quoted.
-
-**Schema migration**: `EnsureSchemaAsync` detects the version **per table** from `pragma_table_info` (`PRAGMA user_version` is per file, and one file may hold several endpoint tables; it is still set to 2). A v1 table (TEXT payload, `MessageId TEXT UNIQUE`, `AUTOINCREMENT`) or the legacy single-status table is renamed to `<table>_v1_<timestamp>` / `<table>_Legacy_<timestamp>` (kept as backup), the new table is created and the rows copied (`CAST(… AS BLOB)` keeps the UTF-8 bytes) in one `BEGIN IMMEDIATE` transaction.
-
-**In-memory SQLite** (`Data Source=:memory:`) requires a single persistent connection — tests use this via `EnsureConnectionAsync` (lazy init under `_dbLock`).
-
-### PostgreSQL Endpoint
-
-`PostgresEndPoint` (namespace `NymBroker.Endpoint.Postgres`) uses the same message lifecycle as SQLite. Claiming uses `SELECT … FOR UPDATE SKIP LOCKED` so multiple application instances can poll the same table concurrently without a process-wide lock. Measured on the `setup-postgres.ps1` container, the 0.1.5 rework took backlog drain with default settings from ~80 to ~3 000–5 000 msg/s, with `BatchSize=50` from ~4 000 to ~9 000 msg/s, and with 300k completed rows from ~1 600 to ~10 500 msg/s.
-
-- **Polling**: back to back while batches come back non-empty. Only after an empty poll does it wait for `NOTIFY` / `PollInterval`. (≤ 0.1.4 waited after *every* batch, capping default settings at `BatchSize / PollInterval` ≈ 100 msg/s.)
-- **One round trip and one commit per batch**: `FinalizeAndClaimAsync` sends the finalize of batch N and the claim of batch N+1 as one `NpgsqlBatch`, which PostgreSQL executes as one implicit transaction.
-- **Finalize** (`PostgresQueueSql.FinalizeMessages`) writes mixed outcomes in one `UPDATE … FROM unnest(@queueIds, @attempts, @statuses, @errors)`, guarded by `status = InProgress AND attempt_count = source.attempt` so a poller whose lease expired cannot overwrite a re-claimed row.
-- **Schema**: one partial index `(created_at_utc, queue_id) WHERE status IN (0, 1)`. Claim predicates inline the status **literals** — the planner can only use a partial index when it can prove the predicate at plan time (not with parameters; Npgsql auto-prepares). `CreateSchema` drops the two full status indexes created by ≤ 0.1.4 (`ix_<table>_status_created`, `ix_<table>_status_locked_until`) on existing tables.
-- **Shutdown**: `StopListeningAsync` awaits the loop, which writes the results of already-handled messages with a fresh 10 s token (`LeasedQueueListener`, through `FinalizeAsync`).
-- **LISTEN failures** (startup or later) fall back to timer polling with a `LogWarning` and retry on the next idle cycle; ≤ 0.1.4 let an unreachable database at startup kill the listener loop.
-- **Inserts** are one autocommit `INSERT` (+ `NOTIFY`) per `PostAsync`, bound by the WAL flush (~1.7 ms on Docker Desktop). Removing `NOTIFY` was measured and gained little.
-
-### SQL Server Endpoint
-
-`SqlServerEndPoint` (namespace `NymBroker.Endpoint.SqlServer`) has the same lifecycle, leases, retry/`Failed` handling, logging and loop structure (back-to-back drain, finalize + claim in one round trip, shutdown finalize) as `PostgresEndPoint`, but the SQL is written for SQL Server. Each choice below was measured against the straight port (`scripts/setup-sqlserver.ps1` container): backlog drain went from ~3 000 to ~4 500–6 000 msg/s, and from ~2 500 to ~5 000 msg/s with 300k completed rows in the table.
-
-- **One round trip and one commit per batch** (`SqlServerQueueSql.FinalizeAndClaim`): the results of batch N are written in the same T-SQL batch as the claim of batch N+1. The transaction is inside the SQL text (`SET XACT_ABORT ON; BEGIN TRANSACTION … COMMIT`), not `SqlConnection.BeginTransaction`, which would cost two extra round trips.
-- **Claiming** uses an updatable CTE with `WITH (UPDLOCK, READPAST, ROWLOCK)` (the SQL Server equivalent of `SKIP LOCKED`) and `OUTPUT inserted.*`, ordered by `queue_id`.
-- **Finalize** reads `{id, attempt, status, error}` items from one JSON `NVARCHAR(MAX)` parameter with `OPENJSON` (SQL Server 2016+). It must drive the join (`FROM OPENJSON(...) INNER LOOP JOIN <table> WITH (FORCESEEK)`): without the hints the optimizer cannot estimate `OPENJSON`'s row count and scans the whole table (~8× more CPU). The guard `status = InProgress AND attempt_count = source.attempt` stops a poller whose lease expired from overwriting a re-claimed row.
-- **Schema**: clustered PK on the IDENTITY `queue_id`; a single **filtered index** `(queue_id) INCLUDE (status, locked_until_utc) WHERE status IN (0, 1)`, so claiming stays cheap as Completed/Failed rows accumulate. `message_id` has no unique index (it is a per-insert GUID nobody looks up, and a random-GUID index costs a page-scattered write per insert). Status values are **inlined literals**, not parameters — SQL Server only uses a filtered index when it can match the predicate at compile time.
-- **Polling**: back to back while batches come back non-empty; `PollInterval` only applies after an empty poll. No `LISTEN/NOTIFY` equivalent.
-- **Shutdown**: `StopListeningAsync` awaits the loop, which then writes the results of already-handled messages with a fresh 10 s token (`LeasedQueueListener`, through `FinalizeAsync`). Claimed-but-unhandled messages wait for lease expiry.
-- **Inserts** are one autocommit `INSERT` per `PostAsync` (durable on return), so a single producer is bound by the transaction-log flush (~3 ms on Docker Desktop). Concurrent producers benefit from SQL Server's own group commit. Don't use `DELAYED_DURABILITY` for the queue — it can lose committed messages.
-- **Connections**: one pooled `SqlConnection` per operation (`SqlConnection` is not thread-safe).
-
-### Azure Service Bus Endpoint
-
-`AzureServiceBusEndPoint` (namespace `NymBroker.Endpoint.AzureServiceBus`) is push-based: a `ServiceBusProcessor` (peek-lock, `AutoCompleteMessages = false`, `MaxConcurrentCalls` default 1) calls the broker and settles by the `ProcessResult` in `ServiceBusSettlement` (internal, unit-tested through `IServiceBusMessageSettler`):
-
-- `Completed` → `CompleteMessageAsync`; `Retry` (or a handler exception) → `AbandonMessageAsync` — Service Bus redelivers and dead-letters with `MaxDeliveryCountExceeded` at the entity's `MaxDeliveryCount`; `DeadLetter` → `DeadLetterMessageAsync(reason, description)` (truncated to 4 KB).
-- `ReadDeadLetterQueue = true` receives from the DLQ sub-queue; there a `DeadLetter` result **completes** the message (it is already dead-lettered) with a warning.
-- One lazily created `ServiceBusClient` + `ServiceBusSender` per endpoint (thread-safe, long-lived). Transient faults use the SDK's own retry options — no `RetryPolicy` wrapper. `ProcessErrorAsync` logs every processor error.
-- Auth: `ConnectionString`, or `FullyQualifiedNamespace` + `Credential` (`TokenCredential`, code-only, `[JsonIgnore]`). `AzureServiceBusSettings.Validate` runs at registration and in the constructor.
-- `HealthCheck()` peeks the entity (or opens the sender for a send-only topic endpoint) with a 5 s timeout; unhealthy if the processor stopped unexpectedly.
-- `StopListeningAsync` → `StopProcessingAsync` (waits for in-flight handlers). A message whose handler finished is always settled — with `CancellationToken.None`, because stopping cancels the processor's token and would otherwise leave it to be redelivered as a duplicate. A handler cancelled during shutdown leaves its message unsettled (redelivered after the lock expires).
-- Emulator quirks seen in tests: `ReceiveAndDelete` reads from a DLQ returned nothing (peek-lock works); `DeadLetterSource` is empty. Integration tests share the fixed `nymbroker.tests` queue (MaxDeliveryCount 3) and drain it before each test — until a peek on a fresh receiver finds nothing, since a single empty receive can be a slow link or a still-locked message.
-
-### Performance Design
-
-- **RecyclableMemoryStream** (`Microsoft.IO.RecyclableMemoryStream`) for all serialization streams.
-- **Compiled dispatch lambdas** in `ConsumerDispatcher` — `~10×` faster than `MethodInfo.Invoke`.
-- **ImmutableList / ImmutableDictionary** for routes, filters, consumer keys — lock-free reads; writes (config-time only) use `ImmutableInterlocked.Update` for atomic CAS-loop replacement (correct for multi-key updates).
-- **PropertyInfo cache** in `MessageSerializerJson.PropCache` — one reflection lookup per concrete `MessageContext<T>` type.
-- **Bounded `Channel<byte[]>`** in `MemoryQueueEndPoint` for backpressure.
-- **`FileShare.ReadWrite | FileShare.Delete`** in `FileEndPoint.ReadAndArchiveAsync` — `FileShare.Delete` is required so that `File.Move` (rename) can succeed while the read handle is still open. Without it, Windows enforces sharing semantics and the rename fails with ERROR_SHARING_VIOLATION even from the same process.
-- **`SemaphoreSlim(1,1)` in `SqliteEndPoint`** — SQLite single-connection; all DB ops serialized, never held while a handler runs (`ReadAsync` claims under the lock, then yields outside it). Prepared statements, one-statement claim, and per-batch finalize + next claim in one `BEGIN IMMEDIATE` transaction (see SQLite Endpoint).
-
-### Error Handling / Logging Guarantees
-
-No exception is silently swallowed. The policy per layer:
-
-| Layer | Behaviour |
-|---|---|
-| `NymBrokerImpl.ProcessAsync` | Deserialization failure → `LogError`, then dead-lettered (native `DeadLetter` or the broker's dead-letter endpoint). Unresolved type with no route → `LogWarning`. Every dead-lettering → `LogWarning` with its reason. Unexpected exception → `LogError`, returns `Retry`. |
-| `ConsumerDispatcher` | No registered consumer → `LogWarning`. |
-| Observability | `nymbroker.messages.received`, `nymbroker.messages.routed`, `nymbroker.messages.consumed`, `nymbroker.messages.failed`, `nymbroker.messages.dead_lettered`, `nymbroker.messages.duplicates`, and `nymbroker.message.processing.duration` are emitted on the `NymBroker` meter. Each `CheckHealthAsync` also records `nymbroker.health.checks` (counter, tag `status`), `nymbroker.health.endpoint.failures` (counter, tags `endpoint`/`critical`/`reason` = `unhealthy`\|`timeout`\|`error`) and the gauges `nymbroker.health.status` (0/1/2) and `nymbroker.health.endpoint.healthy` (1/0). |
-| Dead-letter endpoint posts (`TryPostToDeadLetterAsync`) | Posts `DeadLetterEnvelope.Annotate(raw, info)` so the reason travels with the message; counted in `nymbroker.messages.dead_lettered`; a failing post → `LogError`. |
-| `AggregatorImpl.PurgeExpired` | Purge count logged at `Debug`. |
-| `NymBrokerImpl.StartAsync` | Any startup exception → `LogError`, scheduled actions rolled back, exception re-thrown. |
-| Idempotent receiver (`ProcessIdempotentlyAsync`) | Claim fails → `LogError`, `Retry`. Complete / release fails → `LogError` (result unchanged; lease expires). Duplicate → `Debug`. `IdempotencyCleanupService<TStore>`: delete failure → `LogError`, retried next interval. |
-| `NymBrokerImpl.CheckHealthAsync` | Never throws (caller cancellation aside). An endpoint `HealthCheck()` that throws → `LogWarning`, reported `Unhealthy` with the exception message; one that misses the timeout → `LogWarning`, reported `Unhealthy`. Result logged at `Debug`. |
-| `FileEndPoint.OnFileCreated` | Fire-and-forget handler failure, or a non-`Completed` result → `LogError` (the file is already renamed, no retry; loop continues). |
-| `FileEndPoint.ProcessExistingFilesAsync` | Per-file handler failure → `LogError` (remaining files still processed). Structural failure (e.g. directory gone) → `LogError` on outer Task.Run. |
-| `FileEndPoint.ReadAndArchiveAsync` | IOException after retries → `LogWarning`, file skipped. |
-| `MemoryQueueEndPoint.StartListeningAsync` | Per-message handler failure, or a non-`Completed` result → `LogError` (no redelivery; loop continues). Unexpected loop termination → `LogCritical`. |
-| `SqliteEndPoint` (listener loop) | Per-message handler exception → `LogError`; `Retry` → returned to `Pending` or marked `Failed` after max retries; `DeadLetter` → `Failed` at once + `LogWarning`. Poll error → `LogError` (loop continues). Unexpected termination → `LogCritical`. |
-| `PostgresEndPoint` / `SqlServerEndPoint` (listener loop) | Same as `SqliteEndPoint`, plus `LogWarning` when a message reaches the terminal `Failed` state. Health check failure → `LogError`, `Unhealthy` returned (never throws). A failed finalize-and-claim is retried on the next cycle (transaction rolled back); if writing results on shutdown fails → `LogWarning` (messages redelivered after lease expiry). `PostgresEndPoint`: a failed LISTEN / notification wait → `LogWarning`, falls back to timer polling. |
-| `AzureServiceBusEndPoint` | Handler exception → `LogError`, treated as `Retry`. `Retry` / `DeadLetter` → `LogWarning`. Settle failure (e.g. lost lock) → `LogError` (redelivered after the lock expires). Processor errors (`ProcessErrorAsync`) → `LogError`. Health check failure → `LogError`, `Unhealthy`. |
-| `RabbitMqEndPoint` (message handler) | Handler exception → `LogError`, treated as `Retry`. Settle failure → `LogError` (redelivered). Exceptions escaping a consumer callback are logged via the channel's `CallbackExceptionAsync`. `Retry` → `LogWarning`, nacked with `requeue: true` (poison after redelivery: `requeue: false`). `DeadLetter` → `LogWarning`, nacked with `requeue: false` (the queue's DLX). |
-| `RabbitMqEndPoint` (listener loop) | Unexpected loop termination → `LogCritical`. Cancellation by `StopListeningAsync` is a clean exit. Failing to cancel the consumer, ack the batch or close the channel on stop → `LogWarning`. |
-
-`OperationCanceledException` is always swallowed at fire-and-forget boundaries — it represents clean shutdown, not an error.
-
-### RabbitMQ Reliability
-
-`RabbitMqEndPoint` uses `autoAck: false`. TLS: `RabbitMqSettings.UseTls` / `TlsServerName` / `ClientCertificatePath` + `ClientCertificatePassword` map to `ConnectionFactory.Ssl` in the internal `CreateConnectionFactory`; `AcceptablePolicyErrors` stays `None`, so the server certificate is always verified (no opt-out — don't add one). Production configuration for every transport is in [docs/security.md](docs/security.md); the settings' default connection strings are the local containers' and are documented as dev-only. Every message is settled by its `ProcessResult`: `Completed` → ack (batched by `BatchAckSize`); `Retry` → nack `requeue: true`, or `requeue: false` once it was already redelivered (`RejectRedeliveredFailures`); `DeadLetter` → nack `requeue: false`, so it reaches the queue's dead-letter exchange if one is configured (RabbitMQ records `x-death` reason `rejected`; our reason is only logged). Connection and publish-channel setup use `SemaphoreSlim(1,1)` with a double-check pattern to prevent concurrent initialisation races.
-
-**Stopping (#73).** The listener runs on its own linked `CancellationTokenSource` (the broker's start token is never cancelled by a stop). `StopListeningAsync`: `BasicCancelAsync` the consumer → cancel the token (handler and reconnect loop see it) → wait for the delivery in progress (`_deliveryLock`, held while a delivery is handled and settled) → ack the pending batch → await the loop → close the consume channel. Deliveries dispatched after the stop began are skipped and left unacked, so RabbitMQ requeues them on close; settlement uses `CancellationToken.None`, so a handled message is acked even while stopping. Each reconnect attempt resets the ack batch (delivery tags belong to the old channel).
-
-### Retry Policy (NymBroker.Core.Resilience)
-
-Transient-failure retries use `RetryPolicy` (namespace `NymBroker.Core.Resilience`, dependency-free; it replaced Polly — do not re-add Polly). Until 0.3.5 it was the separate `NymBroker.Resilience` project/package; the meter name `RetryPolicy.InstrumentationName` is still `"NymBroker.Resilience"` for compatibility. Build one `RetryPolicy(new RetryOptions { ... })` per endpoint and reuse it; call `ExecuteAsync(token => ..., ct)`. Default `ShouldHandle` retries everything except `OperationCanceledException`; `OnRetry` should log (no silent retries). All options, defaults, backoff/jitter formulas and execution rules are documented in [docs/resilience.md](docs/resilience.md).
-
-### MemoryQueueEndPoint Logger
-
-`MemoryQueueEndPoint` accepts an optional `ILogger<MemoryQueueEndPoint>? logger = null` parameter (defaults to `NullLogger`). The builder passes a proper logger via DI; tests that construct the endpoint directly with `new MemoryQueueEndPoint("name")` continue to compile without changes.
-
-## Key Design Rules
-
-- No Cronos in packable projects.
-- **Ask before architectural decisions** — built incrementally with explicit sign-off on each structural choice.
-- **Don't bump the version on a push.** The version changes only when preparing a release, and the bump level is the user's call. Releases are tagged `v<version>` and published from CI (see [docs/versioning-and-api-compatibility.md](docs/versioning-and-api-compatibility.md)). **Reminder:** when pushing to `master`, tell the user if the pushed changes since the last release tag should get a `CHANGELOG.md` entry, a `PublicAPI.*.txt` update, or a version bump for the next release (a breaking change needs a minor bump in 0.x). Don't bump anything without being asked. To set the version: `.\scripts\pack.ps1 -Version x.y.z` (or `-BumpPatch` / `-BumpMinor` / `-BumpMajor`). It rewrites `Directory.Build.props` and drops blank lines, so check the diff.
-- **`README.md` is also the NuGet package readme** (`PackageReadmeFile`). nuget.org cannot resolve relative links, so every link in it must be absolute (`https://github.com/nymankla/NymBroker/blob/master/...`). Relative links are fine everywhere under `docs/`.
-- Routes use `IRouteCondition` / `Func<JsonElement, bool>` predicates; no XML/XSLT.
-- No Windows-specific endpoints (MSMQ, Event Log, etc.) — .NET Core only.
-- **Package naming**: optional transports are `NymBroker.Endpoint.<Transport>` — folder, project, package ID and namespace (renamed from `NymBroker.<Transport>` in 0.5.0; the SQLite namespace was `NymBroker.Sql`). Idempotency stores are `NymBroker.Idempotency.<Db>`. Config type names (`"Sql"`, `"RabbitMq"`, …) did not change.
-- DI: `Microsoft.Extensions.DI` only (no Autofac).
-- Serialization: `System.Text.Json` only (no Newtonsoft).
-- Consumers are keyed services: key = `typeof(TConsumer).Name`.
-- `RouteContext` is non-sealed and `Evaluate()` is virtual — subclass for custom route logic.
-- Never swallow exceptions silently — every fire-and-forget boundary and catch block must log.
-- New transport endpoints that receive messages must implement `IEndPointEventDriven` (pull-based transports run their own poll loop inside it — a lease-based queue derives from `LeasedQueueListener`) so the broker engine drives them automatically, and settle each message by the handler's `ProcessResult` (call it through `EndpointHandler.InvokeAsync`). Return `UsesNativeDeadLetter => settings.UseNativeDeadLetter` only if the transport has its own dead-letter queue. Send-only sinks implement plain `IEndPoint` with `Mode => EndpointMode.WriteOnly`.
+1. `<Version>` in `Directory.Build.props` (edit the line directly; `pack.ps1 -Version` also works but drops blank lines — check the diff).
+2. `CHANGELOG.md`: rename `[Unreleased]` content to `## [x.y.z] - YYYY-MM-DD`, keep an empty `[Unreleased]` above it.
+3. Every `PublicAPI.Unshipped.txt`: move added lines to `PublicAPI.Shipped.txt`; for each `*REMOVED*<line>`, delete `<line>` from `Shipped`; leave `Unshipped` as `#nullable enable`. Build must stay at 0 warnings.
+4. Commit "Release x.y.z", `git tag -a vx.y.z -m "NymBroker x.y.z"`, push `master`, then push the tag.
+5. Watch the CI run (`gh run list --branch vx.y.z`, `gh run watch`): build, publish to nuget.org (trusted publishing), GitHub release with `nymbroker-skills.zip`. nuget.org lists the version a few minutes later.

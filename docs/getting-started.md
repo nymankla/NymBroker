@@ -49,8 +49,8 @@ Or in the project file:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="NymBroker" Version="0.9.1" />
-  <PackageReference Include="NymBroker.Endpoint.Sqlite" Version="0.9.1" />
+  <PackageReference Include="NymBroker" Version="0.*" />
+  <PackageReference Include="NymBroker.Endpoint.Sqlite" Version="0.*" />
   <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.*" />
 </ItemGroup>
 ```

@@ -58,11 +58,13 @@ See [Getting started](https://github.com/nymankla/NymBroker/blob/master/docs/get
 
 The [user guide](https://github.com/nymankla/NymBroker/blob/master/docs/user-guide.md) links to detailed guides for:
 
+- [Getting started](https://github.com/nymankla/NymBroker/blob/master/docs/getting-started.md)
 - [Messages and consumers](https://github.com/nymankla/NymBroker/blob/master/docs/messages-and-consumers.md)
 - [Sending and batching messages](https://github.com/nymankla/NymBroker/blob/master/docs/sending-messages.md)
 - [Routing and publish/subscribe](https://github.com/nymankla/NymBroker/blob/master/docs/routing-and-pubsub.md)
 - [Endpoints and configuration](https://github.com/nymankla/NymBroker/blob/master/docs/endpoints-and-configuration.md)
 - [Reliability and idempotency](https://github.com/nymankla/NymBroker/blob/master/docs/reliability.md)
+- [Delivery guarantees](https://github.com/nymankla/NymBroker/blob/master/docs/delivery-guarantees.md)
 - [Retry policy](https://github.com/nymankla/NymBroker/blob/master/docs/resilience.md)
 - [Pipeline extensions](https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md)
 - [Metrics, tracing, and health checks](https://github.com/nymankla/NymBroker/blob/master/docs/observability.md)
