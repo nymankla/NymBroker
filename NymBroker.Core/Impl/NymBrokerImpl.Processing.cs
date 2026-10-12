@@ -254,12 +254,17 @@ public sealed partial class NymBrokerImpl
             ["SourceEndpoint"] = sourceEndpoint
         });
 
+        var age = DateTime.UtcNow - context.Created;
+        // A transformer may leave Created unset; negative ages are clock skew between hosts.
+        if (context.Created != default)
+            NymBrokerDiagnostics.MessageAge.Record(Math.Max(0, age.TotalSeconds),
+                new KeyValuePair<string, object?>("source", sourceEndpoint));
+
         // ── TTL check ─────────────────────────────────────────────────────────
         // Expired messages are forwarded to the dead letter endpoint (if configured)
         // and then discarded before reaching filters, routing, or consumer dispatch.
         if (_maxMessageAge.HasValue)
         {
-            var age = DateTime.UtcNow - context.Created;
             if (age > _maxMessageAge.Value)
             {
                 _logger.LogWarning(

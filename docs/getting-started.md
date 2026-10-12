@@ -136,7 +136,7 @@ sequenceDiagram
 ## The broker's lifetime
 
 - `Build()` registers `INymBroker` as a singleton and a hosted service that calls `StartAsync` / `StopAsync` with the host. In a plain console app without a host you can call `broker.StartAsync()` and `broker.StopAsync()` yourself.
-- `StartAsync` validates the configuration (for example, a route to a read-only endpoint throws), starts scheduled actions, and starts listening on every endpoint that can receive.
+- `StartAsync` validates the configuration (a route, topic, dead-letter or wire-tap target that is not a registered endpoint, or is read-only, throws), starts scheduled actions, and starts listening on every endpoint that can receive.
 - `StopAsync` stops the listeners. Endpoints finish the message they are handling and record its result before returning, so stopping does not cause duplicates.
 - You can `PostAsync` before `StartAsync` — the message waits in the transport and is processed once the broker starts.
 

@@ -30,7 +30,7 @@ The `NymBroker` package: broker engine, serializer, routing, topics, consumers, 
 
 `ProcessAsync(raw, source, ct)` never throws except `OperationCanceledException` from **its own** token; a consumer's own `OperationCanceledException` (e.g. an `HttpClient` timeout) is a failure. Results are in the root `CLAUDE.md` table. Helpers: `UsesNativeDeadLetter(source)`, `DeadLetterAsync(...)`, `TryPostToDeadLetterAsync` (posts `DeadLetterEnvelope.Annotate(raw, info)`; a failing post → `LogError`). For split messages the part that completes the group carries the reassembled message's result. The processing-duration histogram has a `result` tag (`completed`/`retry`/`dead_letter`); `nymbroker.messages.dead_lettered` is tagged `reason`/`source`/`mode` (`broker`|`native`).
 
-`StartAsync` starts every `IEndPointEventDriven` endpoint whose `Mode` is not `WriteOnly`, and throws if a route, topic, dead-letter or wire-tap target is `ReadOnly`. A startup exception → `LogError`, scheduled actions rolled back, rethrown.
+`StartAsync` starts every `IEndPointEventDriven` endpoint whose `Mode` is not `WriteOnly`, and throws (`ValidateTarget`) if a route, topic, dead-letter or wire-tap target is not registered or is `ReadOnly`; routes and topics added after start are not checked. A startup exception → `LogError`, scheduled actions rolled back, rethrown.
 
 ## Routing
 
@@ -89,4 +89,4 @@ Interval actions fire on a timer; cron actions use the internal `CronSchedule` (
 
 ## Metrics
 
-Meter `NymBroker`: `nymbroker.messages.received`, `.routed`, `.consumed`, `.failed`, `.dead_lettered`, `.duplicates`, `nymbroker.message.processing.duration`, plus the health metrics above. Names are public contract ([docs/observability.md](../docs/observability.md)).
+Meter `NymBroker`: `nymbroker.messages.received`, `.routed`, `.consumed`, `.failed`, `.dead_lettered`, `.duplicates`, `nymbroker.message.processing.duration`, `nymbroker.message.age` (s, now − envelope `Created`, recorded before the TTL check; skipped when `Created` is unset, clamped at 0), plus the health metrics above. Names are public contract ([docs/observability.md](../docs/observability.md)).

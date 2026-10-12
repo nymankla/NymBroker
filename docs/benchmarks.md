@@ -93,6 +93,22 @@ Things to keep in mind when comparing:
 - **Split scenarios** compare compression on and off for a compressible payload: compression usually means fewer parts and fewer bytes on the wire, at some CPU cost.
 - Compare runs on the same machine, in Release, with the same services running. Close other heavy processes.
 
+### Latency and failures (`--latency`)
+
+```bash
+dotnet run -c Release --project samples/NymBroker.Benchmarks -- --latency
+```
+
+This adds a second table built from the broker's own [metrics](observability.md#metrics). A `MeterListener` on the `NymBroker` and `NymBroker.Resilience` meters is active only during the measured runs, so warm-up is left out. For the in-process scenarios the figures come from the median run:
+
+| Column | From | Meaning |
+|---|---|---|
+| Proc p50 / p99 | `nymbroker.message.processing.duration` | Time the broker spends on one message after the transport delivered it: decode, filters, routing and the consumer. It does not include the transport |
+| Age p99 | `nymbroker.message.age` | Time from posting to the start of processing, which is how long messages waited in the transport. A high age next to a low processing time means the receive side of the transport is the bottleneck, not the broker |
+| Failed / Retries | `nymbroker.messages.failed`, `nymbroker.retries` | Should be 0; if not, the run's throughput is not meaningful |
+
+The listener runs a callback for every measurement, so `Msg/sec` is lower with `--latency`. Compare throughput only between runs without it. With `PublishAsync`, subscribers are called inline, so the PubSub rows show an age close to zero.
+
 ## Adding a scenario
 
 Add a call to `RunAsync` in `Program.cs`. Its optional parameters cover most cases: `configureBuilder` to register endpoints or topics, `configure` to add routes on the started broker, `addFilter`, `usePubSub` with `signalsPerMessage`, `messageFactory` for a different payload, `splitThresholdBytes` / `compress`, `postBatchSize` to post with `PostBatchAsync`, and `runs` / `warmup` for a median of several runs after a warm-up (use them for fast in-process scenarios). Messages are handled by `BenchmarkConsumer` (or the `BenchmarkSubscriber*` classes for topics), which signal the tracker. For an external service, add an availability check and a cleanup step like the existing Postgres, SQL Server, Service Bus and RabbitMQ helpers, so the scenario is skipped when the service is not running.

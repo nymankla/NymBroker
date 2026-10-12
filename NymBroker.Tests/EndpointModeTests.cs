@@ -178,6 +178,48 @@ public sealed class EndpointModeTests
         await broker.StopAsync(TestContext.Current.CancellationToken);
     }
 
+    // --- Unknown targets fail at StartAsync (#81) ---
+
+    [Theory]
+    [InlineData("route")]
+    [InlineData("topic")]
+    [InlineData("deadletter")]
+    [InlineData("wiretap")]
+    public async Task StartAsync_TargetNotRegistered_Throws(string kind)
+    {
+        var broker = CreateBroker();
+        broker.AddEndpoint("In", new TrackingEndPoint());
+
+        switch (kind)
+        {
+            case "route": broker.Route<OrderMessage>().To("Missing").Build(); break;
+            case "topic":
+                broker.AddTopic(new TopicContext
+                {
+                    TopicName = "orders",
+                    MessageType = typeof(OrderMessage),
+                    SubscriberEndpoints = ImmutableList.Create("Missing")
+                });
+                break;
+            case "deadletter": broker.SetDeadLetterEndpoint("Missing"); break;
+            case "wiretap": broker.AddWireTap("Missing"); break;
+        }
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.StartAsync(TestContext.Current.CancellationToken));
+        Assert.Contains("'Missing' is not a registered endpoint", ex.Message);
+    }
+
+    [Fact]
+    public async Task StartAsync_DeadLetterEndpointRegistered_Succeeds()
+    {
+        var broker = CreateBroker();
+        broker.AddEndpoint("DeadLetters", new TrackingEndPoint(EndpointMode.WriteOnly));
+        broker.SetDeadLetterEndpoint("DeadLetters");
+
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
+    }
+
     // --- Topic fan-out validation at StartAsync ---
 
     [Fact]

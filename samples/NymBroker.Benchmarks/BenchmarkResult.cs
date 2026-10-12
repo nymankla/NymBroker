@@ -7,4 +7,5 @@ public sealed record BenchmarkResult(
     int Gen0,
     int Gen1,
     int Gen2,
-    long AllocatedBytes);
+    long AllocatedBytes,
+    LatencyStats? Latency = null);

@@ -84,7 +84,7 @@ Any destination this broker listens on processes the copy again — and the copy
 
 - Destination only written to → register it with `EndpointMode.WriteOnly`. Preferred.
 - Destination also consumed by this app → add `.WhenFrom("<source>")` (route only fires for messages from the original source) or `.WhenNotFrom("<destination>")`. For a topic: `.When(new NotFromRouteCondition("<destination>"))`.
-- `StartAsync` throws if a route, topic, dead-letter or wire-tap destination is `ReadOnly`.
+- `StartAsync` throws if a route, topic, dead-letter or wire-tap destination is not a registered endpoint or is `ReadOnly`.
 
 ## 5. Finish
 

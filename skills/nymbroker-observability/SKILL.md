@@ -41,6 +41,7 @@ Key instruments (meter `NymBroker`):
 | `nymbroker.messages.failed` (by `source`) | error rate |
 | `nymbroker.messages.dead_lettered` (by `reason`, `source`, `mode`) | poison messages — alert on any increase |
 | `nymbroker.message.processing.duration` (ms; `source`, `outcome`, `result`) | latency p95; `result = retry` shows transient trouble |
+| `nymbroker.message.age` (s; `source`) | time from the envelope's `created` to processing; rises when a backlog builds (sender clock skew shifts it) |
 | `nymbroker.messages.consumed` (`consumer`, `kind`, `outcome`) | per-consumer volume and failures |
 | `nymbroker.messages.routed` (`destination`, `via`) | where routed/topic copies go |
 | `nymbroker.messages.duplicates` | duplicates dropped by the idempotent receiver |
@@ -86,7 +87,7 @@ app.MapHealthChecks("/health/live", new() { Predicate = _ => false });   // live
 Suggest to the user:
 
 - Alert: `dead_lettered` increase > 0; `failed` rate above normal; `health.status > 0` for several minutes; any `Critical` log from NymBroker; backlog (transport metric) growing for N minutes.
-- Dashboard: received and failed per `source`; processing duration p50/p95 per `source`; dead letters by `reason`; consumed per `consumer`; health status; backlog.
+- Dashboard: received and failed per `source`; processing duration p50/p95 per `source`; dead letters by `reason`; consumed per `consumer`; health status; backlog (`message.age` p95/max per `source`, depth from the transport).
 
 ## 6. Finish
 
