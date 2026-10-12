@@ -7,6 +7,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Added
 
 - `NymBroker.Endpoint.AwsSqs`: an Amazon SQS endpoint (#75) — standard and FIFO queues, long polling, batched delete, `PostBatchAsync` via `SendMessageBatch`, health check, `AddAwsSqsEndPoint` / `WithAwsSqs()` (config type `AwsSqs`). Failed messages are retried through the queue's visibility timeout and redrive policy; messages that can never succeed go to the broker's dead-letter endpoint, because SQS cannot dead-letter a message on request. Bytes that SQS cannot carry as text are sent as Base64. Local testing with ElasticMQ: `scripts/setup-sqs.ps1`.
+- `samples/NymBroker.AwsSqsSample`: SQS with the broker's dead-letter endpoint on a second queue, and FIFO ordering and deduplication.
 
 ## [0.10.0] - 2026-10-11
 

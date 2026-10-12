@@ -25,9 +25,10 @@ dotnet run --project samples/<SampleName>
 | [NymBroker.SqlServerSample](../samples/NymBroker.SqlServerSample) | Same flow on a SQL Server queue table | `NymBroker`, `NymBroker.Endpoint.SqlServer` | `./scripts/setup-sqlserver.ps1` |
 | [NymBroker.EfCoreTransactionSample](../samples/NymBroker.EfCoreTransactionSample/README.md) | A consumer writing three tables (order, lines, stock) with EF Core in one database transaction, with the SQL Server idempotency store dropping redeliveries; self-checking (normal, duplicate, rollback) | `NymBroker`, `NymBroker.Endpoint.SqlServer`, `NymBroker.Idempotency.SqlServer`, EF Core | `./scripts/setup-sqlserver.ps1` |
 | [NymBroker.RabbitSample](../samples/NymBroker.RabbitSample) | RabbitMQ producer and consumer in one process, or either role alone (`--mode producer\|consumer`, `--count N`) | `NymBroker`, `NymBroker.Endpoint.RabbitMq` | `./scripts/setup-rabbitmq.ps1` |
+| [NymBroker.AwsSqsSample](../samples/NymBroker.AwsSqsSample) | A failing order is dead-lettered by the broker to a second SQS queue with its reason and read back for repair; a FIFO queue keeps one customer's orders in order and delivers a duplicate post once; self-checking | `NymBroker`, `NymBroker.Endpoint.AwsSqs` | `./scripts/setup-sqs.ps1` |
 | [NymBroker.AzureServiceBusSample](../samples/NymBroker.AzureServiceBusSample) | A failing order is retried, dead-lettered by Service Bus, and read back from the dead-letter queue with its reason | `NymBroker`, `NymBroker.Endpoint.AzureServiceBus` | `./scripts/setup-servicebus.ps1` |
 | [NymBroker.ProducerSample](../samples/NymBroker.ProducerSample/README.md) / [NymBroker.ConsumerSample](../samples/NymBroker.ConsumerSample/README.md) | Two separate processes sharing one queue: a `WriteOnly` producer that exits after posting, and a long-running worker (`--transport sqlite\|postgres\|rabbit`) | `NymBroker`, `NymBroker.Endpoint.Sqlite`, `.Postgres`, `.RabbitMq` | SQLite: — ; others: their setup script |
-| [NymBroker.Benchmarks](../samples/NymBroker.Benchmarks) | Throughput and allocations per transport, batching and large-message splitting — see [Benchmarks](benchmarks.md) | all endpoint packages | Memory, File, SQLite always; Postgres, SQL Server, Service Bus, RabbitMQ when reachable on localhost |
+| [NymBroker.Benchmarks](../samples/NymBroker.Benchmarks) | Throughput and allocations per transport, batching and large-message splitting — see [Benchmarks](benchmarks.md) | all endpoint packages | Memory, File, SQLite always; Postgres, SQL Server, Service Bus, RabbitMQ, SQS when reachable on localhost |
 
 ## Local infrastructure
 
@@ -46,9 +47,9 @@ These credentials are for local development only.
 ## Where to start
 
 - New to NymBroker: **NymBroker.Sample**, then **NymBroker.RoutingSample**.
-- Choosing a durable queue: **NymBroker.SqlSample** (no setup), then the PostgreSQL, SQL Server, RabbitMQ or Service Bus sample for your transport.
+- Choosing a durable queue: **NymBroker.SqlSample** (no setup), then the PostgreSQL, SQL Server, RabbitMQ, Service Bus or SQS sample for your transport.
 - Separate producer and worker processes: **NymBroker.ProducerSample** with **NymBroker.ConsumerSample**.
-- Dead-lettering and retries: **NymBroker.AzureServiceBusSample**, and [Reliability](reliability.md).
+- Dead-lettering and retries: **NymBroker.AzureServiceBusSample** (native dead-letter queue), **NymBroker.AwsSqsSample** (broker dead-letter endpoint on a queue), and [Reliability](reliability.md).
 - Non-JSON input: **NymBroker.CsvSample**, and [Pipeline extensions](pipeline-extensions.md).
 - Coming from MediatR, or building CQRS: **NymBroker.MediatRSample**, explained in [MediatR patterns with NymBroker](mediatr-comparison.md).
 - Comparing transport and feature performance: **NymBroker.Benchmarks**, explained in [Benchmarks](benchmarks.md).

@@ -93,6 +93,7 @@ Local Docker setups for PostgreSQL, SQL Server, RabbitMQ, the Service Bus emulat
 
 ### Amazon SQS notes
 
+- **Sample:** [NymBroker.AwsSqsSample](../samples/NymBroker.AwsSqsSample) shows a failed queue and a FIFO queue.
 - **Failures.** SQS has no call to dead-letter a message on request. A failed message (`Retry`) becomes visible again after `RetryDelay`; give the queue a **redrive policy** (`maxReceiveCount` + a dead-letter queue), or it is retried until it succeeds or expires. Messages that can never succeed (undecodable, expired) and consumer failures go to the broker's `WithDeadLetterEndpoint`, so configure one.
 - **Visibility.** Messages are deleted (one `DeleteMessageBatch`) when the whole receive batch has been handled. Set the queue's visibility timeout, or `VisibilityTimeout`, longer than handling `MaxNumberOfMessages` messages takes; otherwise a message can be delivered twice.
 - **Bytes.** NymBroker envelopes are sent as text. Bytes posted with `PostRawAsync` that SQS cannot carry as text (not UTF-8, or control characters) are sent as Base64 with the message attribute `nymbroker-encoding` and decoded on receive.

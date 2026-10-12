@@ -48,7 +48,7 @@ Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml`, one sc
 | `NymBroker.Endpoint.RabbitMq` / `.AzureServiceBus` / `.AwsSqs` | Broker transports (`AddRabbitMqEndPoint` / `WithRabbitMq`, `AddAzureServiceBusEndPoint` / `WithAzureServiceBus`, `AddAwsSqsEndPoint` / `WithAwsSqs`) |
 | `NymBroker.Idempotency.Sqlite` / `.Postgres` / `.SqlServer` | Durable `IExpiringIdempotencyStore`s (`AddSqliteIdempotency` …) registered through Core's `AddIdempotencyStore`; independent of the endpoint packages. SQLite is restart-safe on one host only |
 | `NymBroker.Tests` | xUnit. Unit tests use Memory and SQLite `:memory:`; `PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `AzureServiceBusEndPointTests`, `RabbitMqEndPointTests` and `AwsSqsEndPointTests` need their `NYMBROKER_*` variable (their unit tests always run) |
-| `samples/*` | Runnable apps — table in [docs/samples.md](docs/samples.md). Self-checking: `NymBroker.MediatRSample -- --demo`, `NymBroker.EfCoreTransactionSample` (needs SQL Server) |
+| `samples/*` | Runnable apps — table in [docs/samples.md](docs/samples.md). Self-checking: `NymBroker.MediatRSample -- --demo`, `NymBroker.EfCoreTransactionSample` (needs SQL Server), `NymBroker.AwsSqsSample` (needs ElasticMQ) |
 | `skills/` | Agent skills for **client** apps (`nymbroker-setup`, `-message`, `-consumer`, `-routing`, `-producer-worker`, `-input-transformer`, `-scheduled`, `-testing`, `-observability`, `-dead-letters`, `-troubleshoot`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`) |
 | `docs/` | User documentation, index in [docs/user-guide.md](docs/user-guide.md) |
 
