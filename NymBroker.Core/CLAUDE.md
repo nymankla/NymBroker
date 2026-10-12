@@ -89,4 +89,4 @@ Interval actions fire on a timer; cron actions use the internal `CronSchedule` (
 
 ## Metrics
 
-Meter `NymBroker`: `nymbroker.messages.received`, `.routed`, `.consumed`, `.failed`, `.dead_lettered`, `.duplicates`, `nymbroker.message.processing.duration`, plus the health metrics above. Names are public contract ([docs/observability.md](../docs/observability.md)).
+Meter `NymBroker`: `nymbroker.messages.received`, `.routed`, `.consumed`, `.failed`, `.dead_lettered`, `.duplicates`, `nymbroker.message.processing.duration`, `nymbroker.message.age` (s, now − envelope `Created`, recorded before the TTL check; skipped when `Created` is unset, clamped at 0), plus the health metrics above. Names are public contract ([docs/observability.md](../docs/observability.md)).

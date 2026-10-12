@@ -32,6 +32,11 @@ public static class NymBrokerDiagnostics
     internal static readonly Histogram<double> ProcessingDuration =
         Meter.CreateHistogram<double>("nymbroker.message.processing.duration", "ms");
 
+    /// <summary>Time from envelope creation to processing; tag <c>source</c>. Rises with the backlog.</summary>
+    internal static readonly Histogram<double> MessageAge =
+        Meter.CreateHistogram<double>("nymbroker.message.age", "s",
+            "Time from envelope creation to processing.");
+
     // Health checks (recorded on every INymBroker.CheckHealthAsync call, e.g. each /health probe).
     // Tag values are bounded: status / reason are fixed sets, endpoint names are config-time names.
 

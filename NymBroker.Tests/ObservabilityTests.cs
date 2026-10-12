@@ -195,6 +195,47 @@ public sealed class ObservabilityTests
     }
 
     [Fact]
+    public async Task ProcessAsync_RecordsMessageAge_OnlyWhenCreatedIsSet()
+    {
+        var source = "observability-age-test-" + Guid.NewGuid();
+        var ages = new List<double>();
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == NymBrokerDiagnostics.InstrumentationName)
+                    meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) =>
+        {
+            if (instrument.Name == "nymbroker.message.age" && HasTag(tags, "source", source))
+                lock (ages) ages.Add(value);
+        });
+        listener.Start();
+
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        var broker = new NymBrokerImpl(
+            new MessageSerializerJson(),
+            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
+            new MessageTypeRegistry(),
+            new ConsumerDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
+            new SubscriberDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
+            NullLogger<NymBrokerImpl>.Instance);
+
+        var created = DateTime.UtcNow.AddSeconds(-30).ToString("O");
+        await broker.ProcessAsync(
+            $$$"""{"id":"{{{Guid.NewGuid()}}}","messageType":"x","created":"{{{created}}}","message":{}}""",
+            source, TestContext.Current.CancellationToken);
+        await broker.ProcessAsync(
+            $$$"""{"id":"{{{Guid.NewGuid()}}}","messageType":"x","message":{}}""",
+            source, TestContext.Current.CancellationToken);
+
+        var age = Assert.Single(ages);
+        Assert.InRange(age, 29, 60);
+    }
+
+    [Fact]
     public async Task RetryPolicy_RecordsRetryAttempts()
     {
         long retries = 0;

@@ -87,7 +87,7 @@ await builder.Build().RunAsync();
 ## 5. Operations
 
 - Add health checks and metrics to the worker (**nymbroker-observability**); in containers, use the health endpoint as readiness probe.
-- Backlog is not measured by the broker: watch the transport (rows with `status = 0`, queue length).
+- Backlog: `nymbroker.message.age` (s, per `source`) rises when the worker falls behind; queue depth comes from the transport (rows with `status = 0`, queue length).
 - Failures: SQL tables keep `Failed` rows; see **nymbroker-dead-letters**.
 
 ## 6. Finish

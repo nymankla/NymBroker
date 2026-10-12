@@ -25,6 +25,7 @@ Meter `NymBroker`:
 | `nymbroker.messages.dead_lettered` | counter | dead-lettered messages | `reason`, `source`, `mode` (`broker`/`native`) |
 | `nymbroker.messages.duplicates` | counter | duplicates dropped by the [idempotent receiver](reliability.md#duplicate-detection) | `source` |
 | `nymbroker.message.processing.duration` | histogram (ms) | time to process one message | `source`, `outcome` (`success`/`failure`), `result` (`completed`/`retry`/`dead_letter`) |
+| `nymbroker.message.age` | histogram (s) | time from the envelope's `created` to the start of processing; not recorded when `created` is missing, never negative | `source` |
 | `nymbroker.health.checks` | counter | [health checks](#health-checks) run | `status` (`healthy`/`degraded`/`unhealthy`) |
 | `nymbroker.health.endpoint.failures` | counter | endpoints reported unhealthy by a health check | `endpoint`, `critical` (`true`/`false`), `reason` (`unhealthy`/`timeout`/`error`) |
 | `nymbroker.health.status` | gauge | aggregate status of the latest health check: `0` healthy, `1` degraded, `2` unhealthy | — |
@@ -41,7 +42,12 @@ Useful views:
 - **Poison messages** — `dead_lettered` by `reason`; alert on any increase.
 - **Latency** — `processing.duration` p95 by `source`; `result = retry` shows transient trouble.
 - **Health** — alert on `health.checks` with `status = unhealthy` (or `degraded`) increasing, or on `health.status > 0`; `health.endpoint.failures` by `endpoint` and `reason` shows which endpoint fails and whether it is down (`unhealthy`), hanging (`timeout`) or broken (`error`: its check threw). The health metrics are only recorded when `CheckHealthAsync` runs — for example on each `/health` probe — so their resolution is the probe interval.
-- **Backlog** — queue depth isn't measured by the broker; take it from the transport (row count with `status = 0`, RabbitMQ / Service Bus metrics).
+- **Backlog** — alert on `message.age` p95 or max by `source`: when consumers fall behind, messages wait longer and the age rises. It is measured against the sender's clock, so clock skew between hosts shifts it (negative values are recorded as 0). The broker does not count queued messages; take depth from the transport:
+  - SQL queue tables (SQLite, PostgreSQL, SQL Server, MySQL): `SELECT COUNT(*), MIN(created_at_utc) FROM <table> WHERE status IN (0, 1)` — covered by the active-rows index.
+  - RabbitMQ: the queue's `messages_ready` (management API or the Prometheus plugin).
+  - Azure Service Bus: `ActiveMessages` in Azure Monitor, or `ActiveMessageCount` from `ServiceBusAdministrationClient` (needs Manage rights).
+  - Amazon SQS: CloudWatch `ApproximateNumberOfMessagesVisible` and `ApproximateAgeOfOldestMessage`.
+  - Memory: not exposed.
 
 ## Traces
 
