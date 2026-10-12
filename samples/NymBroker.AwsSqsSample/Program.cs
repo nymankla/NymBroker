@@ -12,6 +12,7 @@ using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
+using NymBroker.Core.Route;
 using NymBroker.Endpoint.AwsSqs;
 
 // Start ElasticMQ (an SQS-compatible server) first: ./scripts/setup-sqs.ps1
@@ -36,9 +37,14 @@ void Check(bool ok, string what) { Console.WriteLine($"  [{(ok ? "ok" : "FAIL")}
 Console.WriteLine("1. Orders on a standard queue; ORD-2 fails and is dead-lettered to nymbroker-sample-failed");
 using (var host = BuildHost(services => services.AddNymBroker()
            .AddAwsSqsEndPoint("Orders", Settings(ordersUrl))
-           .AddAwsSqsEndPoint("Failed", Settings(failedUrl))   // also listened to: the consumer repairs what lands here
+           .AddAwsSqsEndPoint("Failed", Settings(failedUrl))   // also listened to: OrderFailed repairs what lands here
            .WithDeadLetterEndpoint("Failed")
            .AddConsumer<OrderConsumer>()
+           // Orders read back from the failed queue go to OrderFailed. A matched topic skips OrderConsumer.
+           .AddTopic<OrderMessage>("orders.failed")
+               .When(new FromRouteCondition("Failed"))
+               .SubscribeWith<OrderFailed>()
+               .Build()
            .Build()))
 {
     await host.StartAsync();
@@ -48,14 +54,14 @@ using (var host = BuildHost(services => services.AddNymBroker()
     await broker.PostAsync("Orders", new OrderMessage("ORD-2", "bob", -1m));   // invalid: the consumer throws
     await broker.PostAsync("Orders", new OrderMessage("ORD-3", "carol", 29.99m));
 
-    await WaitUntilAsync(() => OrderConsumer.Received.Count(r => r.Endpoint == "Orders") == 2 && OrderConsumer.Received.Any(r => r.Endpoint == "Failed"));
+    await WaitUntilAsync(() => OrderConsumer.Received.Count == 2 && !OrderFailed.Received.IsEmpty);
     await host.StopAsync();
 }
 
-var repaired = OrderConsumer.Received.Single(r => r.Endpoint == "Failed");
-Check(OrderConsumer.Processed.Order().SequenceEqual(["ORD-1", "ORD-3"]), "ORD-1 and ORD-3 processed");
+var repaired = OrderFailed.Received.Single();
+Check(OrderConsumer.Received.Select(r => r.OrderId).Order().SequenceEqual(["ORD-1", "ORD-3"]), "ORD-1 and ORD-3 processed by OrderConsumer");
 Check(repaired.OrderId == "ORD-2" && repaired.DeadLetter?.Reason == DeadLetterReasons.ConsumerFailed,
-      $"ORD-2 arrived on the failed queue with its reason: {repaired.DeadLetter?.Reason} – {repaired.DeadLetter?.Description}");
+      $"ORD-2 was routed from the failed queue to OrderFailed with its reason: {repaired.DeadLetter?.Reason} – {repaired.DeadLetter?.Description}");
 Check(await CountAsync(ordersUrl) == 0 && await CountAsync(failedUrl) == 0, "both queues are empty: handled messages were deleted");
 
 // --- 2. FIFO: one customer's orders stay in order, and a producer retry is delivered once --------------------------
@@ -104,7 +110,7 @@ AwsSqsSettings Settings(string queueUrl) => new()
 
 IHost BuildHost(Action<IServiceCollection> configure)
     => Host.CreateDefaultBuilder(args)
-        .ConfigureLogging(l => l.SetMinimumLevel(LogLevel.Warning).AddFilter("OrderConsumer", LogLevel.Information))
+        .ConfigureLogging(l => l.SetMinimumLevel(LogLevel.Warning).AddFilter("OrderConsumer", LogLevel.Information).AddFilter("OrderFailed", LogLevel.Information))
         .ConfigureServices((_, services) => configure(services))
         .Build();
 
@@ -156,26 +162,30 @@ public sealed class OrderConsumer(ILogger<OrderConsumer> logger) : IConsume<Orde
     public sealed record Delivery(string Endpoint, string OrderId, DeadLetterInfo? DeadLetter);
 
     public static readonly ConcurrentQueue<Delivery> Received = new();
-    public static IEnumerable<string> Processed => Received.Where(r => r.Endpoint == "Orders").Select(r => r.OrderId);
 
     public Task ConsumeAsync(OrderMessage msg, IMessageContext ctx, CancellationToken ct = default)
     {
-        var endpoint = ctx.Address?.From ?? "?";
-        if (endpoint == "Failed")
-        {
-            // Read back from the failed queue: the reason travels in the envelope. Returning normally deletes it there.
-            logger.LogInformation("[failed queue] Order {Id} needs repair: {Reason} – {Description}",
-                msg.OrderId, ctx.DeadLetter?.Reason, ctx.DeadLetter?.Description);
-            Received.Enqueue(new Delivery(endpoint, msg.OrderId, ctx.DeadLetter));
-            return Task.CompletedTask;
-        }
-
         if (msg.Amount < 0)
             throw new InvalidOperationException($"Order {msg.OrderId} has a negative amount");
 
-        Received.Enqueue(new Delivery(endpoint, msg.OrderId, null));
+        Received.Enqueue(new Delivery(ctx.Address?.From ?? "?", msg.OrderId, null));
 
         logger.LogInformation("Order {Id} for {Customer} processed ({Amount})", msg.OrderId, msg.Customer, msg.Amount);
+        return Task.CompletedTask;
+    }
+}
+
+// Receives the orders read back from the failed queue (see the "orders.failed" topic).
+public sealed class OrderFailed(ILogger<OrderFailed> logger) : ISubscribe<OrderMessage>
+{
+    public static readonly ConcurrentQueue<OrderConsumer.Delivery> Received = new();
+
+    public Task ReceiveAsync(OrderMessage msg, IMessageContext ctx, CancellationToken ct = default)
+    {
+        // The reason travels in the envelope. Returning normally deletes the message from the failed queue.
+        logger.LogInformation("[failed queue] Order {Id} needs repair: {Reason} – {Description}",
+            msg.OrderId, ctx.DeadLetter?.Reason, ctx.DeadLetter?.Description);
+        Received.Enqueue(new OrderConsumer.Delivery(ctx.Address?.From ?? "?", msg.OrderId, ctx.DeadLetter));
         return Task.CompletedTask;
     }
 }
