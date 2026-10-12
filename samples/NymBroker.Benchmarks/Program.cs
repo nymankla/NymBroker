@@ -32,6 +32,10 @@ const int    SqsCount     = 1_000;
 const int    MySqlCount   = 1_000;
 const int    SplitCount   = 200;
 const int    SplitThresholdBytes = 16 * 1024;
+// In-process scenarios finish in about a second, so one run is mostly noise and JIT warm-up. They get their own
+// warm-up pass, then several measured runs; the median run is reported.
+const int    InProcessWarmup = 10_000;
+const int    InProcessRuns   = 5;
 const string PgConnStr    = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
 // Service Bus emulator (scripts/setup-servicebus.ps1); AMQP on 5673 because RabbitMQ owns 5672.
 const string SbConnStr    = "Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
@@ -50,9 +54,9 @@ var Settings = Path.Combine(AppContext.BaseDirectory, "benchmarksettings.json");
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 Console.WriteLine("NymBroker Throughput Benchmarks");
 Console.WriteLine(new string('=', 42));
-Console.WriteLine($"  Memory scenarios : {MemoryCount:N0} messages");
+Console.WriteLine($"  Memory scenarios : {MemoryCount:N0} messages, median of {InProcessRuns} runs after {InProcessWarmup:N0} warm-up messages");
 Console.WriteLine($"  File scenario    : {FileCount:N0} messages");
-Console.WriteLine($"  SQL scenario     : {SqlCount:N0} messages");
+Console.WriteLine($"  SQLite scenario  : {SqlCount:N0} messages");
 Console.WriteLine($"  Postgres scenario: {PgCount:N0} messages");
 Console.WriteLine($"  SQL Server scen. : {MssqlCount:N0} messages");
 Console.WriteLine($"  Service Bus scen.: {SbCount:N0} messages");
@@ -65,7 +69,9 @@ Console.WriteLine();
 var splitPayload = string.Concat(Enumerable.Repeat("The quick brown fox jumps over the lazy dog. ", 6_000));
 
 Console.Write("Warming up... ");
-await RunAsync("_warmup", "Memory", 1_000);
+// A full in-process scenario, not a token run: the first scenarios measured otherwise ran up to 2× slower than the
+// same scenario later in the process (GC budgets, thread pool and shared JIT code still settling).
+await RunAsync("_warmup", "Memory", MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup);
 Console.WriteLine("done");
 Console.WriteLine();
 
@@ -75,13 +81,13 @@ await WatcherSanityCheckAsync();
 Console.WriteLine("Running scenarios:");
 var results = new List<BenchmarkResult>
 {
-    await RunAsync("Memory – direct",      "Memory",  MemoryCount),
-    await RunAsync("Memory – routed",      "Memory",  MemoryCount,
+    await RunAsync("Memory – direct",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup),
+    await RunAsync("Memory – routed",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup,
         configure: broker => broker.Route<BenchmarkMessage>()
             .To("MemoryRouted").WhenFrom("Memory").Build()),
-    await RunAsync("Memory – filtered",    "Memory",  MemoryCount, addFilter: true),
+    await RunAsync("Memory – filtered",    "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, addFilter: true),
 
-    await RunAsync("PubSub – 1 sub",      "Memory",  MemoryCount, usePubSub: true,
+    await RunAsync("PubSub – 1 sub",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, usePubSub: true,
         configureBuilder: b =>
         {
             b.AddTopic<BenchmarkMessage>("bench.pubsub.1")
@@ -89,7 +95,7 @@ var results = new List<BenchmarkResult>
                 .Build();
         }),
 
-    await RunAsync("PubSub – 3 subs",     "Memory",  MemoryCount, usePubSub: true,
+    await RunAsync("PubSub – 3 subs",     "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, usePubSub: true,
         signalsPerMessage: 3,
         configureBuilder: b =>
         {
@@ -102,7 +108,7 @@ var results = new List<BenchmarkResult>
 
     // Topic fans out to PubSubDest endpoint; consumer on that endpoint signals.
     // WhenNotFrom prevents re-matching when the copy arrives at the destination endpoint.
-    await RunAsync("PubSub – endpoint",   "Memory",  MemoryCount, usePubSub: true,
+    await RunAsync("PubSub – endpoint",   "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, usePubSub: true,
         configureBuilder: b =>
         {
             b.AddTopic<BenchmarkMessage>("bench.pubsub.ep")
@@ -113,7 +119,7 @@ var results = new List<BenchmarkResult>
 
     await RunAsync("File   – direct",     "FileLoop", FileCount, fileDir: "bench-in"),
 
-    await RunAsync("SQL    – direct",     "SqlBench", SqlCount,
+    await RunAsync("SQLite – direct",     "SqlBench", SqlCount,
         configureBuilder: b => b.AddSqliteEndPoint("SqlBench", new SqliteSettings
         {
             ConnectionString = "Data Source=:memory:",
@@ -461,7 +467,9 @@ async Task<BenchmarkResult> RunAsync(
     Func<int, BenchmarkMessage>? messageFactory = null,
     int? splitThresholdBytes = null,
     bool compress = true,
-    int? postBatchSize = null)
+    int? postBatchSize = null,
+    int runs = 1,
+    int warmup = 0)
 {
     var isWarmup = name.StartsWith('_');
     if (!isWarmup) Console.Write($"  {name,-24} ... ");
@@ -490,52 +498,18 @@ async Task<BenchmarkResult> RunAsync(
 
     await broker.StartAsync();
 
-    // Clean GC baseline before measuring.
-    GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-    GC.WaitForPendingFinalizers();
-    GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-
-    var gen0Before  = GC.CollectionCount(0);
-    var gen1Before  = GC.CollectionCount(1);
-    var gen2Before  = GC.CollectionCount(2);
-    var allocBefore = GC.GetTotalAllocatedBytes(precise: true);
-
-    var completion = tracker.Prepare(count * signalsPerMessage);
-    var sw         = Stopwatch.StartNew();
-
-    var payload = new string('X', 32);
-    var pending = new List<BenchmarkMessage>(postBatchSize ?? 0);
-    for (var i = 0; i < count; i++)
+    // Warm up this scenario's own code path (filter, routing, topics…) and give tiered JIT time to install the
+    // optimized code, so the measured runs don't include compilation.
+    if (warmup > 0)
     {
-        var msg = messageFactory != null ? messageFactory(i) : new BenchmarkMessage(i, payload);
-        if (usePubSub)
-            await broker.PublishAsync(msg);
-        else if (postBatchSize.HasValue)
-        {
-            pending.Add(msg);
-            if (pending.Count == postBatchSize.Value)
-            {
-                await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
-                pending.Clear();
-            }
-        }
-        else
-            await broker.PostAsync(endpoint, msg, splitThresholdBytes: splitThresholdBytes, compress: compress);
+        await MeasureAsync(warmup);
+        await Task.Delay(500);
     }
-    if (pending.Count > 0)
-        await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
 
-    try { await completion.WaitAsync(TimeSpan.FromSeconds(30)); }
-    catch (TimeoutException)
-    {
-        Console.WriteLine($"\n  [TIMEOUT] processed {tracker.Processed}/{count * signalsPerMessage}");
-    }
-    sw.Stop();
-
-    var gen0      = GC.CollectionCount(0) - gen0Before;
-    var gen1      = GC.CollectionCount(1) - gen1Before;
-    var gen2      = GC.CollectionCount(2) - gen2Before;
-    var allocated = (long)(GC.GetTotalAllocatedBytes(precise: true) - allocBefore);
+    var measuredRuns = new List<BenchmarkResult>(runs);
+    for (var run = 0; run < runs; run++)
+        measuredRuns.Add(await MeasureAsync(count));
+    var result = measuredRuns.OrderBy(r => r.ElapsedMs).ElementAt(runs / 2);   // median run
 
     await broker.StopAsync();
 
@@ -544,7 +518,58 @@ async Task<BenchmarkResult> RunAsync(
 
     if (!isWarmup) Console.WriteLine("done");
 
-    return new BenchmarkResult(name, count, sw.ElapsedMilliseconds, gen0, gen1, gen2, allocated);
+    return result;
+
+    async Task<BenchmarkResult> MeasureAsync(int messages)
+    {
+        // Clean GC baseline before measuring.
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+
+        var gen0Before  = GC.CollectionCount(0);
+        var gen1Before  = GC.CollectionCount(1);
+        var gen2Before  = GC.CollectionCount(2);
+        var allocBefore = GC.GetTotalAllocatedBytes(precise: true);
+
+        var completion = tracker.Prepare(messages * signalsPerMessage);
+        var sw         = Stopwatch.StartNew();
+
+        var payload = new string('X', 32);
+        var pending = new List<BenchmarkMessage>(postBatchSize ?? 0);
+        for (var i = 0; i < messages; i++)
+        {
+            var msg = messageFactory != null ? messageFactory(i) : new BenchmarkMessage(i, payload);
+            if (usePubSub)
+                await broker.PublishAsync(msg);
+            else if (postBatchSize.HasValue)
+            {
+                pending.Add(msg);
+                if (pending.Count == postBatchSize.Value)
+                {
+                    await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
+                    pending.Clear();
+                }
+            }
+            else
+                await broker.PostAsync(endpoint, msg, splitThresholdBytes: splitThresholdBytes, compress: compress);
+        }
+        if (pending.Count > 0)
+            await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
+
+        try { await completion.WaitAsync(TimeSpan.FromSeconds(30)); }
+        catch (TimeoutException)
+        {
+            Console.WriteLine($"\n  [TIMEOUT] processed {tracker.Processed}/{messages * signalsPerMessage}");
+        }
+        sw.Stop();
+
+        var gen0      = GC.CollectionCount(0) - gen0Before;
+        var gen1      = GC.CollectionCount(1) - gen1Before;
+        var gen2      = GC.CollectionCount(2) - gen2Before;
+        var allocated = (long)(GC.GetTotalAllocatedBytes(precise: true) - allocBefore);
+        return new BenchmarkResult(name, messages, sw.ElapsedMilliseconds, gen0, gen1, gen2, allocated);
+    }
 }
 
 // ─── output ─────────────────────────────────────────────────────────────────
