@@ -224,7 +224,7 @@ public sealed class MySqlIdempotencyStoreTests : IAsyncLifetime
         // MySqlConnector's UseAffectedRows (CLIENT_FOUND_ROWS) changes what INSERT … ON DUPLICATE KEY UPDATE reports;
         // the store decides by its claim token instead, so both settings must give the same answers.
         RequireMySql();
-        var cs = new MySqlConnectionStringBuilder(ConnectionString) { UseAffectedRows = useAffectedRows }.ConnectionString;
+        var cs = new MySqlConnectionStringBuilder(ConnectionString!) { UseAffectedRows = useAffectedRows }.ConnectionString;
         var store = CreateStore(lease: TimeSpan.FromSeconds(1), connectionString: cs);
         var id = Guid.NewGuid();
 

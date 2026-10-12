@@ -11,7 +11,7 @@ Source endpoint → deserialize → filter → route / topic / consumer → dest
                                        ↕ aggregator / splitter
 ```
 
-Endpoints: Memory, File (in Core), SQLite, PostgreSQL, SQL Server, MySQL, RabbitMQ, Azure Service Bus, Amazon SQS (one package each).
+Endpoints: Memory, File (in Core), SQLite, PostgreSQL, SQL Server, MySQL, RabbitMQ, Azure Service Bus, Amazon SQS, HTTP (send only) (one package each).
 
 ## Commands
 
@@ -46,10 +46,11 @@ Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml`, one sc
 |---|---|
 | `NymBroker.Core` (package `NymBroker`) | Broker engine, serializer, routing, topics, splitter, idempotent receiver, scheduling, health checks, DI builder, Memory and File endpoints, `RetryPolicy`, and the shared endpoint building blocks |
 | `NymBroker.Endpoint.Sqlite` / `.Postgres` / `.SqlServer` / `.MySql` | Lease-based queue tables (`Add…EndPoint`, `WithSql` / `WithPostgres` / `WithSqlServer` / `WithMySql`) |
+| `NymBroker.Endpoint.Http` | Send-only HTTP / webhook endpoint (`AddHttpEndPoint` / `WithHttp`) on `IHttpClientFactory` |
 | `NymBroker.Endpoint.RabbitMq` / `.AzureServiceBus` / `.AwsSqs` | Broker transports (`AddRabbitMqEndPoint` / `WithRabbitMq`, `AddAzureServiceBusEndPoint` / `WithAzureServiceBus`, `AddAwsSqsEndPoint` / `WithAwsSqs`) |
 | `NymBroker.Idempotency.Sqlite` / `.Postgres` / `.SqlServer` / `.MySql` | Durable `IExpiringIdempotencyStore`s (`AddSqliteIdempotency` …) registered through Core's `AddIdempotencyStore`; independent of the endpoint packages. SQLite is restart-safe on one host only |
 | `NymBroker.Tests` | xUnit. Unit tests use Memory and SQLite `:memory:`; `PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `MySqlEndPointTests`, `MySqlIdempotencyStoreTests`, `AzureServiceBusEndPointTests`, `RabbitMqEndPointTests` and `AwsSqsEndPointTests` need their `NYMBROKER_*` variable (their unit tests always run) |
-| `samples/*` | Runnable apps — table in [docs/samples.md](docs/samples.md). Self-checking: `NymBroker.MediatRSample -- --demo`, `NymBroker.EfCoreTransactionSample` (needs SQL Server), `NymBroker.AwsSqsSample` (needs ElasticMQ) |
+| `samples/*` | Runnable apps — table in [docs/samples.md](docs/samples.md). Self-checking: `NymBroker.MediatRSample -- --demo`, `NymBroker.EfCoreTransactionSample` (needs SQL Server), `NymBroker.AwsSqsSample` (needs ElasticMQ), `NymBroker.WebhookSample -- --demo` |
 | `skills/` | Agent skills for **client** apps (`nymbroker-setup`, `-message`, `-consumer`, `-routing`, `-producer-worker`, `-input-transformer`, `-scheduled`, `-testing`, `-observability`, `-dead-letters`, `-troubleshoot`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`) |
 | `docs/` | User documentation, index in [docs/user-guide.md](docs/user-guide.md) |
 
@@ -81,6 +82,7 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 |---|---|
 | Broker engine, envelope, routing, topics, consumers, idempotency, scheduling, splitter, health checks, configuration, Memory/File | [NymBroker.Core/CLAUDE.md](NymBroker.Core/CLAUDE.md) |
 | A queue-table endpoint | `NymBroker.Endpoint.Sqlite/`, `.Postgres/`, `.SqlServer/`, `.MySql/` `CLAUDE.md` |
+| HTTP | `NymBroker.Endpoint.Http/CLAUDE.md` |
 | RabbitMQ / Service Bus / SQS | `NymBroker.Endpoint.RabbitMq/`, `.AzureServiceBus/`, `.AwsSqs/` `CLAUDE.md` |
 | A new endpoint or idempotency store | `.claude/skills/write-endpoint`, `.claude/skills/write-idempotency-store`, [docs/writing-an-endpoint.md](docs/writing-an-endpoint.md) |
 | User-facing behaviour | `docs/` — the docs describe the public contract; keep them in step with the code |

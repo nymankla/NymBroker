@@ -34,7 +34,7 @@ flowchart LR
 ```
 
 - **Messages** are your own classes or records. The broker wraps each in a JSON **envelope** with an id, correlation id, type name and timestamp.
-- **Endpoints** are named connections to a transport: `Memory`, `File`, `SQLite`, `PostgreSQL`, `SQL Server`, `MySQL`, `RabbitMQ`, `Azure Service Bus`, `Amazon SQS`. You post to an endpoint by name; the broker listens on every endpoint that can receive.
+- **Endpoints** are named connections to a transport: `Memory`, `File`, `SQLite`, `PostgreSQL`, `SQL Server`, `MySQL`, `RabbitMQ`, `Azure Service Bus`, `Amazon SQS`, and `HTTP` (send only). You post to an endpoint by name; the broker listens on every endpoint that can receive.
 - The **pipeline** decides what happens to each received message. A message that matches a **route** or a **topic** is forwarded there; otherwise it goes to the **consumer** registered for its type.
 - **Results flow back to the transport.** When a consumer fails, the endpoint's transport retries the message and eventually dead-letters it — or, for transports without that ability, the broker sends it to a dead-letter endpoint.
 
