@@ -28,7 +28,7 @@ dotnet run --project samples/<SampleName>
 | [NymBroker.AwsSqsSample](../samples/NymBroker.AwsSqsSample) | A failing order is dead-lettered by the broker to a second SQS queue with its reason and read back for repair; a FIFO queue keeps one customer's orders in order and delivers a duplicate post once; self-checking | `NymBroker`, `NymBroker.Endpoint.AwsSqs` | `./scripts/setup-sqs.ps1` |
 | [NymBroker.AzureServiceBusSample](../samples/NymBroker.AzureServiceBusSample) | A failing order is retried, dead-lettered by Service Bus, and read back from the dead-letter queue with its reason | `NymBroker`, `NymBroker.Endpoint.AzureServiceBus` | `./scripts/setup-servicebus.ps1` |
 | [NymBroker.ProducerSample](../samples/NymBroker.ProducerSample/README.md) / [NymBroker.ConsumerSample](../samples/NymBroker.ConsumerSample/README.md) | Two separate processes sharing one queue: a `WriteOnly` producer that exits after posting, and a long-running worker (`--transport sqlite\|postgres\|rabbit`) | `NymBroker`, `NymBroker.Endpoint.Sqlite`, `.Postgres`, `.RabbitMq` | SQLite: — ; others: their setup script |
-| [NymBroker.Benchmarks](../samples/NymBroker.Benchmarks) | Throughput and allocations per transport, batching and large-message splitting — see [Benchmarks](benchmarks.md) | all endpoint packages | Memory, File, SQLite always; Postgres, SQL Server, Service Bus, RabbitMQ, SQS when reachable on localhost |
+| [NymBroker.Benchmarks](../samples/NymBroker.Benchmarks) | Throughput and allocations per transport, batching and large-message splitting — see [Benchmarks](benchmarks.md) | all endpoint packages | Memory, File, SQLite always; Postgres, SQL Server, MySQL, Service Bus, RabbitMQ, SQS when reachable on localhost |
 
 ## Local infrastructure
 
@@ -37,6 +37,7 @@ The samples that need a database or a message broker use Docker containers defin
 | Script | Service | Connection used by the samples |
 |---|---|---|
 | `./scripts/setup-postgres.ps1` | PostgreSQL | `Host=localhost;Database=nymbroker;Username=postgres;Password=postgres` |
+| `./scripts/setup-mysql.ps1` | MySQL 8.4 | `Server=localhost;Port=3306;Database=nymbroker;User ID=root;Password=NymBroker!Dev123` |
 | `./scripts/setup-sqlserver.ps1` | SQL Server 2022 | `Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True` |
 | `./scripts/setup-rabbitmq.ps1` | RabbitMQ | `localhost:5672`, management UI on `http://localhost:15672` |
 | `./scripts/setup-servicebus.ps1` | Azure Service Bus emulator | AMQP on `localhost:5673`; queues from `scripts/servicebus/Config.json` |

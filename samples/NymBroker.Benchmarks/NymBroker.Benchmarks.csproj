@@ -15,6 +15,7 @@
     <ProjectReference Include="..\..\NymBroker.Endpoint.AzureServiceBus\NymBroker.Endpoint.AzureServiceBus.csproj" />
     <ProjectReference Include="..\..\NymBroker.Endpoint.RabbitMq\NymBroker.Endpoint.RabbitMq.csproj" />
     <ProjectReference Include="..\..\NymBroker.Endpoint.AwsSqs\NymBroker.Endpoint.AwsSqs.csproj" />
+    <ProjectReference Include="..\..\NymBroker.Endpoint.MySql\NymBroker.Endpoint.MySql.csproj" />
   </ItemGroup>
 
   <ItemGroup>

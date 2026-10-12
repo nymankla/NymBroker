@@ -23,7 +23,7 @@ To run one test class:
 dotnet test --project NymBroker.Tests -- --filter-class "*ClassName"
 ```
 
-Tests that require PostgreSQL, SQL Server, Azure Service Bus, RabbitMQ or SQS (ElasticMQ) are skipped unless `NYMBROKER_POSTGRES_CS`, `NYMBROKER_SQLSERVER_CS`, `NYMBROKER_SERVICEBUS_CS`, `NYMBROKER_RABBITMQ_HOST` or `NYMBROKER_SQS_URL` is set. Most tests need no external services. To run everything, with Docker Desktop installed:
+Tests that require PostgreSQL, SQL Server, MySQL, Azure Service Bus, RabbitMQ or SQS (ElasticMQ) are skipped unless `NYMBROKER_POSTGRES_CS`, `NYMBROKER_SQLSERVER_CS`, `NYMBROKER_MYSQL_CS`, `NYMBROKER_SERVICEBUS_CS`, `NYMBROKER_RABBITMQ_HOST` or `NYMBROKER_SQS_URL` is set. Most tests need no external services. To run everything, with Docker Desktop installed:
 
 ```powershell
 ./scripts/test-all.ps1                                    # starts the containers, sets the variables, runs all tests

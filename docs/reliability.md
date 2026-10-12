@@ -31,7 +31,7 @@ After processing, the broker gives the source endpoint one of three results, and
 ```mermaid
 flowchart TD
     F["Consumer threw"] --> N{"Does the source endpoint<br/>have its own dead-letter queue?<br/>(UseNativeDeadLetter)"}
-    N -- "yes: RabbitMQ, Service Bus,<br/>SQLite, PostgreSQL, SQL Server" --> R["Retry → transport redelivers"]
+    N -- "yes: RabbitMQ, Service Bus,<br/>SQLite, PostgreSQL, SQL Server, MySQL" --> R["Retry → transport redelivers"]
     R --> L{"retry limit<br/>reached?"}
     L -- no --> AGAIN["processed again"]
     L -- yes --> NDL["transport's dead-letter queue<br/>(DLX, Service Bus DLQ, Failed row)"]
@@ -42,7 +42,7 @@ flowchart TD
 
 | Endpoint | Retry | Dead letter | Retry limit |
 |---|---|---|---|
-| SQLite, PostgreSQL, SQL Server | row back to `Pending` | row `Failed`, reason in the error column | `MaxRetryCount` (default 5) |
+| SQLite, PostgreSQL, SQL Server, MySQL | row back to `Pending` | row `Failed`, reason in the error column | `MaxRetryCount` (default 5) |
 | RabbitMQ | nack with requeue | nack without requeue → the queue's dead-letter exchange, if configured | one redelivery (`RejectRedeliveredFailures`) |
 | Azure Service Bus | abandon | the queue's / subscription's dead-letter queue, with reason and description | the entity's `MaxDeliveryCount` |
 | Memory, File | — (cannot redeliver) | broker dead-letter endpoint | none: failures go straight to the dead-letter endpoint |
@@ -108,7 +108,7 @@ public sealed class ReplayConsumer(INymBroker broker) : IConsume<OrderCreated>
 **SQL endpoints** — failed rows stay in the queue table with `status = 3` and the reason in `last_error` (`LastError` in SQLite). To retry them, reset them to pending:
 
 ```sql
--- PostgreSQL / SQL Server (SQLite: Status, AttemptCount, LastError, FailedAtUtc)
+-- PostgreSQL / SQL Server / MySQL (SQLite: Status, AttemptCount, LastError, FailedAtUtc)
 UPDATE orders_queue
 SET status = 0, attempt_count = 0, last_error = NULL, failed_at_utc = NULL
 WHERE status = 3;
@@ -142,7 +142,7 @@ services.AddNymBroker()
     …
 ```
 
-For PostgreSQL, reference `NymBroker.Idempotency.Postgres` and use `.AddPostgresIdempotency(new PostgresIdempotencySettings { ConnectionString = "...", TableName = "nymbroker_idempotency" })`. For SQLite, reference `NymBroker.Idempotency.Sqlite` and use `.AddSqliteIdempotency(new SqliteIdempotencySettings { ConnectionString = "Data Source=idempotency.db" })`. SQLite gives restart-safe deduplication on **one host** (processes on the same machine may share the file); it is not meant for several instances on different machines — use SQL Server or PostgreSQL for that. All database stores support `Ttl`, `LeaseTimeout`, automatic schema creation, and a hosted cleanup service; set `CleanupInterval = TimeSpan.Zero` to disable cleanup. Any other store: implement `IIdempotencyStore` and register it with `AddIdempotentReceiver(store)` or `AddIdempotentReceiver<TStore>()`.
+For PostgreSQL, reference `NymBroker.Idempotency.Postgres` and use `.AddPostgresIdempotency(new PostgresIdempotencySettings { ConnectionString = "...", TableName = "nymbroker_idempotency" })`. For MySQL 8.0+ / MariaDB 10.6+, reference `NymBroker.Idempotency.MySql` and use `.AddMySqlIdempotency(new MySqlIdempotencySettings { ConnectionString = "...", TableName = "nymbroker_idempotency" })`. For SQLite, reference `NymBroker.Idempotency.Sqlite` and use `.AddSqliteIdempotency(new SqliteIdempotencySettings { ConnectionString = "Data Source=idempotency.db" })`. SQLite gives restart-safe deduplication on **one host** (processes on the same machine may share the file); it is not meant for several instances on different machines — use SQL Server, PostgreSQL or MySQL for that. All database stores support `Ttl`, `LeaseTimeout`, automatic schema creation, and a hosted cleanup service; set `CleanupInterval = TimeSpan.Zero` to disable cleanup. Any other store: implement `IIdempotencyStore` and register it with `AddIdempotentReceiver(store)` or `AddIdempotentReceiver<TStore>()`.
 
 ### How it works
 

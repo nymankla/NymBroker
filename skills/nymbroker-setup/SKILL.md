@@ -25,7 +25,7 @@ Inspect the project first so you only ask what the code doesn't answer:
 1. **Transport** — where do messages live?
    - Memory — in-process only, lost on restart (tests, in-process decoupling)
    - SQLite — durable, one machine, no server needed
-   - PostgreSQL / SQL Server — durable, several app instances share one queue table
+   - PostgreSQL / SQL Server / MySQL — durable, several app instances share one queue table
    - RabbitMQ — an existing RabbitMQ broker
    - Azure Service Bus — managed queues/topics in Azure
    - Amazon SQS — managed queues in AWS (standard or FIFO)
@@ -34,7 +34,7 @@ Inspect the project first so you only ask what the code doesn't answer:
 3. **Configuration** — endpoints in code (default) or from `appsettings.json` (lets ops change connections without a rebuild)?
 4. **Extras** (multi-select):
    - Dead-letter endpoint for failures (recommended for Memory and File, which cannot retry)
-   - Duplicate detection (idempotent receiver): in memory, or durable in SQLite / PostgreSQL / SQL Server
+   - Duplicate detection (idempotent receiver): in memory, or durable in SQLite / PostgreSQL / SQL Server / MySQL
    - ASP.NET Core health check
    - OpenTelemetry metrics and tracing
    - Drop messages older than a given age (TTL)
@@ -55,11 +55,12 @@ dotnet add package Microsoft.Extensions.Hosting          # only for a console ap
 | SQLite | `NymBroker.Endpoint.Sqlite` | `AddSqliteEndPoint`, config `WithSql()` (`NymBroker.Endpoint.Sqlite`) |
 | PostgreSQL | `NymBroker.Endpoint.Postgres` | `AddPostgresEndPoint`, `WithPostgres()` (`NymBroker.Endpoint.Postgres`) |
 | SQL Server | `NymBroker.Endpoint.SqlServer` | `AddSqlServerEndPoint`, `WithSqlServer()` (`NymBroker.Endpoint.SqlServer`) |
+| MySQL / MariaDB | `NymBroker.Endpoint.MySql` | `AddMySqlEndPoint`, `WithMySql()` (`NymBroker.Endpoint.MySql`) |
 | RabbitMQ | `NymBroker.Endpoint.RabbitMq` | `AddRabbitMqEndPoint`, `WithRabbitMq()` (`NymBroker.Endpoint.RabbitMq`) |
 | Azure Service Bus | `NymBroker.Endpoint.AzureServiceBus` | `AddAzureServiceBusEndPoint`, `WithAzureServiceBus()` (`NymBroker.Endpoint.AzureServiceBus`) |
 | Amazon SQS | `NymBroker.Endpoint.AwsSqs` | `AddAwsSqsEndPoint`, `WithAwsSqs()` (`NymBroker.Endpoint.AwsSqs`) |
 | Durable dedup, one host | `NymBroker.Idempotency.Sqlite` | `AddSqliteIdempotency` (`NymBroker.Idempotency.Sqlite`) |
-| Durable dedup, shared | `NymBroker.Idempotency.Postgres` / `.SqlServer` | `AddPostgresIdempotency` / `AddSqlServerIdempotency` |
+| Durable dedup, shared | `NymBroker.Idempotency.Postgres` / `.SqlServer` / `.MySql` | `AddPostgresIdempotency` / `AddSqlServerIdempotency` / `AddMySqlIdempotency` |
 
 ## 4. Register the broker
 
@@ -89,6 +90,7 @@ Settings per transport (only set what differs from the defaults):
 | SQLite | `SqliteSettings { ConnectionString, TableName, AutoCreateTable, BatchSize, PollInterval, LeaseTimeout, MaxRetryCount }` | `Data Source=queue.db` |
 | PostgreSQL | `PostgresSettings { ConnectionString, TableName, AutoCreateTable, UseNotifications, … }` | same SQL options as SQLite |
 | SQL Server | `SqlServerSettings { ConnectionString, TableName = "dbo.x", AutoCreateTable, … }` | same SQL options |
+| MySQL | `MySqlSettings { ConnectionString, TableName, AutoCreateTable, … }` | same SQL options; MySQL 8.0+ / MariaDB 10.6+ |
 | RabbitMQ | `RabbitMqSettings { HostName, ReadQueueName, WriteQueueName, UseTls, Port }` | omit `ReadQueueName` for a producer; production: `UseTls = true`, `Port = 5671` |
 | Service Bus | `AzureServiceBusSettings { ConnectionString or FullyQualifiedNamespace + Credential, QueueName or TopicName (+ SubscriptionName), MaxConcurrentCalls, PrefetchCount }` | `Credential` (e.g. `DefaultAzureCredential`) needs code, not JSON |
 | Amazon SQS | `AwsSqsSettings { QueueName or QueueUrl, Region, VisibilityTimeout, RetryDelay, MessageGroupId (FIFO) }` | credentials from the AWS default chain (IAM role); needs a dead-letter endpoint and a redrive policy on the queue; local: `ServiceUrl = "http://localhost:9324"` (ElasticMQ) |
@@ -117,7 +119,7 @@ builder.Services.AddNymBroker()
     .Build();
 ```
 
-`Type` values: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `SqlServer`, `RabbitMq`, `AzureServiceBus`, `AwsSqs`. An entry whose `With…()` is missing is silently ignored and posting to it fails with "No endpoint registered". `"Mode": "WriteOnly"` sets the mode. Consumers, routes and topics always stay in code.
+`Type` values: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `SqlServer`, `MySql`, `RabbitMq`, `AzureServiceBus`, `AwsSqs`. An entry whose `With…()` is missing is silently ignored and posting to it fails with "No endpoint registered". `"Mode": "WriteOnly"` sets the mode. Consumers, routes and topics always stay in code.
 
 ## 5. Extras
 
@@ -132,6 +134,7 @@ builder.Services.AddNymBroker()
 .AddSqlServerIdempotency(new SqlServerIdempotencySettings { ConnectionString = cs, TableName = "dbo.nymbroker_idempotency" })
 .AddPostgresIdempotency(new PostgresIdempotencySettings { ConnectionString = cs, TableName = "nymbroker_idempotency" })
 .AddSqliteIdempotency(new SqliteIdempotencySettings { ConnectionString = "Data Source=idempotency.db" })
+.AddMySqlIdempotency(new MySqlIdempotencySettings { ConnectionString = cs, TableName = "nymbroker_idempotency" })
 
 // TTL
 .DiscardMessagesOlderThan(TimeSpan.FromMinutes(15))
@@ -157,7 +160,7 @@ In a console app without DI-driven startup, call `await host.StartAsync()` befor
 For anything beyond local development (https://github.com/nymankla/NymBroker/blob/master/docs/security.md):
 
 - Never rely on the default connection settings — they are the local Docker containers' (`sa` / `TrustServerCertificate=True` for SQL Server, `postgres/postgres`, RabbitMQ `guest` without TLS).
-- SQL Server: `Encrypt=Mandatory` or `Strict`, `TrustServerCertificate=False`; Azure SQL with `Authentication=Active Directory Managed Identity` needs the `Microsoft.Data.SqlClient.Extensions.Azure` package. PostgreSQL: `SSL Mode=VerifyFull`. RabbitMQ: `UseTls = true`, `Port = 5671`. Service Bus: `FullyQualifiedNamespace` + a managed-identity `Credential`. SQS: an IAM role with only the `sqs:` actions the endpoint uses; no access keys in config.
+- SQL Server: `Encrypt=Mandatory` or `Strict`, `TrustServerCertificate=False`; Azure SQL with `Authentication=Active Directory Managed Identity` needs the `Microsoft.Data.SqlClient.Extensions.Azure` package. PostgreSQL: `SSL Mode=VerifyFull`. MySQL: `SslMode=VerifyFull` (the default `Preferred` doesn't verify). RabbitMQ: `UseTls = true`, `Port = 5671`. Service Bus: `FullyQualifiedNamespace` + a managed-identity `Credential`. SQS: an IAM role with only the `sqs:` actions the endpoint uses; no access keys in config.
 - Secrets from user secrets / environment variables / a secret store via `ApplyConfiguration(BrokerConfigurationReader.Read(builder.Configuration))`, never in `queuesettings.json`.
 - Create queue tables in a deployment step and run with `AutoCreateTable = false` and only `SELECT, INSERT, UPDATE` rights.
 
@@ -172,5 +175,5 @@ For anything beyond local development (https://github.com/nymankla/NymBroker/blo
 - **Routing loops**: routing or topic-forwarding a message to an endpoint this broker also listens on re-processes it. Guard with `.WhenFrom("Source")` / `.WhenNotFrom("Dest")` or make the destination `WriteOnly`.
 - **One consumer per message type.** Several handlers → a topic with `ISubscribe<T>` subscribers.
 - Memory and File cannot redeliver: a crash mid-message loses it. Use a database or broker transport when that matters.
-- SQLite is for one machine; use PostgreSQL or SQL Server for several instances.
+- SQLite is for one machine; use PostgreSQL, SQL Server or MySQL for several instances.
 - Call `AddNymBroker()` once per service collection.

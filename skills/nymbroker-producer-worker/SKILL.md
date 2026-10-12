@@ -16,10 +16,10 @@ Docs: https://github.com/nymankla/NymBroker/blob/master/docs/endpoints-and-confi
 
 Before creating projects, confirm with the user:
 
-1. **Transport** shared by both sides. Several worker instances need **PostgreSQL, SQL Server, RabbitMQ or Azure Service Bus**. SQLite only works when producer and worker run on the same machine (one file); Memory and File don't work across processes (File: only one consumer per folder).
+1. **Transport** shared by both sides. Several worker instances need **PostgreSQL, SQL Server, MySQL, RabbitMQ, Azure Service Bus or Amazon SQS**. SQLite only works when producer and worker run on the same machine (one file); Memory and File don't work across processes (File: only one consumer per folder).
 2. **Projects**: which existing project is the producer, whether to create a new worker project (`dotnet new worker`), and where the shared message types go (an existing `*.Contracts` project, or a new class library both reference).
 3. **How many worker instances** and whether processing order matters (NymBroker does not guarantee order across retries and parallel consumers).
-4. **Duplicate detection** across instances: durable store in PostgreSQL / SQL Server (recommended for more than one instance), or idempotent consumers only.
+4. **Duplicate detection** across instances: durable store in PostgreSQL / SQL Server / MySQL (recommended for more than one instance), or idempotent consumers only.
 
 ## 2. Contracts
 
@@ -79,7 +79,7 @@ await builder.Build().RunAsync();
 
 - The broker starts with the host and listens on every non-`WriteOnly` endpoint. Create consumers with the **nymbroker-consumer** skill.
 - **Leases** (SQL endpoints): a claimed row is locked for `LeaseTimeout`. If a handler can run longer, raise it — otherwise another instance may process the same message concurrently.
-- **Scaling**: PostgreSQL/SQL Server claim with `SKIP LOCKED` / `READPAST`, so instances share the table safely. Raise `BatchSize` for throughput. Service Bus: `MaxConcurrentCalls` > 1 processes in parallel within one instance (no ordering). RabbitMQ: competing consumers on one queue.
+- **Scaling**: PostgreSQL/MySQL/SQL Server claim with `SKIP LOCKED` / `READPAST`, so instances share the table safely. Raise `BatchSize` for throughput. Service Bus: `MaxConcurrentCalls` > 1 processes in parallel within one instance (no ordering). RabbitMQ: competing consumers on one queue.
 - **Shutdown**: on stop, endpoints finish in-flight messages and settle them; claimed-but-unstarted ones return after the lease/lock expires. Give the host enough `ShutdownTimeout`, and pass the `CancellationToken` through in consumers.
 - **Large messages**: don't use `splitThresholdBytes` with several worker instances — parts are reassembled in memory by one instance and may be claimed by different ones.
 - **Scheduled jobs** run in every instance; see the nymbroker-scheduled skill.

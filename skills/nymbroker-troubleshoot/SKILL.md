@@ -41,17 +41,17 @@ Docs: https://github.com/nymankla/NymBroker/blob/master/docs/user-guide.md
 | RabbitMQ failures vanish | Rejected messages are dropped unless the queue has a dead-letter exchange | Configure a DLX on the queue |
 | Split (large) messages never processed | Parts went to different instances (reassembly is in memory, per instance) or are incomplete (discarded after 2 h) | Don't split with competing consumers; keep messages under the transport limit |
 | Health check `Unhealthy` | Broker not started, or an endpoint can't reach its server (`report.Endpoints[*].Message`) | Fix connectivity; mark optional endpoints `ConfigureHealthCheck(o => o.NonCritical("X"))` |
-| SQLite `database is locked` / slow with several machines | SQLite is for one host | PostgreSQL or SQL Server for multi-instance |
+| SQLite `database is locked` / slow with several machines | SQLite is for one host | PostgreSQL, SQL Server or MySQL for multi-instance |
 
 ## 3. Inspect SQL queue tables
 
-Status: `0` Pending, `1` InProgress, `2` Completed, `3` Failed. Default tables: SQLite `NymBrokerMessages`, PostgreSQL `nymbroker_messages`, SQL Server `dbo.nymbroker_messages` (or the configured `TableName`).
+Status: `0` Pending, `1` InProgress, `2` Completed, `3` Failed. Default tables: SQLite `NymBrokerMessages`, PostgreSQL `nymbroker_messages`, SQL Server `dbo.nymbroker_messages`, MySQL `nymbroker_messages` (or the configured `TableName`).
 
 ```sql
--- PostgreSQL / SQL Server
+-- PostgreSQL / SQL Server / MySQL
 SELECT status, COUNT(*) FROM nymbroker_messages GROUP BY status;
 SELECT queue_id, attempt_count, last_error, failed_at_utc FROM nymbroker_messages WHERE status = 3 ORDER BY queue_id DESC;
--- payload as text: PostgreSQL convert_from(payload, 'UTF8'); SQL Server CAST(payload AS VARCHAR(MAX))
+-- payload as text: PostgreSQL convert_from(payload, 'UTF8'); SQL Server CAST(payload AS VARCHAR(MAX)); MySQL CONVERT(payload USING utf8mb4)
 
 -- SQLite
 SELECT Status, COUNT(*) FROM NymBrokerMessages GROUP BY Status;

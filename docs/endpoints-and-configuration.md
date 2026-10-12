@@ -13,11 +13,12 @@ An **endpoint** is a named connection to a transport. You post to endpoints by n
 | **SQLite** | `NymBroker.Endpoint.Sqlite` | yes | polling a table | retried, then `Failed` row | one transaction | single-process apps, edge devices |
 | **PostgreSQL** | `NymBroker.Endpoint.Postgres` | yes | polling + `LISTEN/NOTIFY` | retried, then `Failed` row | one statement | multi-instance apps already on Postgres |
 | **SQL Server** | `NymBroker.Endpoint.SqlServer` | yes | polling a table | retried, then `Failed` row | one statement | multi-instance apps already on SQL Server |
+| **MySQL** | `NymBroker.Endpoint.MySql` | yes | polling a table | retried, then `Failed` row | one statement | multi-instance apps already on MySQL 8.0+ / MariaDB 10.6+ |
 | **RabbitMQ** | `NymBroker.Endpoint.RabbitMq` | yes | push (consumer) | requeued, then the queue's dead-letter exchange | one by one | a message broker you already run |
 | **Azure Service Bus** | `NymBroker.Endpoint.AzureServiceBus` | yes | push (processor) | abandoned, then the queue's dead-letter queue | Service Bus batches | Azure, managed queues and topics |
 | **Amazon SQS** | `NymBroker.Endpoint.AwsSqs` | yes | long polling | retried, then the queue's redrive dead-letter queue; messages that can never succeed go to the broker dead-letter endpoint | batches of 10 (not atomic) | AWS, managed queues (standard and FIFO) |
 
-"Failed messages" is explained in [Reliability](reliability.md). PostgreSQL and SQL Server let several application instances poll the same table safely; SQLite is meant for a single machine.
+"Failed messages" is explained in [Reliability](reliability.md). PostgreSQL, SQL Server and MySQL let several application instances poll the same table safely; SQLite is meant for a single machine.
 
 For the full durability, multi-node, dead-letter and crash/restart comparison, see [Delivery guarantees](delivery-guarantees.md).
 
@@ -48,6 +49,13 @@ services.AddNymBroker()
         TableName = "dbo.orders_queue"
     })
 
+    // NymBroker.Endpoint.MySql
+    .AddMySqlEndPoint("My", new MySqlSettings
+    {
+        ConnectionString = "Server=…;Database=app;User ID=…;Password=…;SslMode=VerifyFull",
+        TableName = "orders_queue"
+    })
+
     // NymBroker.Endpoint.RabbitMq
     .AddRabbitMqEndPoint("Rabbit", new RabbitMqSettings
     {
@@ -75,7 +83,7 @@ Each endpoint's settings type defines its available options and defaults. The mo
 
 | Setting | Endpoints | Meaning |
 |---|---|---|
-| `ConnectionString`, `TableName`, `AutoCreateTable` | SQLite, PostgreSQL, SQL Server | where the queue table lives; it is created (and migrated) on first use when `AutoCreateTable` is true |
+| `ConnectionString`, `TableName`, `AutoCreateTable` | SQLite, PostgreSQL, SQL Server, MySQL | where the queue table lives; it is created (and migrated) on first use when `AutoCreateTable` is true |
 | `BatchSize`, `PollInterval` | SQL endpoints | rows claimed per poll; how long to wait after a poll that found nothing |
 | `LeaseTimeout`, `MaxRetryCount` | SQL endpoints | how long a claimed row is locked; attempts before a row becomes `Failed` |
 | `UseNotifications` | PostgreSQL | wake idle listeners with `NOTIFY` instead of waiting out `PollInterval` |
@@ -89,7 +97,7 @@ Each endpoint's settings type defines its available options and defaults. The mo
 
 The default connection settings, and the connection strings in the samples, match the local Docker containers — plaintext RabbitMQ, `TrustServerCertificate=True` for SQL Server, well-known passwords. For production, see [Production security](security.md).
 
-Local Docker setups for PostgreSQL, SQL Server, RabbitMQ, the Service Bus emulator and ElasticMQ (SQS-compatible) are in `scripts/` (`setup-postgres.ps1`, `setup-sqlserver.ps1`, `setup-rabbitmq.ps1`, `setup-servicebus.ps1`, `setup-sqs.ps1`).
+Local Docker setups for PostgreSQL, SQL Server, MySQL, RabbitMQ, the Service Bus emulator and ElasticMQ (SQS-compatible) are in `scripts/` (`setup-postgres.ps1`, `setup-sqlserver.ps1`, `setup-mysql.ps1`, `setup-rabbitmq.ps1`, `setup-servicebus.ps1`, `setup-sqs.ps1`).
 
 ### Amazon SQS notes
 
@@ -157,11 +165,12 @@ services.AddNymBroker()
     .WithSqlServer()                           // each add-on registers its own entries
     .WithAzureServiceBus()
     .WithAwsSqs()
+    .WithMySql()
     .AddConsumer<OrderConsumer>()
     .Build();
 ```
 
-- `Type` is matched case-insensitively. Built-in types: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `RabbitMq`; add-ons define `SqlServer`, `AzureServiceBus` and `AwsSqs`. An entry is only registered if the matching `With…()` is called — otherwise it is ignored, and posting to it fails with "No endpoint registered".
+- `Type` is matched case-insensitively. Built-in types: `Memory`, `File`, `Sql` (SQLite), `Postgres`, `RabbitMq`; add-ons define `SqlServer`, `MySql`, `AzureServiceBus` and `AwsSqs`. An entry is only registered if the matching `With…()` is called — otherwise it is ignored, and posting to it fails with "No endpoint registered".
 - `Config` holds the endpoint's settings in camelCase.
 - `Mode` is a name, case-insensitive (`"ReadWrite"`, `"ReadOnly"`, `"WriteOnly"`), or a number (`0`, `1`, `2`). Omitted means `ReadWrite`. An unknown value makes the configuration fail to load with a `JsonException`.
 - Secrets such as a Service Bus `TokenCredential` cannot come from the file; register those endpoints in code.

@@ -85,7 +85,27 @@ services:
       - "9324:9324"   # SQS API
       - "9325:9325"   # web UI
 
+  mysql:
+    image: mysql:8.4
+    container_name: messagebroker-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      # Local development only.
+      MYSQL_ROOT_PASSWORD: "NymBroker!Dev123"
+      MYSQL_DATABASE: nymbroker
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # TCP, not the socket: during first-start initialisation the server only listens on the socket.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
 volumes:
+  mysql_data:
   postgres_data:
   rabbitmq_data:
   sqlserver_data:

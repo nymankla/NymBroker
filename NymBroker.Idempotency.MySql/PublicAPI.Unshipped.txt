@@ -1,0 +1,26 @@
+#nullable enable
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.AutoCreateTable.get -> bool
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.AutoCreateTable.set -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.CleanupBatchSize.get -> int
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.CleanupBatchSize.set -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.CleanupInterval.set -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.ConnectionString.get -> string!
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.ConnectionString.set -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.LeaseTimeout.get -> System.TimeSpan
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.LeaseTimeout.set -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.MySqlIdempotencySettings() -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.TableName.get -> string!
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.TableName.set -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.Ttl.get -> System.TimeSpan
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.Ttl.set -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencySettings.Validate() -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencyStore
+NymBroker.Idempotency.MySql.MySqlIdempotencyStore.CompleteAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.MySql.MySqlIdempotencyStore.DeleteExpiredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+NymBroker.Idempotency.MySql.MySqlIdempotencyStore.MySqlIdempotencyStore(NymBroker.Idempotency.MySql.MySqlIdempotencySettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Idempotency.MySql.MySqlIdempotencyStore!>! logger) -> void
+NymBroker.Idempotency.MySql.MySqlIdempotencyStore.ReleaseAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.MySql.MySqlIdempotencyStore.TryClaimAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<NymBroker.Core.Idempotency.IdempotencyClaimResult>
+NymBroker.Idempotency.MySql.NymBrokerBuilderMySqlIdempotencyExtensions
+static NymBroker.Idempotency.MySql.NymBrokerBuilderMySqlIdempotencyExtensions.AddMySqlIdempotency(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Idempotency.MySql.MySqlIdempotencySettings? settings = null) -> NymBroker.Core.Factory.NymBrokerBuilder!

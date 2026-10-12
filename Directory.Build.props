@@ -17,7 +17,7 @@
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NymBroker.Core' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AzureServiceBus' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AwsSqs' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.RabbitMq' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Sqlite' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Sqlite'">
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NymBroker.Core' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AzureServiceBus' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AwsSqs' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.RabbitMq' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Sqlite' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Sqlite'">
     <IsNymBrokerPackage>true</IsNymBrokerPackage>
   </PropertyGroup>
 

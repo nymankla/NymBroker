@@ -34,7 +34,7 @@ flowchart LR
 ```
 
 - **Messages** are your own classes or records. The broker wraps each in a JSON **envelope** with an id, correlation id, type name and timestamp.
-- **Endpoints** are named connections to a transport: `Memory`, `File`, `SQLite`, `PostgreSQL`, `SQL Server`, `RabbitMQ`, `Azure Service Bus`, `Amazon SQS`. You post to an endpoint by name; the broker listens on every endpoint that can receive.
+- **Endpoints** are named connections to a transport: `Memory`, `File`, `SQLite`, `PostgreSQL`, `SQL Server`, `MySQL`, `RabbitMQ`, `Azure Service Bus`, `Amazon SQS`. You post to an endpoint by name; the broker listens on every endpoint that can receive.
 - The **pipeline** decides what happens to each received message. A message that matches a **route** or a **topic** is forwarded there; otherwise it goes to the **consumer** registered for its type.
 - **Results flow back to the transport.** When a consumer fails, the endpoint's transport retries the message and eventually dead-letters it — or, for transports without that ability, the broker sends it to a dead-letter endpoint.
 
@@ -52,7 +52,7 @@ flowchart LR
 | [Retry policy](resilience.md) | `RetryPolicy` options, backoff and jitter, how the File and RabbitMQ endpoints use it |
 | [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, scheduled actions |
 | [Observability](observability.md) | Metrics, tracing, logging and health checks |
-| [Production security](security.md) | TLS and certificate verification per transport (RabbitMQ, SQL Server, PostgreSQL, Service Bus), secrets, least privilege, what can leak |
+| [Production security](security.md) | TLS and certificate verification per transport (RabbitMQ, SQL Server, PostgreSQL, MySQL, Service Bus, SQS), secrets, least privilege, what can leak |
 | [Samples](samples.md) | The runnable sample apps, what each shows, and the local infrastructure they need |
 | [MediatR patterns](mediatr-comparison.md) | Commands, notifications, queries and pipeline behaviors as in MediatR, CQRS with NymBroker, and when to use which |
 | [Benchmarks](benchmarks.md) | Running the throughput benchmark, its scenarios, and how to read the results |

@@ -11,6 +11,8 @@ using NymBroker.Endpoint.RabbitMq;
 using NymBroker.Endpoint.SqlServer;
 using NymBroker.Endpoint.AzureServiceBus;
 using NymBroker.Endpoint.AwsSqs;
+using NymBroker.Endpoint.MySql;
+using MySqlConnector;
 using Amazon.Runtime;
 using Amazon.SQS;
 using Azure.Messaging.ServiceBus;
@@ -27,6 +29,7 @@ const int    MssqlCount   = 1_000;
 const int    SbCount      = 1_000;
 const int    RabbitCount  = 1_000;
 const int    SqsCount     = 1_000;
+const int    MySqlCount   = 1_000;
 const int    SplitCount   = 200;
 const int    SplitThresholdBytes = 16 * 1024;
 const string PgConnStr    = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres";
@@ -40,6 +43,8 @@ const string RabbitMgmt   = "http://localhost:15672";
 // ElasticMQ (scripts/setup-sqs.ps1); the bench queue is created on first run.
 const string SqsServiceUrl = "http://localhost:9324";
 const string SqsQueue      = "nymbroker-bench";
+const string MySqlConnStr  = "Server=localhost;Port=3306;Database=nymbroker;User ID=root;Password=NymBroker!Dev123";
+const string MySqlTable    = "nymbroker_bench";
 var Settings = Path.Combine(AppContext.BaseDirectory, "benchmarksettings.json");
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -170,6 +175,28 @@ else
     Console.WriteLine("  SqlServer – direct       ... skipped (SQL Server not available)");
 }
 
+if (await IsMySqlAvailableAsync())
+{
+    await CleanMySqlTableAsync();
+    var mySqlSettings = new MySqlSettings
+    {
+        ConnectionString = MySqlConnStr,
+        TableName        = MySqlTable,
+        BatchSize        = 50,
+        AutoCreateTable  = true,
+        PollInterval     = TimeSpan.Zero
+    };
+    results.Add(await RunAsync("MySQL – direct", "MySqlBench", MySqlCount,
+        configureBuilder: b => b.AddMySqlEndPoint("MySqlBench", mySqlSettings)));
+    await CleanMySqlTableAsync();
+    results.Add(await RunAsync("MySQL – batch/100", "MySqlBench", MySqlCount, postBatchSize: 100,
+        configureBuilder: b => b.AddMySqlEndPoint("MySqlBench", mySqlSettings)));
+}
+else
+{
+    Console.WriteLine("  MySQL – direct           ... skipped (MySQL not available)");
+}
+
 if (await IsServiceBusAvailableAsync())
 {
     await DrainServiceBusQueueAsync();
@@ -281,6 +308,28 @@ async Task CleanPgTableAsync()
     await using var conn = await ds.OpenConnectionAsync();
     await using var cmd  = conn.CreateCommand();
     cmd.CommandText = "DROP TABLE IF EXISTS nymbroker_bench";
+    await cmd.ExecuteNonQueryAsync();
+}
+
+// ─── mysql helpers ───────────────────────────────────────────────────────────
+
+async Task<bool> IsMySqlAvailableAsync()
+{
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await using var conn = new MySqlConnection(MySqlConnStr);
+        await conn.OpenAsync(cts.Token);
+        return true;
+    }
+    catch { return false; }
+}
+
+async Task CleanMySqlTableAsync()
+{
+    await using var conn = new MySqlConnection(MySqlConnStr);
+    await conn.OpenAsync();
+    await using var cmd = new MySqlCommand($"DROP TABLE IF EXISTS {MySqlTable}", conn);
     await cmd.ExecuteNonQueryAsync();
 }
 

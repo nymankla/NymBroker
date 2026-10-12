@@ -30,7 +30,7 @@ if (-not $SkipInfra) {
 
     # Never the -Stop variants here: setup-rabbitmq/-postgres -Stop take down every service.
     # setup-servicebus also starts SQL Server, so SQL Server first (it creates the nymbroker database).
-    foreach ($script in "setup-sqlserver.ps1", "setup-servicebus.ps1", "setup-postgres.ps1", "setup-rabbitmq.ps1", "setup-sqs.ps1") {
+    foreach ($script in "setup-sqlserver.ps1", "setup-servicebus.ps1", "setup-postgres.ps1", "setup-rabbitmq.ps1", "setup-sqs.ps1", "setup-mysql.ps1") {
         & (Join-Path $PSScriptRoot $script)
         if ($LASTEXITCODE -ne 0) { Write-Host "$script failed." -ForegroundColor Red; exit 1 }
     }
@@ -40,6 +40,7 @@ $env:NYMBROKER_POSTGRES_CS   = "Host=localhost;Database=nymbroker;Username=postg
 $env:NYMBROKER_SQLSERVER_CS  = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
 $env:NYMBROKER_SERVICEBUS_CS = "Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
 $env:NYMBROKER_RABBITMQ_HOST = "localhost"
+$env:NYMBROKER_MYSQL_CS     = "Server=localhost;Port=3306;Database=nymbroker;User ID=root;Password=NymBroker!Dev123"
 $env:NYMBROKER_SQS_URL       = "http://localhost:9324"
 
 Push-Location $root
