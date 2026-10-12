@@ -11,7 +11,7 @@ Source endpoint → deserialize → filter → route / topic / consumer → dest
                                        ↕ aggregator / splitter
 ```
 
-Endpoints: Memory, File (in Core), SQLite, PostgreSQL, SQL Server, RabbitMQ, Azure Service Bus, Amazon SQS (one package each).
+Endpoints: Memory, File (in Core), SQLite, PostgreSQL, SQL Server, MySQL, RabbitMQ, Azure Service Bus, Amazon SQS (one package each).
 
 ## Commands
 
@@ -27,27 +27,28 @@ dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"    # 
 dotnet run -c Release --project samples/NymBroker.Benchmarks                  # throughput benchmark
 ```
 
-Integration tests run only when their variable is set — `test-all.ps1` sets all five:
+Integration tests run only when their variable is set — `test-all.ps1` sets all six:
 
 ```powershell
 $env:NYMBROKER_POSTGRES_CS   = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres"
 $env:NYMBROKER_SQLSERVER_CS  = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
 $env:NYMBROKER_SERVICEBUS_CS = "Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
 $env:NYMBROKER_RABBITMQ_HOST = "localhost"
+$env:NYMBROKER_MYSQL_CS     = "Server=localhost;Port=3306;Database=nymbroker;User ID=root;Password=NymBroker!Dev123"
 $env:NYMBROKER_SQS_URL       = "http://localhost:9324"
 ```
 
-Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml`, one script per service, each with `-Stop` / `-Logs`: `setup-rabbitmq.ps1` (5672, UI 15672), `setup-postgres.ps1` (5432), `setup-sqlserver.ps1` (1433, creates db `nymbroker`), `setup-servicebus.ps1` (emulator on 5673; starts SQL Server too, entities in `scripts/servicebus/Config.json`), `setup-sqs.ps1` (ElasticMQ, SQS API on 9324, UI 9325; queues are created by the tests). `setup-rabbitmq -Stop` / `setup-postgres -Stop` run `docker compose down` and stop **all** services; the SQL Server / Service Bus / SQS `-Stop` stop only their own. If `docker` cannot connect, Docker Desktop is not running.
+Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml`, one script per service, each with `-Stop` / `-Logs`: `setup-rabbitmq.ps1` (5672, UI 15672), `setup-postgres.ps1` (5432), `setup-sqlserver.ps1` (1433, creates db `nymbroker`), `setup-mysql.ps1` (MySQL 8.4 on 3306, db `nymbroker`), `setup-servicebus.ps1` (emulator on 5673; starts SQL Server too, entities in `scripts/servicebus/Config.json`), `setup-sqs.ps1` (ElasticMQ, SQS API on 9324, UI 9325; queues are created by the tests). `setup-rabbitmq -Stop` / `setup-postgres -Stop` run `docker compose down` and stop **all** services; the SQL Server / MySQL / Service Bus / SQS `-Stop` stop only their own. If `docker` cannot connect, Docker Desktop is not running.
 
 ## Solution layout
 
 | Project | Role |
 |---|---|
 | `NymBroker.Core` (package `NymBroker`) | Broker engine, serializer, routing, topics, splitter, idempotent receiver, scheduling, health checks, DI builder, Memory and File endpoints, `RetryPolicy`, and the shared endpoint building blocks |
-| `NymBroker.Endpoint.Sqlite` / `.Postgres` / `.SqlServer` | Lease-based queue tables (`Add…EndPoint`, `WithSql` / `WithPostgres` / `WithSqlServer`) |
+| `NymBroker.Endpoint.Sqlite` / `.Postgres` / `.SqlServer` / `.MySql` | Lease-based queue tables (`Add…EndPoint`, `WithSql` / `WithPostgres` / `WithSqlServer` / `WithMySql`) |
 | `NymBroker.Endpoint.RabbitMq` / `.AzureServiceBus` / `.AwsSqs` | Broker transports (`AddRabbitMqEndPoint` / `WithRabbitMq`, `AddAzureServiceBusEndPoint` / `WithAzureServiceBus`, `AddAwsSqsEndPoint` / `WithAwsSqs`) |
-| `NymBroker.Idempotency.Sqlite` / `.Postgres` / `.SqlServer` | Durable `IExpiringIdempotencyStore`s (`AddSqliteIdempotency` …) registered through Core's `AddIdempotencyStore`; independent of the endpoint packages. SQLite is restart-safe on one host only |
-| `NymBroker.Tests` | xUnit. Unit tests use Memory and SQLite `:memory:`; `PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `AzureServiceBusEndPointTests`, `RabbitMqEndPointTests` and `AwsSqsEndPointTests` need their `NYMBROKER_*` variable (their unit tests always run) |
+| `NymBroker.Idempotency.Sqlite` / `.Postgres` / `.SqlServer` / `.MySql` | Durable `IExpiringIdempotencyStore`s (`AddSqliteIdempotency` …) registered through Core's `AddIdempotencyStore`; independent of the endpoint packages. SQLite is restart-safe on one host only |
+| `NymBroker.Tests` | xUnit. Unit tests use Memory and SQLite `:memory:`; `PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `MySqlEndPointTests`, `MySqlIdempotencyStoreTests`, `AzureServiceBusEndPointTests`, `RabbitMqEndPointTests` and `AwsSqsEndPointTests` need their `NYMBROKER_*` variable (their unit tests always run) |
 | `samples/*` | Runnable apps — table in [docs/samples.md](docs/samples.md). Self-checking: `NymBroker.MediatRSample -- --demo`, `NymBroker.EfCoreTransactionSample` (needs SQL Server), `NymBroker.AwsSqsSample` (needs ElasticMQ) |
 | `skills/` | Agent skills for **client** apps (`nymbroker-setup`, `-message`, `-consumer`, `-routing`, `-producer-worker`, `-input-transformer`, `-scheduled`, `-testing`, `-observability`, `-dead-letters`, `-troubleshoot`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`) |
 | `docs/` | User documentation, index in [docs/user-guide.md](docs/user-guide.md) |
@@ -79,7 +80,7 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 | Working on | Read |
 |---|---|
 | Broker engine, envelope, routing, topics, consumers, idempotency, scheduling, splitter, health checks, configuration, Memory/File | [NymBroker.Core/CLAUDE.md](NymBroker.Core/CLAUDE.md) |
-| A queue-table endpoint | `NymBroker.Endpoint.Sqlite/`, `.Postgres/`, `.SqlServer/` `CLAUDE.md` |
+| A queue-table endpoint | `NymBroker.Endpoint.Sqlite/`, `.Postgres/`, `.SqlServer/`, `.MySql/` `CLAUDE.md` |
 | RabbitMQ / Service Bus / SQS | `NymBroker.Endpoint.RabbitMq/`, `.AzureServiceBus/`, `.AwsSqs/` `CLAUDE.md` |
 | A new endpoint or idempotency store | `.claude/skills/write-endpoint`, `.claude/skills/write-idempotency-store`, [docs/writing-an-endpoint.md](docs/writing-an-endpoint.md) |
 | User-facing behaviour | `docs/` — the docs describe the public contract; keep them in step with the code |

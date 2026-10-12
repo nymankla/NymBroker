@@ -111,6 +111,25 @@ Host=pg.prod.example.com;Database=orders;Username=nymbroker_orders;Password=<fro
 
 Reference: [Npgsql security and encryption](https://www.npgsql.org/doc/security.html).
 
+## MySQL
+
+MySqlConnector's default `SslMode=Preferred` encrypts when the server offers TLS but **does not verify the certificate**, and falls back to plaintext. Require a verified connection:
+
+```text
+Server=mysql.prod.example.com;Database=orders;User ID=nymbroker_orders;Password=<from secret store>;SslMode=VerifyFull
+```
+
+- `VerifyFull` requires TLS and checks the certificate chain and the host name (`VerifyCA` skips the host name). If the server's CA is not in the machine's trust store, add `SslCa=/path/ca.pem`. Client certificates: `SslCert` and `SslKey`.
+- Don't add `AllowPublicKeyRetrieval=True` outside local development: it lets a man in the middle supply the key used to encrypt the password.
+- **Permissions:** create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE` on the queue table (plus `DELETE` on the idempotency table):
+
+  ```sql
+  GRANT SELECT, INSERT, UPDATE ON orders.nymbroker_messages TO 'nymbroker_orders'@'%';
+  GRANT SELECT, INSERT, UPDATE, DELETE ON orders.nymbroker_idempotency TO 'nymbroker_orders'@'%';   -- only with AddMySqlIdempotency
+  ```
+
+Reference: [MySqlConnector connection options](https://mysqlconnector.net/connection-options/).
+
 ## Azure Service Bus
 
 Connections always use TLS with certificate verification; nothing to configure. What matters is the credential:

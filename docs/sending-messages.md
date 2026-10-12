@@ -61,7 +61,7 @@ sequenceDiagram
 
 | Endpoint | How the batch is sent | All or nothing? |
 |---|---|---|
-| SQL Server, PostgreSQL, SQLite | one insert in one transaction | yes |
+| SQL Server, PostgreSQL, MySQL, SQLite | one insert in one transaction | yes |
 | Azure Service Bus | as few Service Bus batches as fit (256 KB each on Standard) | per Service Bus batch |
 | RabbitMQ, File, Memory | one message at a time | no |
 

@@ -1,6 +1,8 @@
 <Solution>
   <Project Path="NymBroker.Endpoint.AzureServiceBus/NymBroker.Endpoint.AzureServiceBus.csproj" />
   <Project Path="NymBroker.Endpoint.AwsSqs/NymBroker.Endpoint.AwsSqs.csproj" />
+  <Project Path="NymBroker.Endpoint.MySql/NymBroker.Endpoint.MySql.csproj" />
+  <Project Path="NymBroker.Idempotency.MySql/NymBroker.Idempotency.MySql.csproj" />
   <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
   <Project Path="NymBroker.Endpoint.RabbitMq/NymBroker.Endpoint.RabbitMq.csproj" />
   <Project Path="NymBroker.Endpoint.Sqlite/NymBroker.Endpoint.Sqlite.csproj" />

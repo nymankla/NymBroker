@@ -13,10 +13,12 @@
 | `NymBroker.Endpoint.Sqlite` | SQLite queue table | `AddSqliteEndPoint`, `WithSql` |
 | `NymBroker.Endpoint.Postgres` | PostgreSQL queue table | `AddPostgresEndPoint`, `WithPostgres` |
 | `NymBroker.Endpoint.SqlServer` | SQL Server queue table | `AddSqlServerEndPoint`, `WithSqlServer` |
+| `NymBroker.Endpoint.MySql` | MySQL 8.0+ / MariaDB 10.6+ queue table | `AddMySqlEndPoint`, `WithMySql` |
 | `NymBroker.Endpoint.RabbitMq` | RabbitMQ queues | `AddRabbitMqEndPoint`, `WithRabbitMq` |
 | `NymBroker.Endpoint.AzureServiceBus` | Azure Service Bus queues and topics | `AddAzureServiceBusEndPoint`, `WithAzureServiceBus` |
 | `NymBroker.Endpoint.AwsSqs` | Amazon SQS standard and FIFO queues | `AddAwsSqsEndPoint`, `WithAwsSqs` |
 | `NymBroker.Idempotency.SqlServer` | Durable duplicate detection shared by all instances | `AddSqlServerIdempotency` |
+| `NymBroker.Idempotency.MySql` | Durable duplicate detection shared by all instances | `AddMySqlIdempotency` |
 | `NymBroker.Idempotency.Postgres` | Durable duplicate detection shared by all instances | `AddPostgresIdempotency` |
 | `NymBroker.Idempotency.Sqlite` | Restart-safe duplicate detection on one host | `AddSqliteIdempotency` |
 
@@ -39,12 +41,14 @@ Then add only the optional packages for the transports and idempotency stores yo
 dotnet add package NymBroker.Endpoint.Sqlite            # SQLite queue
 dotnet add package NymBroker.Endpoint.Postgres          # PostgreSQL queue
 dotnet add package NymBroker.Endpoint.SqlServer         # SQL Server queue
+dotnet add package NymBroker.Endpoint.MySql             # MySQL / MariaDB queue
 dotnet add package NymBroker.Endpoint.RabbitMq          # RabbitMQ
 dotnet add package NymBroker.Endpoint.AzureServiceBus   # Azure Service Bus
 dotnet add package NymBroker.Endpoint.AwsSqs            # Amazon SQS
 dotnet add package NymBroker.Idempotency.Sqlite         # durable duplicate detection, one host
 dotnet add package NymBroker.Idempotency.Postgres       # durable duplicate detection, shared
 dotnet add package NymBroker.Idempotency.SqlServer      # durable duplicate detection, shared
+dotnet add package NymBroker.Idempotency.MySql          # durable duplicate detection, shared
 ```
 
 Or in the project file:

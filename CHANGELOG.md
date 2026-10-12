@@ -7,6 +7,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Added
 
 - `NymBroker.Endpoint.AwsSqs`: an Amazon SQS endpoint (#75) — standard and FIFO queues, long polling, batched delete, `PostBatchAsync` via `SendMessageBatch`, health check, `AddAwsSqsEndPoint` / `WithAwsSqs()` (config type `AwsSqs`). Failed messages are retried through the queue's visibility timeout and redrive policy; messages that can never succeed go to the broker's dead-letter endpoint, because SQS cannot dead-letter a message on request. Bytes that SQS cannot carry as text are sent as Base64. Local testing with ElasticMQ: `scripts/setup-sqs.ps1`.
+- `NymBroker.Endpoint.MySql`: a MySQL 8.0+ / MariaDB 10.6+ queue-table endpoint (#76) — same lifecycle, leases, retries and `Failed` rows as the PostgreSQL and SQL Server endpoints, `FOR UPDATE SKIP LOCKED` so several instances can poll one table, atomic `PostBatchAsync`, `AddMySqlEndPoint` / `WithMySql()` (config type `MySql`). Uses MySqlConnector.
+- `NymBroker.Idempotency.MySql`: a durable idempotency store in a MySQL table (#76), `AddMySqlIdempotency`. Local testing: `scripts/setup-mysql.ps1`.
 - `samples/NymBroker.AwsSqsSample`: SQS with the broker's dead-letter endpoint on a second queue, and FIFO ordering and deduplication.
 
 ## [0.10.0] - 2026-10-11

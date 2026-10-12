@@ -9,7 +9,7 @@ A message is dead-lettered when it can never succeed (undecodable, expired, unkn
 
 | Source endpoint | Retries | Dead letters go to | Reason stored in |
 |---|---|---|---|
-| SQLite / PostgreSQL / SQL Server | `MaxRetryCount` (default 5) | same table, `status = 3` (Failed) | `last_error` / `LastError` |
+| SQLite / PostgreSQL / SQL Server / MySQL | `MaxRetryCount` (default 5) | same table, `status = 3` (Failed) | `last_error` / `LastError` |
 | Azure Service Bus | entity `MaxDeliveryCount` | the queue's / subscription's dead-letter queue | Service Bus reason + description |
 | RabbitMQ | one redelivery | the queue's dead-letter exchange — **dropped if none is configured** | `x-death` header (reason `rejected`); NymBroker's reason only in logs |
 | Memory / File, or `UseNativeDeadLetter = false` | none | the broker's `WithDeadLetterEndpoint` endpoint — **only logged if none is set** | `deadLetter` block in the envelope |
@@ -44,7 +44,7 @@ To replay, read them with a **separate** process or broker that registers the sa
 ### SQL endpoints
 
 ```sql
--- PostgreSQL / SQL Server (default table nymbroker_messages / dbo.nymbroker_messages)
+-- PostgreSQL / SQL Server / MySQL (default table nymbroker_messages / dbo.nymbroker_messages)
 SELECT queue_id, attempt_count, last_error, failed_at_utc FROM nymbroker_messages WHERE status = 3;
 
 -- replay after fixing the cause: back to Pending
