@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-13
+
 ### Changed
 
 - NuGet package tags and descriptions: shared tags for messaging and Enterprise Integration Patterns, plus per-package tags for the transport or database (`rabbitmq`, `azure-service-bus`, `sqs`, `postgresql`, …), so the packages show up in NuGet search.
