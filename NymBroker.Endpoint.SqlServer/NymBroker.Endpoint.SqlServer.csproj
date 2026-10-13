@@ -5,7 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Endpoint.SqlServer</PackageId>
-    <PackageDescription>SQL Server endpoint add-on for NymBroker.</PackageDescription>
+    <PackageDescription>SQL Server queue-table transport for NymBroker: leased rows with READPAST, so several instances can share one queue, plus retries, failed rows and atomic batch posts.</PackageDescription>
+    <PackageTags>$(PackageTags);sqlserver;mssql;queue-table</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

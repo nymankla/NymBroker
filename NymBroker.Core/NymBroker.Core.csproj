@@ -5,7 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NymBroker</PackageId>
-    <PackageDescription>A .NET 10 enterprise message processing framework.</PackageDescription>
+    <PackageDescription>Message routing, pub/sub, consumers, splitter and aggregator, idempotent receiver, scheduling and dead-letter handling for .NET, following Enterprise Integration Patterns. Includes in-memory and file endpoints; transports ship as NymBroker.Endpoint.* packages.</PackageDescription>
+    <PackageTags>$(PackageTags);servicebus;event-driven;splitter;aggregator;idempotency;opentelemetry</PackageTags>
   </PropertyGroup>
 
 

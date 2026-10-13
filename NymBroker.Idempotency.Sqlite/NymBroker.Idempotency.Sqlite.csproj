@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Idempotency.Sqlite</PackageId>
     <PackageDescription>Durable SQLite idempotency store (idempotent receiver) for NymBroker. Single host only.</PackageDescription>
+    <PackageTags>$(PackageTags);idempotency;deduplication;inbox;sqlite</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

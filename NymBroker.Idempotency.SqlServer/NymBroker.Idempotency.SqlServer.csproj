@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Idempotency.SqlServer</PackageId>
     <PackageDescription>Durable SQL Server idempotency store (idempotent receiver) for NymBroker.</PackageDescription>
+    <PackageTags>$(PackageTags);idempotency;deduplication;inbox;sqlserver;mssql</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

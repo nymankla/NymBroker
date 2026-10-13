@@ -12,7 +12,7 @@
     <PackageProjectUrl>https://github.com/nymankla/NymBroker</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>NymBroker;messaging;message-processing;integration</PackageTags>
+    <PackageTags>NymBroker;messaging;message-processing;message-queue;message-broker;integration;eip;enterprise-integration-patterns;pubsub;routing;dead-letter</PackageTags>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>

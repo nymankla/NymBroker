@@ -5,7 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Endpoint.Http</PackageId>
-    <PackageDescription>HTTP / webhook endpoint add-on for NymBroker: delivers messages to a URL with retries, idempotency keys and optional HMAC signatures.</PackageDescription>
+    <PackageDescription>HTTP / webhook endpoint for NymBroker: delivers messages to a URL with retries, idempotency keys and optional HMAC signatures.</PackageDescription>
+    <PackageTags>$(PackageTags);http;webhook;webhooks;hmac</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

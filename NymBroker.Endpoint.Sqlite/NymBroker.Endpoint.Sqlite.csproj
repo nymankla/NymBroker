@@ -5,7 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Endpoint.Sqlite</PackageId>
-    <PackageDescription>SQLite endpoint add-on for NymBroker.</PackageDescription>
+    <PackageDescription>SQLite queue-table transport for NymBroker: a durable local queue for one host, with leases, retries and failed rows.</PackageDescription>
+    <PackageTags>$(PackageTags);sqlite;queue-table</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
