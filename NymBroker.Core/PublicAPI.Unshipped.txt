@@ -3,3 +3,7 @@ NymBroker.Core.Factory.NymBrokerBuilder.AddOutputTransformer<TTransformer>(strin
 NymBroker.Core.Impl.NymBrokerImpl.AddOutputTransformer(NymBroker.Core.Transform.IOutputTransformer! transformer, string! endpoint) -> NymBroker.Core.Impl.INymBroker!
 NymBroker.Core.Transform.IOutputTransformer
 NymBroker.Core.Transform.IOutputTransformer.Transform(NymBroker.Core.Serialize.RawMessageContext! message, string! destinationEndpoint) -> byte[]?
+NymBroker.Core.Endpoint.AsyncOnce
+NymBroker.Core.Endpoint.AsyncOnce.AsyncOnce() -> void
+NymBroker.Core.Endpoint.AsyncOnce.IsCompleted.get -> bool
+NymBroker.Core.Endpoint.AsyncOnce.RunAsync<TState>(TState state, System.Func<TState, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! action, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

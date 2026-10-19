@@ -23,12 +23,11 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     private readonly MySqlSettings _settings;
     private readonly ILogger<MySqlEndPoint> _logger;
-    private readonly SemaphoreSlim _schemaLock = new(1, 1);
+    private readonly AsyncOnce _schema = new();
     private readonly string _name;
     private readonly string _table;
     private readonly Listener _listener;
 
-    private volatile bool _schemaEnsured;
 
     public EndpointMode Mode { get; }
 
@@ -86,11 +85,7 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IAsyncDisposable
             _ = await cmd.ExecuteScalarAsync(ct);
         });
 
-    public async ValueTask DisposeAsync()
-    {
-        await StopListeningAsync();
-        _schemaLock.Dispose();
-    }
+    public async ValueTask DisposeAsync() => await StopListeningAsync();
 
     private async Task<IReadOnlyList<QueueMessage>> FinalizeAndClaimAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
     {
@@ -184,8 +179,8 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IAsyncDisposable
         try
         {
             await conn.OpenAsync(ct);
-            if (_settings.AutoCreateTable && !_schemaEnsured)
-                await EnsureSchemaAsync(conn, ct);
+            if (_settings.AutoCreateTable)
+                await _schema.RunAsync((Owner: this, Conn: conn), static (s, ct) => s.Owner.CreateSchemaAsync(s.Conn, ct), ct);
             return conn;
         }
         catch
@@ -195,20 +190,10 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
-    private async Task EnsureSchemaAsync(MySqlConnection conn, CancellationToken ct)
+    private async Task CreateSchemaAsync(MySqlConnection conn, CancellationToken ct)
     {
-        await _schemaLock.WaitAsync(ct);
-        try
-        {
-            if (_schemaEnsured) return;
-            await using var cmd = new MySqlCommand(MySqlQueueSql.CreateSchema(_table), conn);
-            await cmd.ExecuteNonQueryAsync(ct);
-            _schemaEnsured = true;
-        }
-        finally
-        {
-            _schemaLock.Release();
-        }
+        await using var cmd = new MySqlCommand(MySqlQueueSql.CreateSchema(_table), conn);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private sealed record FinalizeItem(long Id, int Attempt, int Status, string? Error);

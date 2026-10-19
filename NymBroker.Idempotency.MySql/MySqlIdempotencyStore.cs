@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using MySqlConnector;
+using NymBroker.Core.Endpoint;
 using NymBroker.Core.Idempotency;
 
 namespace NymBroker.Idempotency.MySql;
@@ -18,8 +19,7 @@ public sealed class MySqlIdempotencyStore : IExpiringIdempotencyStore
     private readonly string _completeSql;
     private readonly string _releaseSql;
     private readonly string _deleteExpiredSql;
-    private readonly SemaphoreSlim _schemaLock = new(1, 1);
-    private volatile bool _schemaReady;
+    private readonly AsyncOnce _schema = new();
 
     public MySqlIdempotencyStore(MySqlIdempotencySettings settings, ILogger<MySqlIdempotencyStore> logger)
     {
@@ -32,7 +32,6 @@ public sealed class MySqlIdempotencyStore : IExpiringIdempotencyStore
         _completeSql = MySqlIdempotencySql.Complete(_table);
         _releaseSql = MySqlIdempotencySql.Release(_table);
         _deleteExpiredSql = MySqlIdempotencySql.DeleteExpired(_table);
-        _schemaReady = !settings.AutoCreateTable;
     }
 
     public async ValueTask<IdempotencyClaimResult> TryClaimAsync(Guid messageId, CancellationToken ct = default)
@@ -94,24 +93,15 @@ public sealed class MySqlIdempotencyStore : IExpiringIdempotencyStore
         }
     }
 
-    private async ValueTask EnsureSchemaAsync(CancellationToken ct)
-    {
-        if (_schemaReady) return;
+    private Task EnsureSchemaAsync(CancellationToken ct)
+        => _settings.AutoCreateTable ? _schema.RunAsync(this, static (self, ct) => self.CreateSchemaAsync(ct), ct) : Task.CompletedTask;
 
-        await _schemaLock.WaitAsync(ct);
-        try
-        {
-            if (_schemaReady) return;
-            await using var connection = await OpenAsync(ct);
-            await using var command = new MySqlCommand(MySqlIdempotencySql.CreateSchema(_table), connection);
-            await command.ExecuteNonQueryAsync(ct);
-            _schemaReady = true;
-            _logger.LogDebug("Idempotency table {Table} is ready", _settings.TableName);
-        }
-        finally
-        {
-            _schemaLock.Release();
-        }
+    private async Task CreateSchemaAsync(CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct);
+        await using var command = new MySqlCommand(MySqlIdempotencySql.CreateSchema(_table), connection);
+        await command.ExecuteNonQueryAsync(ct);
+        _logger.LogDebug("Idempotency table {Table} is ready", _settings.TableName);
     }
 
     private async Task<MySqlConnection> OpenAsync(CancellationToken ct)

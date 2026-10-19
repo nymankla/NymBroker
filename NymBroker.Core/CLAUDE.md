@@ -76,6 +76,7 @@ Interval actions fire on a timer; cron actions use the internal `CronSchedule` (
 ## Shared endpoint building blocks
 
 - `EndpointHandler.InvokeAsync` — calls the handler; an exception → `LogError` + `Retry`; only the stop token's cancellation is rethrown.
+- `AsyncOnce` (`Endpoint`) — runs an async initialization once (schema creation in the SQL endpoints and idempotency stores); concurrent callers wait, a failure is retried by the next caller, and the call after success is lock- and allocation-free when given a `static` lambda plus state.
 - `LeasedQueueListener` (`Endpoint/Queue`) — owns start/stop, the drain/idle loop, the `ProcessResult` → `QueueMessageStatus` mapping (Completed; DeadLetter → Failed; Retry → Pending, or Failed at `MaxRetryCount`) and its log lines, poll-error / `Critical` logging, and the shutdown write with a fresh 10 s token. Subclasses supply `FinalizeAndClaimAsync` (write outcomes + claim next batch in one transaction) and `FinalizeAsync`; optional `WaitWhenIdleAsync` / `OnLoopExitAsync`. Settings implement `ILeasedQueueSettings` (an interface so no shipped settings members moved).
 
 ## Memory and File endpoints

@@ -15,6 +15,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Changed
 
 - A message sent to several routes, or to several subscriber endpoints of a topic, is serialized once instead of once per destination.
+- The SQL endpoints and idempotency stores create their tables through one shared `AsyncOnce` helper (`NymBroker.Core.Endpoint`), instead of six hand-written lock-and-flag copies, some of which took the lock on every operation. `AsyncOnce` is public for endpoint and store authors.
 
 ## [0.12.1] - 2026-10-13
 

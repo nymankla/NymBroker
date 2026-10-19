@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
+using NymBroker.Core.Endpoint;
 using NymBroker.Core.Idempotency;
 
 namespace NymBroker.Idempotency.Postgres;
@@ -19,8 +20,7 @@ public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, IAsync
     private readonly string _completeSql;
     private readonly string _releaseSql;
     private readonly string _deleteExpiredSql;
-    private readonly SemaphoreSlim _schemaLock = new(1, 1);
-    private volatile bool _schemaReady;
+    private readonly AsyncOnce _schema = new();
 
     public PostgresIdempotencyStore(PostgresIdempotencySettings settings, ILogger<PostgresIdempotencyStore> logger)
     {
@@ -34,7 +34,6 @@ public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, IAsync
         _completeSql = PostgresIdempotencySql.Complete(settings.TableName);
         _releaseSql = PostgresIdempotencySql.Release(settings.TableName);
         _deleteExpiredSql = PostgresIdempotencySql.DeleteExpired(settings.TableName);
-        _schemaReady = !settings.AutoCreateTable;
     }
 
     public async ValueTask<IdempotencyClaimResult> TryClaimAsync(Guid messageId, CancellationToken ct = default)
@@ -94,27 +93,17 @@ public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, IAsync
     public async ValueTask DisposeAsync()
     {
         await _dataSource.DisposeAsync();
-        _schemaLock.Dispose();
     }
 
-    private async Task EnsureSchemaAsync(CancellationToken ct)
-    {
-        if (_schemaReady) return;
+    private Task EnsureSchemaAsync(CancellationToken ct)
+        => _settings.AutoCreateTable ? _schema.RunAsync(this, static (self, ct) => self.CreateSchemaAsync(ct), ct) : Task.CompletedTask;
 
-        await _schemaLock.WaitAsync(ct);
-        try
-        {
-            if (_schemaReady) return;
-            await using var connection = await _dataSource.OpenConnectionAsync(ct);
-            await using var command = new NpgsqlCommand(PostgresIdempotencySql.CreateSchema(_settings.TableName), connection);
-            await command.ExecuteNonQueryAsync(ct);
-            _schemaReady = true;
-            _logger.LogDebug("Idempotency table {Table} is ready", _settings.TableName);
-        }
-        finally
-        {
-            _schemaLock.Release();
-        }
+    private async Task CreateSchemaAsync(CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var command = new NpgsqlCommand(PostgresIdempotencySql.CreateSchema(_settings.TableName), connection);
+        await command.ExecuteNonQueryAsync(ct);
+        _logger.LogDebug("Idempotency table {Table} is ready", _settings.TableName);
     }
 
     private static void AddGuid(NpgsqlCommand command, Guid messageId)
