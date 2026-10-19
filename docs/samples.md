@@ -16,7 +16,7 @@ dotnet run --project samples/<SampleName>
 |---|---|---|---|
 | [NymBroker.Sample](../samples/NymBroker.Sample) | Memory + File endpoints, a consumer for two message types, a content-based route, interval and cron scheduled actions | `NymBroker` | — |
 | [NymBroker.ConfigSample](../samples/NymBroker.ConfigSample) | Endpoints loaded from `queuesettings.json` with `LoadConfiguration`; routes and consumers in code | `NymBroker` | — |
-| [NymBroker.CsvSample](../samples/NymBroker.CsvSample) | An input transformer that turns CSV lines into typed messages; invalid lines are dropped | `NymBroker` | — |
+| [NymBroker.CsvSample](../samples/NymBroker.CsvSample) | An input transformer that turns CSV lines into typed messages (invalid lines are dropped), and an output transformer that writes them as XML | `NymBroker` | — |
 | [NymBroker.RoutingSample](../samples/NymBroker.RoutingSample) | Routing from an inbox to VIP / Standard queues, a topic with two subscribers and an endpoint subscription, source guards against routing loops | `NymBroker`, `NymBroker.Endpoint.Sqlite` | — (in-memory SQLite) |
 | [NymBroker.SqlSample](../samples/NymBroker.SqlSample) | SQLite queue table: messages posted before start are claimed and dispatched once the broker starts | `NymBroker`, `NymBroker.Endpoint.Sqlite` | — (file `sqlsample.db`) |
 | [NymBroker.MediatRSample](../samples/NymBroker.MediatRSample/README.md) | MediatR patterns (command, notification, query, pipeline behavior) with NymBroker in a CQRS order API; self-checking `--demo`, `--sqlite` for a durable command queue — see [MediatR patterns](mediatr-comparison.md) | `NymBroker`, `NymBroker.Endpoint.Sqlite` | — |
@@ -53,6 +53,6 @@ These credentials are for local development only.
 - Separate producer and worker processes: **NymBroker.ProducerSample** with **NymBroker.ConsumerSample**.
 - Calling or receiving webhooks: **NymBroker.WebhookSample**.
 - Dead-lettering and retries: **NymBroker.AzureServiceBusSample** (native dead-letter queue), **NymBroker.AwsSqsSample** (broker dead-letter endpoint on a queue), and [Reliability](reliability.md).
-- Non-JSON input: **NymBroker.CsvSample**, and [Pipeline extensions](pipeline-extensions.md).
+- Non-JSON input or output (CSV in, XML out): **NymBroker.CsvSample**, and [Pipeline extensions](pipeline-extensions.md).
 - Coming from MediatR, or building CQRS: **NymBroker.MediatRSample**, explained in [MediatR patterns with NymBroker](mediatr-comparison.md).
 - Comparing transport and feature performance: **NymBroker.Benchmarks**, explained in [Benchmarks](benchmarks.md).

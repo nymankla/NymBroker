@@ -10,6 +10,7 @@ using NymBroker.Core.Message;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Serialize;
 using NymBroker.Core.Splitter;
+using NymBroker.Core.Transform;
 
 namespace NymBroker.Core.Impl;
 
@@ -84,7 +85,7 @@ public sealed partial class NymBrokerImpl
             wire.AddRange(ToWireMessages(endpointName, StreamToBytes(stream), splitThresholdBytes, compress));
         }
 
-        await endpoint.PostBatchAsync(wire, ct);
+        await SendBatchAsync(endpointName, endpoint, wire, ct);
         _logger.LogDebug("Posted a batch of {Count} message(s) ({WireCount} envelope(s)) to endpoint '{Endpoint}'",
             batch.Count, wire.Count, endpointName);
     }
@@ -210,7 +211,7 @@ public sealed partial class NymBrokerImpl
         {
             if (_endpoints.TryGetValue(tapName, out var tapEndpoint))
             {
-                try { await tapEndpoint.PostAsync(raw, ct); }
+                try { await SendAsync(tapName, tapEndpoint, raw, ct); }
                 catch (Exception ex) { _logger.LogError(ex, "Wire tap failed for endpoint '{Endpoint}'", tapName); }
             }
             else
@@ -351,7 +352,7 @@ public sealed partial class NymBrokerImpl
             };
             try
             {
-                await destEndpoint.PostAsync(StreamToBytes(stream), ct);
+                await SendAsync(route.DestinationEndpoint, destEndpoint, StreamToBytes(stream), ct);
                 tags.Add("outcome", "success");
                 NymBrokerDiagnostics.MessagesRouted.Add(1, tags);
             }
@@ -481,7 +482,7 @@ public sealed partial class NymBrokerImpl
         try
         {
             var info = new DeadLetterInfo(reason, description, exception?.GetType().FullName, sourceEndpoint, DateTime.UtcNow);
-            await dlq.PostAsync(DeadLetterEnvelope.Annotate(raw, info), ct);
+            await SendAsync(_deadLetterEndpoint, dlq, DeadLetterEnvelope.Annotate(raw, info), ct);
             RecordDeadLettered(reason, sourceEndpoint, "broker");
             _logger.LogWarning("Message dead-lettered to endpoint '{Endpoint}' ({Reason}: {Description})", _deadLetterEndpoint, reason, description);
         }
@@ -546,9 +547,9 @@ public sealed partial class NymBrokerImpl
             try
             {
                 if (wire.Count == 1)
-                    await endpoint.PostAsync(wire[0], ct);
+                    await SendAsync(endpointName, endpoint, wire[0], ct);
                 else
-                    await endpoint.PostBatchAsync(wire, ct);
+                    await SendBatchAsync(endpointName, endpoint, wire, ct);
                 tags.Add("outcome", "success");
                 NymBrokerDiagnostics.MessagesRouted.Add(wire.Count, tags);
             }
@@ -566,7 +567,34 @@ public sealed partial class NymBrokerImpl
     {
         var endpoint = ResolvePostTarget(name);
         foreach (var wire in ToWireMessages(name, message, splitThresholdBytes, compress))
-            await endpoint.PostAsync(wire, ct);
+            await SendAsync(name, endpoint, wire, ct);
+    }
+
+    // Every send to an endpoint goes through SendAsync / SendBatchAsync, so its output transformer sees all of them.
+    private Task SendAsync(string name, IEndPoint endpoint, byte[] envelope, CancellationToken ct)
+    {
+        if (!_outputTransformers.TryGetValue(name, out var transformer)) return endpoint.PostAsync(envelope, ct);
+        var output = Transform(transformer, name, envelope);
+        return output == null ? Task.CompletedTask : endpoint.PostAsync(output, ct);
+    }
+
+    private Task SendBatchAsync(string name, IEndPoint endpoint, IReadOnlyList<byte[]> envelopes, CancellationToken ct)
+    {
+        if (!_outputTransformers.TryGetValue(name, out var transformer)) return endpoint.PostBatchAsync(envelopes, ct);
+        var output = envelopes.Select(e => Transform(transformer, name, e)).OfType<byte[]>().ToList();
+        return output.Count == 0 ? Task.CompletedTask : endpoint.PostBatchAsync(output, ct);
+    }
+
+    private byte[]? Transform(IOutputTransformer transformer, string name, byte[] envelope)
+    {
+        RawMessageContext context;
+        try { context = (RawMessageContext)_serializer.Deserialize(envelope.AsSpan()); }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Endpoint '{name}' has an output transformer, which needs a NymBroker envelope; the bytes sent to it are not one.", ex);
+        }
+        return transformer.Transform(context, name);
     }
 
     private IEndPoint ResolvePostTarget(string name)
@@ -584,6 +612,9 @@ public sealed partial class NymBrokerImpl
     /// </summary>
     private List<byte[]> ToWireMessages(string name, byte[] message, int? splitThresholdBytes, bool compress)
     {
+        if (splitThresholdBytes.HasValue && _outputTransformers.ContainsKey(name))
+            throw new InvalidOperationException(
+                $"Endpoint '{name}' has an output transformer, so its messages cannot be split: the parts would not be in the destination's format.");
         if (splitThresholdBytes.HasValue && message.Length > splitThresholdBytes.Value)
         {
             var payload = message;

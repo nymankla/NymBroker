@@ -32,6 +32,10 @@ The `NymBroker` package: broker engine, serializer, routing, topics, consumers, 
 
 `StartAsync` starts every `IEndPointEventDriven` endpoint whose `Mode` is not `WriteOnly`, and throws (`ValidateTarget`) if a route, topic, dead-letter or wire-tap target is not registered or is `ReadOnly`; routes and topics added after start are not checked. A startup exception → `LogError`, scheduled actions rolled back, rethrown.
 
+## Output transformers
+
+`AddOutputTransformer(transformer, endpoint)` (`_outputTransformers`, keyed by endpoint name). Every send to an endpoint goes through `SendAsync` / `SendBatchAsync` in `NymBrokerImpl.Processing.cs` (posts, routes, topics, wire tap, dead letter). Never call `endpoint.PostAsync` directly on a send path, or the transformer is bypassed. The helper deserializes the envelope to a `RawMessageContext` and sends the transformer's bytes; null skips the message, and non-envelope bytes throw. `ToWireMessages` throws for `splitThresholdBytes` on such an endpoint. `StartAsync` throws if the endpoint is unregistered or read-only, or if the broker listens on it without an input transformer.
+
 ## Routing
 
 - `RouteContext` is non-sealed with a virtual `Evaluate()` — subclass for custom routing. Conditions implement `IRouteCondition`: `JsonRouteCondition` (`.When(Func<JsonElement,bool>)`), `FromRouteCondition` (`.WhenFrom`), `NotFromRouteCondition` (`.WhenNotFrom`), `MessageAgeRouteCondition` (`.WhenMessageIsOlderThan`), `AndRouteCondition`, `OrRouteCondition`.

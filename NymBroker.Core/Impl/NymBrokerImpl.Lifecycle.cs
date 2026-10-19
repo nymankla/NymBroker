@@ -33,6 +33,17 @@ public sealed partial class NymBrokerImpl
             foreach (var tapName in _wireTapEndpoints)
                 ValidateTarget(tapName, "Wire tap endpoint");
 
+            foreach (var outName in _outputTransformers.Keys)
+            {
+                ValidateTarget(outName, "Output transformer endpoint");
+                // The broker would read back the transformed bytes and could not decode them.
+                var outEndpoint = _endpoints[outName];
+                if (outEndpoint is IEndPointEventDriven && outEndpoint.Mode != EndpointMode.WriteOnly
+                    && _globalInputTransformer == null && !_endpointTransformers.ContainsKey(outName))
+                    throw new InvalidOperationException(
+                        $"Endpoint '{outName}' has an output transformer and the broker also listens on it. Make it WriteOnly, or add an input transformer that reads the transformed format.");
+            }
+
             try
             {
                 StartScheduledActions(ct);

@@ -1,1 +1,5 @@
 #nullable enable
+NymBroker.Core.Factory.NymBrokerBuilder.AddOutputTransformer<TTransformer>(string! endpoint) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Impl.NymBrokerImpl.AddOutputTransformer(NymBroker.Core.Transform.IOutputTransformer! transformer, string! endpoint) -> NymBroker.Core.Impl.INymBroker!
+NymBroker.Core.Transform.IOutputTransformer
+NymBroker.Core.Transform.IOutputTransformer.Transform(NymBroker.Core.Serialize.RawMessageContext! message, string! destinationEndpoint) -> byte[]?

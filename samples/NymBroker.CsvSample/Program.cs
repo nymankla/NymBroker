@@ -3,8 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.DI;
+using NymBroker.Core.Endpoint;
+using NymBroker.Core.Endpoint.Memory;
 using NymBroker.Core.Impl;
 using NymBroker.CsvSample.Consumers;
+using NymBroker.CsvSample.Messages;
 using NymBroker.CsvSample.Transform;
 
 // Usage:
@@ -18,6 +21,7 @@ Console.OutputEncoding = Encoding.UTF8;
 }
 
 const string Endpoint = "CsvInbox";
+const string XmlOut   = "XmlOut";   // a legacy system that only reads XML
 
 var csvLines = args.Length > 0
     ? args
@@ -37,6 +41,9 @@ var host = Host.CreateDefaultBuilder()
         services.AddNymBroker()
             .AddMemoryEndPoint(Endpoint)
             .AddInputTransformer<CsvOrderTransformer>(Endpoint)
+            // WriteOnly: the broker only sends to it. Every message sent there is written as XML.
+            .AddMemoryEndPoint(XmlOut, mode: EndpointMode.WriteOnly)
+            .AddOutputTransformer<OrderXmlTransformer>(XmlOut)
             .AddConsumer<OrderConsumer>()
             .Build();
     })
@@ -45,6 +52,7 @@ var host = Host.CreateDefaultBuilder()
 await host.StartAsync();
 
 var broker = host.Services.GetRequiredService<INymBroker>();
+broker.Route<OrderMessage>().To(XmlOut).WhenFrom(Endpoint).Build();
 
 Console.WriteLine($"CsvSample  endpoint={Endpoint}");
 Console.WriteLine($"Posting {csvLines.Length} line(s)...");
@@ -60,6 +68,12 @@ foreach (var line in csvLines)
 Console.WriteLine();
 // Give the in-process listener a moment to drain the queue.
 await Task.Delay(300);
+
+Console.WriteLine($"Sent to {XmlOut}:");
+var xmlOut = (MemoryQueueEndPoint)host.Services.GetRequiredKeyedService<IEndPoint>(XmlOut);
+await foreach (var xml in xmlOut.ReadAsync())
+    Console.WriteLine($"  {xml}");
+Console.WriteLine();
 
 await host.StopAsync();
 Console.WriteLine("Done.");

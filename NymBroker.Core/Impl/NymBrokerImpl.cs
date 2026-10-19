@@ -39,6 +39,8 @@ public sealed partial class NymBrokerImpl : INymBroker
     private ImmutableDictionary<string, IInputTransformer> _endpointTransformers =
         ImmutableDictionary.Create<string, IInputTransformer>(StringComparer.OrdinalIgnoreCase);
     private IInputTransformer? _globalInputTransformer;
+    private ImmutableDictionary<string, IOutputTransformer> _outputTransformers =
+        ImmutableDictionary.Create<string, IOutputTransformer>(StringComparer.OrdinalIgnoreCase);
     private ImmutableList<string> _wireTapEndpoints = ImmutableList<string>.Empty;
     private string? _deadLetterEndpoint;
     private TimeSpan? _maxMessageAge;
@@ -96,6 +98,15 @@ public sealed partial class NymBrokerImpl : INymBroker
             _globalInputTransformer = transformer;
         else
             _endpointTransformers = _endpointTransformers.SetItem(endpoint, transformer);
+        return this;
+    }
+
+    /// <summary>Transforms every message sent to <paramref name="endpoint"/> into the destination's format (#83).</summary>
+    public INymBroker AddOutputTransformer(IOutputTransformer transformer, string endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(transformer);
+        ArgumentException.ThrowIfNullOrEmpty(endpoint);
+        _outputTransformers = _outputTransformers.SetItem(endpoint, transformer);
         return this;
     }
 

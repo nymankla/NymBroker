@@ -30,6 +30,7 @@ public sealed class NymBrokerBuilder
     private readonly List<TopicContext> _topicContexts = [];
     private readonly List<TopicConfiguration> _configTopics = [];
     private readonly List<(Type TransformerType, string? Endpoint)> _transformers = [];
+    private readonly List<(Type TransformerType, string Endpoint)> _outputTransformers = [];
     private readonly List<Type> _builderFilterTypes = [];
     private readonly List<string> _wireTapEndpoints = [];
     private string? _deadLetterEndpoint;
@@ -130,6 +131,16 @@ public sealed class NymBrokerBuilder
     {
         _services.TryAddTransient<TTransformer>();
         _transformers.Add((typeof(TTransformer), endpoint));
+        return this;
+    }
+
+    /// <summary>Transform every message sent to <paramref name="endpoint"/> into the destination's own format, e.g. XML.</summary>
+    public NymBrokerBuilder AddOutputTransformer<TTransformer>(string endpoint)
+        where TTransformer : class, IOutputTransformer
+    {
+        ArgumentException.ThrowIfNullOrEmpty(endpoint);
+        _services.TryAddTransient<TTransformer>();
+        _outputTransformers.Add((typeof(TTransformer), endpoint));
         return this;
     }
 
@@ -318,6 +329,7 @@ public sealed class NymBrokerBuilder
         var topicContexts    = _topicContexts.ToList();
         var configTopics     = _configTopics.ToList();
         var transformers     = _transformers.ToList();
+        var outputTransformers = _outputTransformers.ToList();
         var builderFilters   = _builderFilterTypes.ToList();
         var wireTapEndpoints = _wireTapEndpoints.ToList();
         var deadLetter       = _deadLetterEndpoint;
@@ -348,6 +360,9 @@ public sealed class NymBrokerBuilder
 
             foreach (var (type, endpoint) in transformers)
                 broker.AddInputTransformer((IInputTransformer)sp.GetRequiredService(type), endpoint);
+
+            foreach (var (type, endpoint) in outputTransformers)
+                broker.AddOutputTransformer((IOutputTransformer)sp.GetRequiredService(type), endpoint);
 
             foreach (var filterType in builderFilters)
                 broker.AddFilter((IMessageFilter)sp.GetRequiredService(filterType));
