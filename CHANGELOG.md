@@ -8,6 +8,14 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 - Output transformers (#83): `IOutputTransformer` and `AddOutputTransformer<T>(endpoint)` convert every message sent to an endpoint into the destination's own format, e.g. JSON → XML for a legacy system. They apply to `PostAsync`, `PostBatchAsync`, routes, topics and wire-tap or dead-letter endpoints. A null result sends nothing. Splitting a message to such an endpoint throws, and `StartAsync` throws if the broker would also listen on it without an input transformer. `samples/NymBroker.CsvSample` now also writes its orders as XML.
 
+### Fixed
+
+- A reassembled split message was counted as one more received message and processing time, and was copied twice (bytes → string → bytes) before processing. Now only the parts are counted, and the reassembled bytes are processed directly.
+
+### Changed
+
+- A message sent to several routes, or to several subscriber endpoints of a topic, is serialized once instead of once per destination.
+
 ## [0.12.1] - 2026-10-13
 
 ### Changed

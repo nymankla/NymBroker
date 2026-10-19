@@ -47,13 +47,7 @@ public sealed class EndpointModeTests
         services.AddSingleton<IAggregator, AggregatorImpl>();
         var sp = services.BuildServiceProvider();
 
-        return new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        return TestBroker.Create(sp);
     }
 
     // --- Mode property on endpoint ---

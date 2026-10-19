@@ -37,13 +37,7 @@ public sealed class BrokerHealthCheckTests
         var services = new ServiceCollection();
         services.AddLogging();
         var sp = services.BuildServiceProvider();
-        return new NymBrokerImpl(
-            new MessageSerializerJson(),
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            logger ?? NullLogger<NymBrokerImpl>.Instance);
+        return TestBroker.Create(sp, logger: logger);
     }
 
     private static async Task<NymBrokerImpl> StartedBrokerAsync(params (string Name, IEndPoint EndPoint)[] endpoints)

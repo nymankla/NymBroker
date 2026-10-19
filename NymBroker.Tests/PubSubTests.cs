@@ -119,13 +119,7 @@ public sealed class PubSubTests
         configureServices?.Invoke(services);
         var sp = services.BuildServiceProvider();
 
-        var broker = new NymBrokerImpl(
-            new MessageSerializerJson(),
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         return (broker, sp);
     }

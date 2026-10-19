@@ -47,13 +47,7 @@ public sealed class MessageFlowTests
         services.AddSingleton<IAggregator, AggregatorImpl>();
         var provider = services.BuildServiceProvider();
 
-        var broker = new NymBrokerImpl(
-            provider.GetRequiredService<MessageSerializerJson>(),
-            provider.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(provider.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(provider);
         broker.RegisterConsumer(typeof(OrderMessage), consumerKey);
 
         return (broker, provider);

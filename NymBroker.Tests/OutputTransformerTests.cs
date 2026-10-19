@@ -48,13 +48,7 @@ public sealed class OutputTransformerTests
     private static (NymBrokerImpl Broker, MemoryQueueEndPoint Legacy) BuildBroker(IOutputTransformer? transformer = null)
     {
         var sp = new ServiceCollection().AddLogging().BuildServiceProvider();
-        var broker = new NymBrokerImpl(
-            new MessageSerializerJson(),
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
         var legacy = new MemoryQueueEndPoint("Legacy", mode: EndpointMode.WriteOnly);
         broker.AddEndpoint("Legacy", legacy);
         broker.AddEndpoint("In", new MemoryQueueEndPoint("In"));

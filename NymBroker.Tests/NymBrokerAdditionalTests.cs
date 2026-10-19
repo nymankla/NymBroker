@@ -37,13 +37,7 @@ public sealed class NymBrokerAdditionalTests
         var sp = services.BuildServiceProvider();
 
         var dest = new MemoryQueueEndPoint("Dest");
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.AddEndpoint("Dest", dest);
         return (broker, dest);
@@ -262,13 +256,7 @@ public sealed class NymBrokerAdditionalTests
         services.AddSingleton<IAggregator, AggregatorImpl>();
         var sp = services.BuildServiceProvider();
 
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.RegisterConsumer(typeof(StockMessage), nameof(StockConsumer));
 
@@ -373,15 +361,7 @@ public sealed class NymBrokerAdditionalTests
         services.AddSingleton<IAggregator, AggregatorImpl>();
         var sp = services.BuildServiceProvider();
 
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance,
-            splitter: null,
-            compressor: new NoBenefitCompressor());
+        var broker = TestBroker.Create(sp, compressor: new NoBenefitCompressor());
 
         var dest = new MemoryQueueEndPoint("Dest");
         broker.AddEndpoint("Dest", dest);
@@ -406,13 +386,7 @@ public sealed class NymBrokerAdditionalTests
         services.AddSingleton<IAggregator, AggregatorImpl>();
         var sp = services.BuildServiceProvider();
 
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.RegisterConsumer(typeof(BigMessage), nameof(BigMessageConsumer));
         var dest = new MemoryQueueEndPoint("Dest");
@@ -459,13 +433,7 @@ public sealed class NymBrokerAdditionalTests
         services.AddSingleton<IAggregator, AggregatorImpl>();
         var sp = services.BuildServiceProvider();
 
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.RegisterConsumer(typeof(StockMessage), nameof(StockConsumer));
         var dest = new MemoryQueueEndPoint("Dest");

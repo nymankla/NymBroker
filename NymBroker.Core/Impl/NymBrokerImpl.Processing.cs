@@ -314,8 +314,8 @@ public sealed partial class NymBrokerImpl
                 reassembled = _compressor.Decompress(reassembled);
             }
 
-            var reassembledJson = Encoding.UTF8.GetString(reassembled);
-            return await ProcessAsync(reassembledJson, sourceEndpoint, ct);
+            // Same activity and failure recorder: one received message, one processing duration.
+            return await ProcessMessageAsync(reassembled, sourceEndpoint, ct, activity, recordFailure);
         }
 
         // ── Idempotent receiver ───────────────────────────────────────────────
@@ -332,6 +332,7 @@ public sealed partial class NymBrokerImpl
 
         // ── Route to destination endpoints ────────────────────────────────────
         var wasRouted = false;
+        byte[]? routedEnvelope = null;   // identical for every route, so serialized at most once
         foreach (var route in _routes)
         {
             if (!route.Evaluate(messageType ?? typeof(IAnyMessage), context, msgElement)) continue;
@@ -342,7 +343,11 @@ public sealed partial class NymBrokerImpl
                 continue;
             }
 
-            using var stream = _serializer.Serialize(context);
+            if (routedEnvelope == null)
+            {
+                using var stream = _serializer.Serialize(context);
+                routedEnvelope = StreamToBytes(stream);
+            }
             var tags = new TagList
             {
                 { "source", context.Address?.From ?? "unknown" },
@@ -352,7 +357,7 @@ public sealed partial class NymBrokerImpl
             };
             try
             {
-                await SendAsync(route.DestinationEndpoint, destEndpoint, StreamToBytes(stream), ct);
+                await SendAsync(route.DestinationEndpoint, destEndpoint, routedEnvelope, ct);
                 tags.Add("outcome", "success");
                 NymBrokerDiagnostics.MessagesRouted.Add(1, tags);
             }
@@ -516,6 +521,7 @@ public sealed partial class NymBrokerImpl
     private async Task DeliverToTopicEndpointsAsync(TopicContext topic, IReadOnlyList<IMessageContext> contexts,
         string messageType, CancellationToken ct)
     {
+        List<byte[]>? wire = null;   // the same envelopes go to every endpoint, so serialized at most once
         foreach (var endpointName in topic.SubscriberEndpoints)
         {
             if (!_endpoints.TryGetValue(endpointName, out var endpoint))
@@ -529,11 +535,14 @@ public sealed partial class NymBrokerImpl
                 continue;
             }
 
-            var wire = new List<byte[]>(contexts.Count);
-            foreach (var context in contexts)
+            if (wire == null)
             {
-                using var stream = _serializer.Serialize(context);
-                wire.Add(StreamToBytes(stream));
+                wire = new List<byte[]>(contexts.Count);
+                foreach (var context in contexts)
+                {
+                    using var stream = _serializer.Serialize(context);
+                    wire.Add(StreamToBytes(stream));
+                }
             }
 
             var tags = new TagList

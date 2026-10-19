@@ -23,13 +23,7 @@ public sealed class ScheduledActionTests
         var sp = services.BuildServiceProvider();
 
         var logger = new CapturingLogger<NymBrokerImpl>();
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            logger);
+        var broker = TestBroker.Create(sp, logger: logger);
         return (broker, logger);
     }
 

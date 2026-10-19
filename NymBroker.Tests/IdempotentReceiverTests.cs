@@ -78,13 +78,7 @@ public sealed class IdempotentReceiverTests
         var sp = services.BuildServiceProvider();
         var serializer = new MessageSerializerJson();
 
-        var broker = new NymBrokerImpl(
-            serializer,
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            logger ?? NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp, logger: logger, serializer: serializer);
 
         broker.RegisterConsumer(typeof(Ping), nameof(PingConsumer));
         broker.AddEndpoint("Native", new NativeEndPoint());

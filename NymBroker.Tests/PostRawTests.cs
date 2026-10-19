@@ -20,13 +20,7 @@ public sealed class PostRawTests
         var sp = services.BuildServiceProvider();
 
         var dest = new MemoryQueueEndPoint("Dest");
-        var broker = new NymBrokerImpl(
-            new MessageSerializerJson(),
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
         broker.AddEndpoint("Dest", dest);
         return (broker, dest);
     }
