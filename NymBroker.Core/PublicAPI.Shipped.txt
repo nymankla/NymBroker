@@ -424,7 +424,6 @@ NymBroker.Core.Route.IRouteBuilder<T>.And(NymBroker.Core.Route.IRouteCondition! 
 NymBroker.Core.Route.IRouteBuilder<T>.Build() -> NymBroker.Core.Route.RouteContext!
 NymBroker.Core.Route.IRouteBuilder<T>.Or(NymBroker.Core.Route.IRouteCondition! lhs, NymBroker.Core.Route.IRouteCondition! rhs) -> NymBroker.Core.Route.IRouteBuilder<T!>!
 NymBroker.Core.Route.IRouteBuilder<T>.To(string! endpointName) -> NymBroker.Core.Route.IRouteBuilder<T!>!
-NymBroker.Core.Route.IRouteBuilder<T>.Transform(string! fileName) -> NymBroker.Core.Route.IRouteBuilder<T!>!
 NymBroker.Core.Route.IRouteBuilder<T>.When(System.Func<System.Text.Json.JsonElement, bool>! condition) -> NymBroker.Core.Route.IRouteBuilder<T!>!
 NymBroker.Core.Route.IRouteBuilder<T>.WhenFrom(string! sourceEndpoint) -> NymBroker.Core.Route.IRouteBuilder<T!>!
 NymBroker.Core.Route.IRouteBuilder<T>.WhenMessageIsOlderThan(System.TimeSpan age) -> NymBroker.Core.Route.IRouteBuilder<T!>!
@@ -455,8 +454,6 @@ NymBroker.Core.Route.RouteContext.MessageType.set -> void
 NymBroker.Core.Route.RouteContext.RouteContext() -> void
 NymBroker.Core.Route.RouteContext.SourceEndpoint.get -> string?
 NymBroker.Core.Route.RouteContext.SourceEndpoint.set -> void
-NymBroker.Core.Route.RouteContext.Transform.get -> string?
-NymBroker.Core.Route.RouteContext.Transform.set -> void
 NymBroker.Core.Serialize.IMessageSerializer
 NymBroker.Core.Serialize.IMessageSerializer.Deserialize(System.IO.Stream! stream) -> NymBroker.Core.Message.IMessageContext!
 NymBroker.Core.Serialize.IMessageSerializer.Deserialize(System.ReadOnlySpan<byte> utf8Json) -> NymBroker.Core.Message.IMessageContext!
@@ -638,3 +635,11 @@ NymBroker.Core.Impl.INymBroker.PostRawAsync(string! endpointName, System.IO.Stre
 NymBroker.Core.Impl.INymBroker.PostRawAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.NymBrokerImpl.PostRawAsync(string! endpointName, System.IO.Stream! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.NymBrokerImpl.PostRawAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
+NymBroker.Core.Factory.NymBrokerBuilder.AddOutputTransformer<TTransformer>(string! endpoint) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Impl.NymBrokerImpl.AddOutputTransformer(NymBroker.Core.Transform.IOutputTransformer! transformer, string! endpoint) -> NymBroker.Core.Impl.INymBroker!
+NymBroker.Core.Transform.IOutputTransformer
+NymBroker.Core.Transform.IOutputTransformer.Transform(NymBroker.Core.Serialize.RawMessageContext! message, string! destinationEndpoint) -> byte[]?
+NymBroker.Core.Endpoint.AsyncOnce
+NymBroker.Core.Endpoint.AsyncOnce.AsyncOnce() -> void
+NymBroker.Core.Endpoint.AsyncOnce.IsCompleted.get -> bool
+NymBroker.Core.Endpoint.AsyncOnce.RunAsync<TState>(TState state, System.Func<TState, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! action, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

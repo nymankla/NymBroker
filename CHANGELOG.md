@@ -4,6 +4,12 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-19
+
+### Security
+
+- `NymBroker.Endpoint.SqlServer` and `NymBroker.Idempotency.SqlServer` reference `System.Security.Cryptography.Pkcs` 10.0.13 directly. `Microsoft.Data.SqlClient` 7.1.1 (the latest) pulls in 9.0.18, which is affected by CVE-2026-84008 (high) and CVE-2026-70162 (moderate), both .NET denial-of-service vulnerabilities. The pin will be removed once SqlClient references a patched version.
+
 ### Added
 
 - Output transformers (#83): `IOutputTransformer` and `AddOutputTransformer<T>(endpoint)` convert every message sent to an endpoint into the destination's own format, e.g. JSON → XML for a legacy system. They apply to `PostAsync`, `PostBatchAsync`, routes, topics and wire-tap or dead-letter endpoints. A null result sends nothing. Splitting a message to such an endpoint throws, and `StartAsync` throws if the broker would also listen on it without an input transformer. `samples/NymBroker.CsvSample` now also writes its orders as XML.
