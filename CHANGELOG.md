@@ -15,7 +15,12 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Changed
 
 - A message sent to several routes, or to several subscriber endpoints of a topic, is serialized once instead of once per destination.
+- The broker's per-message log lines ("Routed message …", "Topic '…' delivered …", "Splitting message …") are logged at `Debug` instead of `Information`. At normal throughput they flooded production logs; the `nymbroker.messages.routed` metric counts the same events. Set the `NymBroker` category to `Debug` to see them again.
 - The SQL endpoints and idempotency stores create their tables through one shared `AsyncOnce` helper (`NymBroker.Core.Endpoint`), instead of six hand-written lock-and-flag copies, some of which took the lock on every operation. `AsyncOnce` is public for endpoint and store authors.
+
+### Removed
+
+- **Breaking:** `IRouteBuilder<T>.Transform(fileName)` and `RouteContext.Transform`, obsolete no-ops since #48. Migration: delete the call; it never changed the message. To send a routed message in another format, use an output transformer on the destination.
 
 ## [0.12.1] - 2026-10-13
 

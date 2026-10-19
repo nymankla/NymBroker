@@ -27,8 +27,6 @@ internal sealed class RouteBuilder<T> : IRouteBuilder<T> where T : class
     public IRouteBuilder<T> WhenMessageIsOlderThan(TimeSpan age) => AddCondition(new MessageAgeRouteCondition(age));
     public IRouteBuilder<T> And(IRouteCondition lhs, IRouteCondition rhs) => AddCondition(new AndRouteCondition(lhs, rhs));
     public IRouteBuilder<T> Or(IRouteCondition lhs, IRouteCondition rhs) => AddCondition(new OrRouteCondition(lhs, rhs));
-    [Obsolete("Has no effect: routed messages are not transformed. It will be removed in a future version (issue #48).")]
-    public IRouteBuilder<T> Transform(string fileName) => this;   // intentionally a no-op (#48)
 
     public RouteContext Build()
     {

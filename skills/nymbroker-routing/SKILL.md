@@ -55,7 +55,7 @@ broker.Route().To("Stale").WhenMessageIsOlderThan(TimeSpan.FromMinutes(5)).Build
 - In `When` predicates use `TryGetProperty` when a property may be missing — `GetProperty` throws, which fails the message.
 - `.Build()` is required; it throws if `.To(...)` is missing. `broker.Route()` (no type) matches every message type.
 - Custom logic: implement `IRouteCondition`, or subclass `RouteContext` and override `Evaluate`, then `broker.Route(() => new MyRouteContext()).To("X").Build()`.
-- Don't use `.Transform(...)` — it is obsolete and does nothing.
+- To send a routed message in another format (XML, CSV), give the destination an output transformer (`AddOutputTransformer<T>(endpoint)`; nymbroker-input-transformer skill).
 
 ## 3. Topics
 

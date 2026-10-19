@@ -367,7 +367,7 @@ public sealed partial class NymBrokerImpl
                 NymBrokerDiagnostics.MessagesRouted.Add(1, tags);
                 throw;
             }
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Routed message type {MessageType} from {Source} to {Destination}",
                 raw2.MessageType ?? messageType?.FullName ?? typeof(IAnyMessage).FullName,
                 context.Address?.From,
@@ -568,7 +568,7 @@ public sealed partial class NymBrokerImpl
                 NymBrokerDiagnostics.MessagesRouted.Add(wire.Count, tags);
                 throw;
             }
-            _logger.LogInformation("Topic '{Topic}' delivered {Count} message(s) to endpoint '{Endpoint}'", topic.TopicName, wire.Count, endpointName);
+            _logger.LogDebug("Topic '{Topic}' delivered {Count} message(s) to endpoint '{Endpoint}'", topic.TopicName, wire.Count, endpointName);
         }
     }
 
@@ -663,7 +663,7 @@ public sealed partial class NymBrokerImpl
             if (compressionName != null)
                 foreach (var part in parts) part.Compression = compressionName;
 
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "Splitting message of {Size} bytes ({PayloadSize} bytes after compression) into {Count} part(s) for endpoint '{Endpoint}' (threshold={Threshold} bytes, compression={Compression})",
                 message.Length, payload.Length, parts.Count, name, splitThresholdBytes.Value, compressionName ?? "none");
 

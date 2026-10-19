@@ -41,7 +41,6 @@ The `NymBroker` package: broker engine, serializer, routing, topics, consumers, 
 - `RouteContext` is non-sealed with a virtual `Evaluate()` — subclass for custom routing. Conditions implement `IRouteCondition`: `JsonRouteCondition` (`.When(Func<JsonElement,bool>)`), `FromRouteCondition` (`.WhenFrom`), `NotFromRouteCondition` (`.WhenNotFrom`), `MessageAgeRouteCondition` (`.WhenMessageIsOlderThan`), `AndRouteCondition`, `OrRouteCondition`.
 - Predicates receive the **payload** element, not the envelope. `IAnyMessage` routes match every type.
 - Chained content conditions (`When`, `WhenMessageIsOlderThan`, `And`, `Or`, topics' `When`) are AND-ed via `RouteConditions.Combine`, also with a `Condition` preset on a factory-created `RouteContext`. `WhenFrom` / `WhenNotFrom` are single fields.
-- `IRouteBuilder<T>.Transform(fileName)` / `RouteContext.Transform` are `[Obsolete]` no-ops — don't use or extend; remove in a future minor version.
 - **Loop hazard**: routing to an event-driven endpoint the broker listens on re-evaluates all routes — infinite loop without `WhenFrom` / `WhenNotFrom`.
 
 ## Consumers and topics

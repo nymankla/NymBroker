@@ -69,6 +69,7 @@ Activities started inside consumers (HTTP calls, database commands) become child
 - While a message is processed, every log entry carries a scope with `MessageId`, `CorrelationId`, `MessageType` and `SourceEndpoint` — include scopes in your log output to correlate entries for one message.
 - Failures are always logged: consumer failures and processing errors at `Error`, dead-lettering at `Warning` with its reason, listener loops that die at `Critical`. Nothing is swallowed silently.
 - `AddMessageLoggingFilter()` logs every received message, including its payload, at `Debug`.
+- Routing, topic delivery and splitting are logged per message at `Debug` ("Routed message …", "Topic '…' delivered …", "Splitting message …"); at `Information` the broker logs only startup, shutdown and other rare events. Use the `nymbroker.messages.routed` metric to watch routing in production.
 - Endpoint startup and shutdown are logged at `Information` ("Endpoint 'X' registered (ReadWrite)", "Started listening on endpoint 'X'").
 
 ## Health checks
