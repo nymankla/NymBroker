@@ -25,6 +25,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
   | `new NymBrokerImpl(...)` | `services.AddNymBroker()…Build()` and resolve `INymBroker` |
 
   Scheduled actions can no longer be added after the broker is built.
+- Dependencies: `Microsoft.Extensions.*`, `Microsoft.Data.Sqlite` 10.0.13, `AWSSDK.SQS` 4.0.100.19, `Microsoft.SourceLink.GitHub` 10.0.402.
 
 ## [0.13.0] - 2026-10-19
 
