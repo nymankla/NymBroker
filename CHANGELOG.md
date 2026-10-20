@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+
+- `samples/NymBroker.EfCoreTransactionSample`: an out-of-stock order is now rejected as a business outcome: the consumer rolls back to a savepoint, records an `OrderRejections` row in the same transaction and completes the message, instead of throwing so the queue retries it `MaxRetryCount` times and marks it `Failed`. Unexpected errors still throw and are retried.
+
 ## [0.14.0] - 2026-10-20
 
 ### Added

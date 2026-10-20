@@ -1,6 +1,6 @@
 # NymBroker.EfCoreTransactionSample
 
-A consumer that places an order with Entity Framework Core — the order, its lines and the products' stock, three tables in one SQL Server transaction — reading from a NymBroker SQL Server queue, with the broker's SQL Server idempotency store dropping redelivered duplicates. It shows how to make a consumer safe under retries and redelivery: commit or roll back as one unit, and let the broker filter messages that were already handled.
+A consumer that places an order with Entity Framework Core — the order, its lines and the products' stock, three tables in one SQL Server transaction — reading from a NymBroker SQL Server queue, with the broker's SQL Server idempotency store dropping redelivered duplicates. It shows how to make a consumer safe under retries and redelivery: commit or roll back as one unit, record a business rejection instead of retrying it, and let the broker filter messages that were already handled.
 
 ## Run
 
@@ -9,7 +9,7 @@ A consumer that places an order with Entity Framework Core — the order, its li
 dotnet run --project samples/NymBroker.EfCoreTransactionSample      # runs three scenarios, checks them, exits 0 or 1
 ```
 
-The output includes every SQL statement EF Core runs, with parameter values (`EnableSensitiveDataLogging` — sample only), and the transaction steps at `Debug`: `Began transaction`, the `INSERT`s into `Orders` and `OrderLines`, the `UPDATE` of `Products`, then `Committing transaction` — or, in scenario 3, `Disposing transaction` without a commit, which is the rollback. The queue endpoint's and the idempotency store's own SQL is not EF Core and is not logged.
+The output includes every SQL statement EF Core runs, with parameter values (`EnableSensitiveDataLogging` — sample only), and the transaction steps at `Debug`: `Began transaction`, the `INSERT`s into `Orders` and `OrderLines`, the `UPDATE` of `Products`, then `Committing transaction` — or, in scenario 3, `Rolling back to transaction savepoint`, the `INSERT` into `OrderRejections`, and `Committing transaction`. (EF Core also creates a savepoint before each `SaveChanges` inside a transaction; those lines are its own.) The queue endpoint's and the idempotency store's own SQL is not EF Core and is not logged.
 
 It uses a throw-away database `nymbroker_ef_sample` (dropped and recreated on every run). Set `NYMBROKER_SQLSERVER_CS` to use another server. The default connection string is the local container's; `TrustServerCertificate=True` is for local development only — see [Production security](../../docs/security.md#sql-server).
 
@@ -17,7 +17,7 @@ It uses a throw-away database `nymbroker_ef_sample` (dropped and recreated on ev
 |---|---|---|
 | 1. Normal order (2 × WIDGET) | Order, line and stock change in one transaction | order + line exist, WIDGET 10 → 8 |
 | 2. Same message delivered twice (1 × WIDGET) | The broker drops the second delivery before the consumer runs ("Dropping duplicate message …") | order exists once, WIDGET 8 → 7 (not 6) |
-| 3. Out of stock on the second line (3 × WIDGET, 5 × GADGET with 1 in stock) | Order, lines and WIDGET's reservation are already written when GADGET fails; the transaction rolls all of it back; the claim is released; the queue retries 3 times, then marks the row `Failed` | no order, no lines, WIDGET still 7, GADGET still 1, `Failed` row with the reason |
+| 3. Out of stock on the second line (3 × WIDGET, 5 × GADGET with 1 in stock) | Order, lines and WIDGET's reservation are already written when GADGET runs out; the consumer rolls back to a savepoint, writes an `OrderRejections` row instead, commits, and returns normally | no order, no lines, WIDGET still 7, GADGET still 1, a rejection with the reason, the queue row `Completed` on its first attempt, the message id remembered |
 
 ## How it works
 
@@ -39,6 +39,7 @@ builder.Services.AddNymBroker()
 public async Task ConsumeAsync(PlaceOrder message, IMessageContext context, CancellationToken ct = default)
 {
     await using var tx = await db.Database.BeginTransactionAsync(ct);
+    await tx.CreateSavepointAsync("BeforeOrder", ct);
 
     db.Orders.Add(new Order { OrderId = …, Lines = [ … ] });   // tables 1 and 2
     await db.SaveChangesAsync(ct);                              // written, not durable yet
@@ -49,7 +50,14 @@ public async Task ConsumeAsync(PlaceOrder message, IMessageContext context, Canc
             .Where(p => p.ProductId == line.ProductId && p.Stock >= line.Quantity)
             .ExecuteUpdateAsync(p => p.SetProperty(x => x.Stock, x => x.Stock - line.Quantity), ct);
         if (reserved == 0)
-            throw new InvalidOperationException("not enough stock");   // rolls back everything above
+        {
+            await tx.RollbackToSavepointAsync("BeforeOrder", ct);   // undo order, lines, earlier reservations
+            db.ChangeTracker.Clear();
+            db.OrderRejections.Add(new OrderRejection { OrderId = …, Reason = "not enough stock of …" });
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);                               // the rejection instead of the order
+            return;                                                 // Completed: no retry, no dead letter
+        }
     }
 
     await tx.CommitAsync(ct);                                   // all three tables change together
@@ -60,7 +68,9 @@ The stock `UPDATE` only matches while enough stock is left, so two orders racing
 
 **One DbContext per message.** The broker creates a DI scope for every message it dispatches, and `AddDbContext` registers the context as scoped. So the consumer — and every scoped service it depends on — shares one context, one connection and one transaction for that message, and the scope disposes them afterwards.
 
-**Throw to roll back.** If anything throws before `CommitAsync` — here the out-of-stock check, after the order, its lines and earlier stock reservations were already written — disposing the uncommitted transaction rolls all of it back, and the broker returns `Retry`. The SQL Server queue puts the message back to `Pending` and redelivers it, up to `MaxRetryCount` attempts, then marks the row `Failed` with the exception message in `last_error`. Don't catch exceptions to "handle" them in the consumer unless the message really is done — a swallowed exception completes the message and its work is lost.
+**Reject, don't retry, a business outcome.** Out of stock is not a malfunction: retrying would fail again, and the dead-letter path is for messages that could not be handled at all. So the consumer rolls back to the savepoint taken before the order was written — undoing the order, its lines and the stock already reserved for earlier lines — writes an `OrderRejections` row in the same transaction, commits, and returns. The rejection is stored if and only if the order is not, the message completes on its first attempt, and the broker remembers its id, so a redelivery is dropped instead of being rejected twice. Use the rejection row (or an event published from it) to tell the customer or reorder stock.
+
+**Throw to roll back and retry.** Anything unexpected that throws before `CommitAsync` — a deadlock, a lost connection, a bug — disposes the uncommitted transaction, which rolls everything back, and the broker returns `Retry`. The SQL Server queue puts the message back to `Pending` and redelivers it, up to `MaxRetryCount` attempts, then marks the row `Failed` with the exception message in `last_error`; the idempotency claim is released, so a replay of the `Failed` row is processed. Don't catch exceptions to "handle" them unless the message really is done — a swallowed exception completes the message and its work is lost.
 
 **The idempotency store drops redeliveries.** The queue's own bookkeeping (marking the row `Completed`) is a separate write, so a message can be delivered again after it was handled — after a crash, an expired lease, or with RabbitMQ / Service Bus a lost ack. Before the consumer runs, the broker claims the message id in `dbo.ef_sample_idempotency`:
 

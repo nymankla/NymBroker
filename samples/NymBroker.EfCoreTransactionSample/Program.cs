@@ -94,16 +94,17 @@ await WaitUntilAsync(async _ => await QueueCountAsync(status: 2) == 3);   // 3 r
 Check(await QueryAsync(db => db.Orders.CountAsync(o => o.OrderId == "ORD-2")) == 1
       && await StockAsync("WIDGET") == 7, "applied once (WIDGET 8 → 7, not 6); the broker drops the second delivery as a duplicate");
 
-// --- 3. Failure part-way: the 2nd line is out of stock after the 1st line's stock was already reserved --------------
-Console.WriteLine("3. Out of stock on the second line: everything rolls back");
+// --- 3. Rejected part-way: the 2nd line is out of stock after the 1st line's stock was already reserved -------------
+Console.WriteLine("3. Out of stock on the second line: the order is undone and recorded as rejected, without retries");
 await broker.PostAsync("Orders", new PlaceOrder("ORD-3", "Carol", [new("WIDGET", 3), new("GADGET", 5)]));
-await WaitUntilAsync(async _ => await QueueCountAsync(status: 3) == 1);
+await WaitUntilAsync(async _ => await QueueCountAsync(status: 2) == 4);   // ORD-1, ORD-2 twice, ORD-3: all Completed
 Check(!await QueryAsync(db => db.Orders.AnyAsync(o => o.OrderId == "ORD-3"))
       && !await QueryAsync(db => db.OrderLines.AnyAsync(l => l.OrderId == "ORD-3")), "no order and no lines for ORD-3");
 Check(await StockAsync("WIDGET") == 7 && await StockAsync("GADGET") == 1, "WIDGET's reservation (7 → 4) was rolled back too: WIDGET 7, GADGET 1");
-Check(await CompletedIdempotencyRowsAsync() == 2, "the failed message is not remembered (its claim was released), so a later replay is processed");
-var (attempts, lastError) = await FailedRowAsync();
-Check(attempts == MaxRetryCount && lastError.Contains("not enough stock"), $"the queue retried it {attempts} times, then marked it Failed: \"{lastError}\"");
+var rejection = await QueryAsync(db => db.OrderRejections.SingleOrDefaultAsync(r => r.OrderId == "ORD-3"));
+Check(rejection?.Reason.Contains("not enough stock of GADGET") == true, $"the rejection is recorded in the same transaction: \"{rejection?.Reason}\"");
+Check(await QueueCountAsync(status: 3) == 0 && await MaxAttemptsAsync() == 1, "the message completed on its first attempt: no retries, no Failed row");
+Check(await CompletedIdempotencyRowsAsync() == 3, "the message is remembered, so a redelivery of ORD-3 is dropped instead of rejected twice");
 
 await host.StopAsync();
 Console.WriteLine(failures == 0 ? "Demo passed." : $"Demo failed: {failures} check(s).");
@@ -147,14 +148,12 @@ async Task<int> CompletedIdempotencyRowsAsync()
     return (int)(await cmd.ExecuteScalarAsync())!;
 }
 
-async Task<(int Attempts, string LastError)> FailedRowAsync()
+async Task<int> MaxAttemptsAsync()
 {
     await using var conn = new SqlConnection(connectionString);
     await conn.OpenAsync();
-    await using var cmd = new SqlCommand($"SELECT attempt_count, last_error FROM {QueueTable} WHERE status = 3", conn);
-    await using var reader = await cmd.ExecuteReaderAsync();
-    await reader.ReadAsync();
-    return (reader.GetInt32(0), reader.IsDBNull(1) ? "" : reader.GetString(1));
+    await using var cmd = new SqlCommand($"SELECT MAX(attempt_count) FROM {QueueTable}", conn);
+    return (int)(await cmd.ExecuteScalarAsync())!;
 }
 
 // A NymBroker envelope with a fixed id, so two posts look like one message delivered twice.
