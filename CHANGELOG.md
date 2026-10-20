@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-20
+
 ### Added
 
 - `IEndPoint.HealthCheckAsync(CancellationToken)` and `HealthCheckResult.FromProbeAsync(...)`. `CheckHealthAsync` (and `/health`) now calls the async check, so a slow database or broker no longer holds a thread-pool thread for up to 5 s per endpoint. The default implementation calls `HealthCheck()`, so existing endpoints keep working unchanged. The SQLite, PostgreSQL, SQL Server, MySQL, SQS, Service Bus and HTTP endpoints implement it; their `HealthCheck()` now waits for it.

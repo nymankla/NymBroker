@@ -32,3 +32,4 @@ NymBroker.Endpoint.SqlServer.SqlServerSettings.UseNativeDeadLetter.set -> void
 const NymBroker.Endpoint.SqlServer.SqlServerEndPointType.SqlServer = "SqlServer" -> string!
 static NymBroker.Endpoint.SqlServer.NymBrokerBuilderSqlServerExtensions.AddSqlServerEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.SqlServer.SqlServerSettings? settings = null, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> NymBroker.Core.Factory.NymBrokerBuilder!
 static NymBroker.Endpoint.SqlServer.NymBrokerBuilderSqlServerExtensions.WithSqlServer(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Endpoint.SqlServer.SqlServerEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!

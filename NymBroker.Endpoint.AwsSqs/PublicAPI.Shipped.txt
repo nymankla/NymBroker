@@ -38,3 +38,4 @@ NymBroker.Endpoint.AwsSqs.NymBrokerBuilderAwsSqsExtensions
 const NymBroker.Endpoint.AwsSqs.AwsSqsEndPointType.AwsSqs = "AwsSqs" -> string!
 static NymBroker.Endpoint.AwsSqs.NymBrokerBuilderAwsSqsExtensions.AddAwsSqsEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.AwsSqs.AwsSqsSettings! settings, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> NymBroker.Core.Factory.NymBrokerBuilder!
 static NymBroker.Endpoint.AwsSqs.NymBrokerBuilderAwsSqsExtensions.WithAwsSqs(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Endpoint.AwsSqs.AwsSqsEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!

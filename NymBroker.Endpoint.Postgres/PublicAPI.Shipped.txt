@@ -32,3 +32,4 @@ NymBroker.Endpoint.Postgres.PostgresSettings.UseNotifications.get -> bool
 NymBroker.Endpoint.Postgres.PostgresSettings.UseNotifications.set -> void
 static NymBroker.Endpoint.Postgres.NymBrokerBuilderPostgresExtensions.AddPostgresEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.Postgres.PostgresSettings? settings = null, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> NymBroker.Core.Factory.NymBrokerBuilder!
 static NymBroker.Endpoint.Postgres.NymBrokerBuilderPostgresExtensions.WithPostgres(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Endpoint.Postgres.PostgresEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!

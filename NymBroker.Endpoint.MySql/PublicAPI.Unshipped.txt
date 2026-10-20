@@ -1,2 +1,1 @@
 #nullable enable
-NymBroker.Endpoint.MySql.MySqlEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!
