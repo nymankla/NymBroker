@@ -1,6 +1,9 @@
+# Every image is pulled on each `docker compose up` (pull_policy: always), so the tags below always resolve to the
+# newest release. Tags stay on the current major version, so existing data volumes keep working.
 services:
   postgres:
     image: postgres:17
+    pull_policy: always
     container_name: messagebroker-postgres
     ports:
       - "5432:5432"
@@ -18,6 +21,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:4-management
+    pull_policy: always
     container_name: messagebroker-rabbitmq
     hostname: rabbitmq
     ports:
@@ -36,6 +40,7 @@ services:
 
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    pull_policy: always
     container_name: messagebroker-sqlserver
     # The image's entrypoint script runs as PID 1 and does not forward SIGTERM to sqlservr,
     # so `docker stop` would wait out the timeout and SIGKILL it. init: true adds a signal-forwarding init.
@@ -61,6 +66,7 @@ services:
     # Azure Service Bus emulator (EULA: https://github.com/Azure/azure-service-bus-emulator-installer/blob/main/EMULATOR_EULA.txt).
     # Entities are declared in servicebus/Config.json; the emulator stores state in the sqlserver service above.
     image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    pull_policy: always
     container_name: messagebroker-servicebus
     depends_on:
       sqlserver:
@@ -79,7 +85,8 @@ services:
 
   elasticmq:
     # SQS-compatible server for the AWS SQS endpoint. Queues are created by the tests and samples (no config file).
-    image: softwaremill/elasticmq-native:1.7.1
+    image: softwaremill/elasticmq-native:latest
+    pull_policy: always
     container_name: messagebroker-elasticmq
     ports:
       - "9324:9324"   # SQS API
@@ -87,6 +94,7 @@ services:
 
   mysql:
     image: mysql:8.4
+    pull_policy: always
     container_name: messagebroker-mysql
     ports:
       - "3306:3306"
