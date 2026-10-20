@@ -27,6 +27,9 @@ public interface IEndPoint
     Task PostAsync(byte[] message, CancellationToken ct = default);
     IHealthCheckResult HealthCheck();
 
+    // Optional: check without blocking a thread. The broker calls this; the default runs HealthCheck().
+    Task<IHealthCheckResult> HealthCheckAsync(CancellationToken ct = default);
+
     // Optional: send several envelopes, in order. The default calls PostAsync for each.
     Task PostBatchAsync(IReadOnlyList<byte[]> messages, CancellationToken ct = default);
 }
@@ -53,7 +56,7 @@ public readonly record struct ProcessResult(ProcessOutcome Outcome, string? Reas
 | A route, topic, wire tap, dead-letter or `PostAsync` targets the endpoint | `PostAsync(bytes, ct)` | Deliver the bytes durably (or throw). |
 | `StartAsync` (host start), if the endpoint is `IEndPointEventDriven` and not `WriteOnly` | `StartListeningAsync(handler, ct)` | Start receiving **in the background** and return quickly. Call `handler(bytes, ct)` once per received message and **settle the message by the `ProcessResult` it returns**. |
 | `StopAsync` (host stop) | `StopListeningAsync()` | Stop receiving. Let in-flight messages finish. |
-| Health probes / your own code | `HealthCheck()` | Report whether the transport is usable. Never throw. |
+| `CheckHealthAsync` / `/health` probes | `HealthCheckAsync(ct)` | Report whether the transport is usable. Never throw. Override it when the check contacts a server; a check of in-memory state can stay in `HealthCheck()`. |
 | `broker.PostBatchAsync` / topic fan-out of `PublishBatchAsync` | `PostBatchAsync(envelopes, ct)` | Optional override: send all envelopes in order, in as few round trips as the transport allows. Each is still received on its own. |
 
 The `handler` the broker passes in is `ProcessAsync(raw, endpointName, ct)`. The source name is already bound to it, so routes like `.WhenFrom("MyEndpoint")` work without any extra code.
@@ -440,8 +443,12 @@ public sealed class BrokeredQueueEndPoint : IEndPointEventDriven
     }
 
     // Runs the probe with a 5 s timeout; a failure is logged at Error and reported unhealthy. Never throws.
-    public IHealthCheckResult HealthCheck()
-        => HealthCheckResult.FromProbe("Brokered queue", _name, _logger, ct => _client.PingAsync(ct));
+    public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken cancellationToken = default)
+        => HealthCheckResult.FromProbeAsync("Brokered queue", _name, _logger, ct => _client.PingAsync(ct),
+            cancellationToken: cancellationToken);
+
+    // Only for callers of the synchronous API; the broker calls HealthCheckAsync.
+    public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
 }
 ```
 
@@ -451,7 +458,7 @@ What this sample adds beyond Sample B:
 - **Separate poll errors from message errors.** A failed `ReceiveBatchAsync` is a transport problem: log it, back off, retry. A `Retry` or `DeadLetter` result is a message problem: settle that message and continue with the batch.
 - **Handle poison messages.** Repeated `Retry`s should eventually stop. Rely on the queue's max-delivery-count / dead-letter feature if it has one. Otherwise, check `DeliveryCount` and mark the message failed yourself, the way the SQL endpoints use `MaxRetryCount`, and log at `Warning` when you do.
 - **Retry with `RetryPolicy`.** Use `RetryPolicy` (`NymBroker.Core.Resilience`) for transient send and reconnect failures. Build one policy per endpoint and reuse it; `OnRetry` must log. Don't add Polly. See [Retry policy](resilience.md) for every option. If the client SDK already retries transient faults (the Azure SDKs do, as in `AzureServiceBusEndPoint`), don't wrap it in a second retry loop.
-- **Keep the health check bounded.** `HealthCheck()` is synchronous, so put a timeout on the probe and catch everything. A health check must never throw.
+- **Keep the health check bounded and asynchronous.** A probe that contacts the server belongs in `HealthCheckAsync`, through `HealthCheckResult.FromProbeAsync`: it adds the 5 s timeout, logs a failure and never throws. Implement `HealthCheck()` by waiting for it.
 - **Drain back to back.** Wait `PollInterval` only after a poll that returned nothing. Waiting after every batch caps throughput at `BatchSize / PollInterval`: about 100 msg/s with the defaults.
 - **For a database-backed queue, batch the round trips.** The SQL endpoints in this repo (`SqliteEndPoint`, `PostgresEndPoint`, `SqlServerEndPoint`) all use the same patterns:
   - claim a batch in one statement;
@@ -621,7 +628,7 @@ public async Task PostedMessage_IsDeliveredToHandler()
 - a poll exception is logged and polling resumes;
 - `StopListeningAsync` returns and no handler call happens after it.
 
-**Through the broker.** Register the endpoint with `NymBrokerImpl.AddEndpoint(name, endpoint)`, add a route or consumer, call `StartAsync`, and post. See `MessageFlowTests` and `ObservabilityTests` for how to build an `NymBrokerImpl` by hand.
+**Through the broker.** Register the endpoint on a builder (`services.AddNymBroker()`, then your `Add…EndPoint`), add a route or consumer, build the service provider, call `StartAsync` on `INymBroker`, and post. Tests in this repo can also build the internal `NymBrokerImpl` by hand with `TestBroker.Create`.
 
 Tests run in parallel. Use a unique name, port or table per test, and filter anything process-wide (activity listeners, meters) by your endpoint's name.
 
@@ -642,7 +649,7 @@ Tests run in parallel. Use a unique name, port or table per test, and filter any
 - [ ] `OperationCanceledException` is swallowed only at shutdown boundaries; unexpected loop death is logged at `Critical`.
 - [ ] No silent catches: every `catch` logs.
 - [ ] `StopListeningAsync` stops receiving and awaits the loop.
-- [ ] `HealthCheck()` is bounded, never throws, and reports a dead listener.
+- [ ] The health check is bounded, never throws, and reports a dead listener; a server probe is in `HealthCheckAsync` (`FromProbeAsync`).
 - [ ] Transient failures use `NymBroker.Core.Resilience.RetryPolicy` with a logging `OnRetry`.
 - [ ] Builder extension calls both `Services.AddKeyedSingleton<IEndPoint>(name, …)` and `RegisterEndpoint(name)`.
 - [ ] Tests use no external infrastructure and are safe to run in parallel.

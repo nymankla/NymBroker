@@ -4,6 +4,28 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- `IEndPoint.HealthCheckAsync(CancellationToken)` and `HealthCheckResult.FromProbeAsync(...)`. `CheckHealthAsync` (and `/health`) now calls the async check, so a slow database or broker no longer holds a thread-pool thread for up to 5 s per endpoint. The default implementation calls `HealthCheck()`, so existing endpoints keep working unchanged. The SQLite, PostgreSQL, SQL Server, MySQL, SQS, Service Bus and HTTP endpoints implement it; their `HealthCheck()` now waits for it.
+- Builder methods `AddRoute<T>(r => …)`, `AddRoute(r => …)`, `AddRoute(routeContextFactory, r => …)`, `AddFilter(filter)`, `AddFilter<TFilter>()`, and `AddScheduledAction(TimeSpan | cron, (services, ct) => …)`. A scheduled action is async, gets a new DI scope for every run and the broker's stop token. A route without `.To(...)` and an invalid cron expression throw when they are added.
+
+### Changed
+
+- **Breaking:** the broker is configured only on the builder (`AddNymBroker()`). `INymBroker` keeps the runtime operations (post, publish, process, start/stop, health), and `NymBrokerImpl` is now internal. Before, routes, filters and the dead-letter endpoint could be changed on a running broker, which skipped the startup checks (#81, #83). Migration:
+
+  | Before (on `INymBroker`) | Now (on the builder) |
+  |---|---|
+  | `broker.Route<T>().To("X").When(…).Build()` | `.AddRoute<T>(r => r.To("X").When(…))` |
+  | `broker.Route().To("X").Build()` | `.AddRoute(r => r.To("X"))` |
+  | `broker.Route(() => new MyContext()).To("X").Build()` | `.AddRoute(() => new MyContext(), r => r.To("X"))` |
+  | `broker.AddFilter(new MyFilter())` | `.AddFilter(new MyFilter())` or `.AddFilter<MyFilter>()` |
+  | `broker.AddScheduledAction<INymBroker>(interval, b => b.PostAsync(…).GetAwaiter().GetResult(), broker)` | `.AddScheduledAction(interval, (sp, ct) => sp.GetRequiredService<INymBroker>().PostAsync(…, ct))` (same for a cron string) |
+  | `broker.SetDeadLetterEndpoint("X")` / `AddWireTap("X")` / `SetMaxMessageAge(t)` | `.WithDeadLetterEndpoint("X")` / `.AddWireTap("X")` / `.DiscardMessagesOlderThan(t)` |
+  | `broker.AddInputTransformer(instance, "X")` | `.AddInputTransformer<T>("X")` |
+  | `new NymBrokerImpl(...)` | `services.AddNymBroker()…Build()` and resolve `INymBroker` |
+
+  Scheduled actions can no longer be added after the broker is built.
+
 ## [0.13.0] - 2026-10-19
 
 ### Security

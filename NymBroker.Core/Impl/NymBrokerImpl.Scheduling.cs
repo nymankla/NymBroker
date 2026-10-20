@@ -3,32 +3,32 @@ using Microsoft.Extensions.Logging;
 
 namespace NymBroker.Core.Impl;
 
-public sealed partial class NymBrokerImpl
+internal sealed partial class NymBrokerImpl
 {
     public INymBroker AddScheduledAction(TimeSpan timeSpan, Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        return RegisterScheduledAction(ct => StartIntervalScheduledAction(timeSpan, timeSpan, action, ct));
-    }
-
-    public INymBroker AddScheduledAction<T1>(TimeSpan timeSpan, Action<T1> action, T1 param1)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        return RegisterScheduledAction(ct => StartIntervalScheduledAction(timeSpan, timeSpan, () => action(param1), ct));
-    }
-
-    public INymBroker AddScheduledAction<T1, T2>(TimeSpan timeSpan, Action<T1, T2> action, T1 param1, T2 param2)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        return RegisterScheduledAction(ct => StartIntervalScheduledAction(timeSpan, timeSpan, () => action(param1, param2), ct));
+        return AddScheduledAction(timeSpan, _ => { action(); return Task.CompletedTask; });
     }
 
     public INymBroker AddScheduledAction<T1>(string expression, Action<T1> action, T1 param1)
     {
+        ArgumentNullException.ThrowIfNull(action);
+        return AddScheduledAction(expression, _ => { action(param1); return Task.CompletedTask; });
+    }
+
+    public INymBroker AddScheduledAction(TimeSpan interval, Func<CancellationToken, Task> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        return RegisterScheduledAction(ct => StartIntervalScheduledAction(interval, interval, action, ct));
+    }
+
+    public INymBroker AddScheduledAction(string expression, Func<CancellationToken, Task> action)
+    {
         ArgumentException.ThrowIfNullOrEmpty(expression);
         ArgumentNullException.ThrowIfNull(action);
 
-        var cronAction = new CronScheduledAction<T1>(expression, action, param1);
+        var cronAction = new CronScheduledAction(expression, action);
         _logger.LogInformation("Scheduled cron action set up, first occurrence at {NextOccurrence}", cronAction.NextOccurrence(DateTimeOffset.Now));
         return RegisterScheduledAction(ct => StartCronScheduledAction(cronAction, ct));
     }
@@ -91,7 +91,7 @@ public sealed partial class NymBrokerImpl
             await handle.DisposeAsync();
     }
 
-    private ScheduledActionHandle StartIntervalScheduledAction(TimeSpan initialDelay, TimeSpan interval, Action action, CancellationToken ct)
+    private ScheduledActionHandle StartIntervalScheduledAction(TimeSpan initialDelay, TimeSpan interval, Func<CancellationToken, Task> action, CancellationToken ct)
     {
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = linkedCts.Token;
@@ -102,7 +102,7 @@ public sealed partial class NymBrokerImpl
 
             do
             {
-                InvokeScheduledAction(action, token);
+                await InvokeScheduledActionAsync(action, token);
             }
             while (await timer.WaitForNextTickAsync(token));
         }, token), token);
@@ -110,7 +110,7 @@ public sealed partial class NymBrokerImpl
         return new ScheduledActionHandle(linkedCts, task, _logger);
     }
 
-    private ScheduledActionHandle StartCronScheduledAction<T>(CronScheduledAction<T> cronAction, CancellationToken ct)
+    private ScheduledActionHandle StartCronScheduledAction(CronScheduledAction cronAction, CancellationToken ct)
     {
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = linkedCts.Token;
@@ -131,7 +131,7 @@ public sealed partial class NymBrokerImpl
                     await Task.Delay(delay, token);
 
                 lastOccurrence = nextOccurrence;
-                InvokeScheduledAction(cronAction.Invoke, token);
+                await InvokeScheduledActionAsync(cronAction.InvokeAsync, token);
             }
         }, token), token);
 
@@ -143,11 +143,11 @@ public sealed partial class NymBrokerImpl
     /// schedule itself (broker stopping) propagates — an <see cref="OperationCanceledException"/> raised by the
     /// action for its own reasons (e.g. an HTTP timeout) is a failed run like any other.
     /// </summary>
-    private void InvokeScheduledAction(Action action, CancellationToken token)
+    private async Task InvokeScheduledActionAsync(Func<CancellationToken, Task> action, CancellationToken token)
     {
         try
         {
-            action();
+            await action(token);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
         {

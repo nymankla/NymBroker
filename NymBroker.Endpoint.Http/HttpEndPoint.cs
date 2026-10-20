@@ -114,17 +114,20 @@ public sealed class HttpEndPoint : IEndPoint
         }
     }
 
-    public IHealthCheckResult HealthCheck()
+    /// <summary>Blocking form for callers of the synchronous API; the broker calls <see cref="HealthCheckAsync"/>.</summary>
+    public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
+
+    public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken cancellationToken = default)
     {
         if (_settings.HealthCheckUrl is not { } url)
-            return HealthCheckResult.Healthy();
+            return Task.FromResult(HealthCheckResult.Healthy());
 
-        return HealthCheckResult.FromProbe("HTTP", _name, _logger, async ct =>
+        return HealthCheckResult.FromProbeAsync("HTTP", _name, _logger, async ct =>
         {
             using var response = await _client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
             if (!response.IsSuccessStatusCode)
                 throw new HttpRequestException($"Health check GET {url} returned {(int)response.StatusCode} {response.ReasonPhrase}.", null, response.StatusCode);
-        });
+        }, cancellationToken: cancellationToken);
     }
 
     /// <summary>Timeouts, network errors, 408 Request Timeout, 429 Too Many Requests and 5xx are worth another attempt.</summary>

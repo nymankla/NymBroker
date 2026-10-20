@@ -308,6 +308,81 @@ public sealed class BrokerHealthCheckTests
 
     // --- Robustness ---
 
+    // --- Async health checks: the broker calls HealthCheckAsync, never the blocking HealthCheck() (review #1) ---
+
+    /// <summary>Its synchronous check would block; the async one answers without holding a thread.</summary>
+    private sealed class AsyncOnlyEndPoint(Func<CancellationToken, Task<IHealthCheckResult>> checkAsync) : IEndPoint
+    {
+        public int SyncCalls;
+        public Task PostAsync(byte[] message, CancellationToken ct = default) => Task.CompletedTask;
+        public IHealthCheckResult HealthCheck() { Interlocked.Increment(ref SyncCalls); throw new InvalidOperationException("sync path used"); }
+        public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken ct = default) => checkAsync(ct);
+    }
+
+    [Fact]
+    public async Task CheckHealthAsync_UsesTheEndpointsAsyncCheck_NotTheSyncOne()
+    {
+        var endpoint = new AsyncOnlyEndPoint(async ct => { await Task.Delay(10, ct); return CoreHealthCheckResult.Healthy(); });
+        var broker = await StartedBrokerAsync(("Db", endpoint));
+
+        var report = await broker.CheckHealthAsync(Ct);
+
+        Assert.Equal(BrokerHealthStatus.Healthy, report.Status);
+        Assert.Equal(0, endpoint.SyncCalls);
+    }
+
+    [Fact]
+    public async Task HealthCheckAsync_Default_RunsTheSyncCheck()
+    {
+        IEndPoint endpoint = FakeEndPoint.Unhealthy("disk full");
+
+        var result = await endpoint.HealthCheckAsync(Ct);
+
+        Assert.False(result.IsHealthy);
+        Assert.Equal("disk full", result.Message);
+    }
+
+    [Fact]
+    public async Task FromProbeAsync_ProbeSucceeds_IsHealthy()
+    {
+        var result = await CoreHealthCheckResult.FromProbeAsync("Test", "Db", NullLogger.Instance, _ => Task.CompletedTask, cancellationToken: Ct);
+        Assert.True(result.IsHealthy);
+    }
+
+    [Fact]
+    public async Task FromProbeAsync_ProbeThrows_IsUnhealthyWithTheMessage_AndLogged()
+    {
+        var logger = new CapturingLogger<BrokerHealthCheckTests>();
+
+        var result = await CoreHealthCheckResult.FromProbeAsync("Test", "Db", logger,
+            _ => throw new InvalidOperationException("connection refused"), cancellationToken: Ct);
+
+        Assert.False(result.IsHealthy);
+        Assert.Equal("connection refused", result.Message);
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task FromProbeAsync_ProbeSlowerThanTimeout_IsUnhealthy()
+    {
+        var result = await CoreHealthCheckResult.FromProbeAsync("Test", "Db", NullLogger.Instance,
+            ct => Task.Delay(Timeout.Infinite, ct), TimeSpan.FromMilliseconds(50), Ct);
+
+        Assert.False(result.IsHealthy);
+    }
+
+    [Fact]
+    public async Task FromProbeAsync_CallerCancels_Throws()
+    {
+        using var cts = new CancellationTokenSource();
+        var probe = CoreHealthCheckResult.FromProbeAsync("Test", "Db", NullLogger.Instance,
+            ct => Task.Delay(Timeout.Infinite, ct), TimeSpan.FromSeconds(30), cts.Token);
+
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => probe);
+    }
+
     [Fact]
     public async Task ThrowingEndpoint_IsUnhealthy_AndLogged_AndCallDoesNotThrow()
     {

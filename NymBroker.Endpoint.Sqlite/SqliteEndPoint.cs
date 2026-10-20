@@ -126,8 +126,11 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
-    public IHealthCheckResult HealthCheck()
-        => HealthCheckResult.FromProbe("SQLite", _name, _logger, async ct =>
+    /// <summary>Blocking form for callers of the synchronous API; the broker calls <see cref="HealthCheckAsync"/>.</summary>
+    public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
+
+    public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken cancellationToken = default)
+        => HealthCheckResult.FromProbeAsync("SQLite", _name, _logger, async ct =>
         {
             if (_connection?.State == System.Data.ConnectionState.Open)
                 return;
@@ -137,7 +140,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
             await using var command = probe.CreateCommand();
             command.CommandText = "SELECT 1";
             await command.ExecuteScalarAsync(ct);
-        });
+        }, cancellationToken: cancellationToken);
 
     // ── IAsyncDisposable ────────────────────────────────────────────────────
 

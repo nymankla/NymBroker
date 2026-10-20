@@ -1,4 +1,5 @@
 using NymBroker.Core.Aggregator;
+using NymBroker.Core.DI;
 using NymBroker.Core.Impl;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Serialize;
@@ -68,23 +69,6 @@ public sealed class ScheduledActionTests
 
         await broker.StopAsync(TestContext.Current.CancellationToken);
         await AssertNoMoreTicksAsync(counter);
-    }
-
-    [Fact]
-    public async Task IntervalActionWithParameters_AddedAfterStart_Runs()
-    {
-        var (broker, _) = BuildBroker();
-        var one = new TickCounter();
-        var two = new TickCounter();
-
-        await broker.StartAsync(TestContext.Current.CancellationToken);
-        broker.AddScheduledAction(Interval, c => c.Tick(), one);
-        broker.AddScheduledAction(Interval, (a, b) => { a.Tick(); b.Tick(); }, one, two);
-
-        Assert.True(await one.WaitForAsync(2, WaitTimeout));
-        Assert.True(await two.WaitForAsync(1, WaitTimeout));
-
-        await broker.StopAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -228,5 +212,69 @@ public sealed class ScheduledActionTests
         var snapshot = counters.Select(c => c.Count).ToArray();
         await Task.Delay(Interval * 4, TestContext.Current.CancellationToken);
         Assert.Equal(snapshot, counters.Select(c => c.Count).ToArray());
+    }
+
+    // --- Builder: AddScheduledAction(interval | cron, (services, ct) => ...) ---
+
+    private sealed class ScopedProbe { public Guid Id { get; } = Guid.NewGuid(); }
+
+    [Fact]
+    public async Task Builder_IntervalAction_RunsWithANewDiScopePerRun()
+    {
+        var scopes = new System.Collections.Concurrent.ConcurrentBag<Guid>();
+        var counter = new TickCounter();
+        var services = new ServiceCollection().AddLogging().AddScoped<ScopedProbe>();
+        services.AddNymBroker()
+            .AddScheduledAction(Interval, (sp, _) =>
+            {
+                scopes.Add(sp.GetRequiredService<ScopedProbe>().Id);
+                counter.Tick();
+                return Task.CompletedTask;
+            })
+            .Build();
+        await using var provider = services.BuildServiceProvider();
+        var broker = provider.GetRequiredService<INymBroker>();
+
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        Assert.True(await counter.WaitForAsync(2, WaitTimeout));
+        await broker.StopAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(scopes.Count, scopes.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task Builder_IntervalAction_ReceivesTheBrokerStopToken()
+    {
+        var cancelled = new TaskCompletionSource();
+        var services = new ServiceCollection().AddLogging();
+        services.AddNymBroker()
+            .AddScheduledAction(Interval, async (_, ct) =>
+            {
+                try { await Task.Delay(Timeout.Infinite, ct); }
+                catch (OperationCanceledException) { cancelled.TrySetResult(); throw; }
+            })
+            .Build();
+        await using var provider = services.BuildServiceProvider();
+        var broker = provider.GetRequiredService<INymBroker>();
+
+        await broker.StartAsync(TestContext.Current.CancellationToken);
+        await Task.Delay(Interval * 3, TestContext.Current.CancellationToken);
+        await broker.StopAsync(TestContext.Current.CancellationToken);
+
+        await cancelled.Task.WaitAsync(WaitTimeout, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public void Builder_InvalidCronExpression_ThrowsWhenAdded()
+    {
+        var builder = new ServiceCollection().AddNymBroker();
+        Assert.ThrowsAny<FormatException>(() => builder.AddScheduledAction("not a cron", (_, _) => Task.CompletedTask));
+    }
+
+    [Fact]
+    public void Builder_NonPositiveInterval_Throws()
+    {
+        var builder = new ServiceCollection().AddNymBroker();
+        Assert.Throws<ArgumentOutOfRangeException>(() => builder.AddScheduledAction(TimeSpan.Zero, (_, _) => Task.CompletedTask));
     }
 }

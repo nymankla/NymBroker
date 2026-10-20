@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 
 namespace NymBroker.Core.Impl;
 
-public sealed partial class NymBrokerImpl : INymBroker
+internal sealed partial class NymBrokerImpl : INymBroker
 {
     private readonly MessageSerializerJson _serializer;
     private readonly IAggregator _aggregator;

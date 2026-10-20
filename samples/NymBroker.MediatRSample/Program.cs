@@ -21,7 +21,6 @@ var demo = args.Contains("--demo");
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<OrderStore>();
 builder.Services.AddSingleton<OrderQueries>();
-builder.Services.AddSingleton<AuditFilter>();
 
 var broker = builder.Services.AddNymBroker();
 
@@ -40,13 +39,13 @@ broker
     .AddIdempotentReceiver()                                               // drops redelivered duplicates by message id
     .AddFileEndPoint("DeadLetters", new FileSettings { PostPath = "dead-letters" }, EndpointMode.WriteOnly)
     .WithDeadLetterEndpoint("DeadLetters")                                 // failed messages are kept, not lost
+    .AddFilter<AuditFilter>()                                              // sees every message before its handler
     .Build();
 
 if (demo)
     builder.WebHost.UseUrls("http://127.0.0.1:0");   // any free port
 
 var app = builder.Build();
-app.Services.GetRequiredService<INymBroker>().AddFilter(app.Services.GetRequiredService<AuditFilter>());
 
 // Command side: validate, enqueue, answer 202 with where to look. The handler runs later.
 app.MapPost("/orders", async (PlaceOrderRequest request, INymBroker nymBroker, CancellationToken ct) =>

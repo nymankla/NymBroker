@@ -1,1 +1,2 @@
 #nullable enable
+NymBroker.Endpoint.AwsSqs.AwsSqsEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!

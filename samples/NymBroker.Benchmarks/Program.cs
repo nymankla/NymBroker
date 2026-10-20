@@ -86,8 +86,7 @@ var results = new List<BenchmarkResult>
 {
     await RunAsync("Memory – direct",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup),
     await RunAsync("Memory – routed",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup,
-        configure: broker => broker.Route<BenchmarkMessage>()
-            .To("MemoryRouted").WhenFrom("Memory").Build()),
+        configureBuilder: b => b.AddRoute<BenchmarkMessage>(r => r.To("MemoryRouted").WhenFrom("Memory"))),
     await RunAsync("Memory – filtered",    "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, addFilter: true),
 
     await RunAsync("PubSub – 1 sub",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, usePubSub: true,
@@ -461,7 +460,6 @@ async Task<BenchmarkResult> RunAsync(
     string name,
     string endpoint,
     int count,
-    Action<INymBroker>? configure = null,
     Action<NymBrokerBuilder>? configureBuilder = null,
     bool addFilter = false,
     bool usePubSub = false,
@@ -489,15 +487,13 @@ async Task<BenchmarkResult> RunAsync(
         .AddConsumer<BenchmarkConsumer>();
 
     configureBuilder?.Invoke(builder);
+    if (addFilter)
+        builder.AddFilter(new PassthroughFilter());
     builder.Build();
 
     await using var provider = services.BuildServiceProvider();
     var broker  = provider.GetRequiredService<INymBroker>();
     var tracker = provider.GetRequiredService<CompletionTracker>();
-
-    configure?.Invoke(broker);
-    if (addFilter)
-        broker.AddFilter(new PassthroughFilter());
 
     await broker.StartAsync();
 

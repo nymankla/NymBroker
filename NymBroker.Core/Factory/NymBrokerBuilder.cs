@@ -12,6 +12,7 @@ using NymBroker.Core.Idempotency;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
 using NymBroker.Core.PubSub;
+using NymBroker.Core.Route;
 using NymBroker.Core.Serialize;
 using NymBroker.Core.Splitter;
 using NymBroker.Core.Transform;
@@ -31,6 +32,9 @@ public sealed class NymBrokerBuilder
     private readonly List<TopicConfiguration> _configTopics = [];
     private readonly List<(Type TransformerType, string? Endpoint)> _transformers = [];
     private readonly List<(Type TransformerType, string Endpoint)> _outputTransformers = [];
+    private readonly List<RouteContext> _routes = [];
+    private readonly List<IMessageFilter> _filterInstances = [];
+    private readonly List<Action<NymBrokerImpl, IServiceProvider>> _scheduledActions = [];
     private readonly List<Type> _builderFilterTypes = [];
     private readonly List<string> _wireTapEndpoints = [];
     private string? _deadLetterEndpoint;
@@ -142,6 +146,81 @@ public sealed class NymBrokerBuilder
         _services.TryAddTransient<TTransformer>();
         _outputTransformers.Add((typeof(TTransformer), endpoint));
         return this;
+    }
+
+    // --- Routes, filters, scheduled actions ---
+
+    /// <summary>
+    /// Route messages of type <typeparamref name="T"/>: <c>.AddRoute&lt;Order&gt;(r =&gt; r.To("Orders").WhenFrom("In"))</c>.
+    /// The route is checked here (it needs <c>To</c>); <c>StartAsync</c> checks that the endpoints exist.
+    /// </summary>
+    public NymBrokerBuilder AddRoute<T>(Action<IRouteBuilder<T>> configure) where T : class
+        => AddRoute(new RouteBuilder<T>(static _ => { }), configure);
+
+    /// <summary>Route messages of any type: <c>.AddRoute(r =&gt; r.To("Audit"))</c>.</summary>
+    public NymBrokerBuilder AddRoute(Action<IRouteBuilder<IAnyMessage>> configure)
+        => AddRoute(new RouteBuilder<IAnyMessage>(static _ => { }), configure);
+
+    /// <summary>Route with a custom <see cref="RouteContext"/> (a subclass overriding <c>Evaluate</c>), refined by <paramref name="configure"/>.</summary>
+    public NymBrokerBuilder AddRoute(Func<RouteContext> routeContextFactory, Action<IRouteBuilder<IAnyMessage>> configure)
+    {
+        ArgumentNullException.ThrowIfNull(routeContextFactory);
+        return AddRoute(new RouteBuilder<IAnyMessage>(static _ => { }, routeContextFactory), configure);
+    }
+
+    private NymBrokerBuilder AddRoute<T>(RouteBuilder<T> route, Action<IRouteBuilder<T>> configure) where T : class
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        configure(route);
+        _routes.Add(route.Build());   // throws now if To(...) is missing
+        return this;
+    }
+
+    /// <summary>Run <paramref name="filter"/> for every received message, in the order filters are added.</summary>
+    public NymBrokerBuilder AddFilter(IMessageFilter filter)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        _filterInstances.Add(filter);
+        return this;
+    }
+
+    /// <summary>Run a filter resolved from DI (a singleton) for every received message.</summary>
+    public NymBrokerBuilder AddFilter<TFilter>() where TFilter : class, IMessageFilter
+    {
+        _services.TryAddSingleton<TFilter>();
+        _builderFilterTypes.Add(typeof(TFilter));
+        return this;
+    }
+
+    /// <summary>
+    /// Run <paramref name="action"/> every <paramref name="interval"/> while the broker runs, first after one interval.
+    /// Each run gets its own DI scope; a failing run is logged and the schedule continues.
+    /// </summary>
+    public NymBrokerBuilder AddScheduledAction(TimeSpan interval, Func<IServiceProvider, CancellationToken, Task> action)
+    {
+        if (interval <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(interval), "The interval must be positive.");
+        ArgumentNullException.ThrowIfNull(action);
+        _scheduledActions.Add((broker, sp) => broker.AddScheduledAction(interval, ct => RunScopedAsync(sp, action, ct)));
+        return this;
+    }
+
+    /// <summary>
+    /// Run <paramref name="action"/> on a cron schedule (five fields or a macro such as <c>@daily</c>, local time zone) while the broker runs.
+    /// Each run gets its own DI scope; a failing run is logged and the schedule continues.
+    /// </summary>
+    public NymBrokerBuilder AddScheduledAction(string cronExpression, Func<IServiceProvider, CancellationToken, Task> action)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(cronExpression);
+        ArgumentNullException.ThrowIfNull(action);
+        _ = Scheduling.CronSchedule.Parse(cronExpression);   // an invalid expression throws here, not at startup
+        _scheduledActions.Add((broker, sp) => broker.AddScheduledAction(cronExpression, ct => RunScopedAsync(sp, action, ct)));
+        return this;
+    }
+
+    private static async Task RunScopedAsync(IServiceProvider services, Func<IServiceProvider, CancellationToken, Task> action, CancellationToken ct)
+    {
+        await using var scope = services.CreateAsyncScope();
+        await action(scope.ServiceProvider, ct);
     }
 
     // --- Dead letter, wire tap, TTL, idempotency ---
@@ -331,6 +410,9 @@ public sealed class NymBrokerBuilder
         var transformers     = _transformers.ToList();
         var outputTransformers = _outputTransformers.ToList();
         var builderFilters   = _builderFilterTypes.ToList();
+        var filterInstances  = _filterInstances.ToList();
+        var routes           = _routes.ToList();
+        var scheduledActions = _scheduledActions.ToList();
         var wireTapEndpoints = _wireTapEndpoints.ToList();
         var deadLetter       = _deadLetterEndpoint;
         var maxMessageAge    = _maxMessageAge;
@@ -366,6 +448,15 @@ public sealed class NymBrokerBuilder
 
             foreach (var filterType in builderFilters)
                 broker.AddFilter((IMessageFilter)sp.GetRequiredService(filterType));
+
+            foreach (var filter in filterInstances)
+                broker.AddFilter(filter);
+
+            foreach (var route in routes)
+                broker.AddRoute(route);
+
+            foreach (var schedule in scheduledActions)
+                schedule(broker, sp);
 
             foreach (var tap in wireTapEndpoints)
                 broker.AddWireTap(tap);

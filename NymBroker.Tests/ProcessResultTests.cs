@@ -327,8 +327,8 @@ public sealed class ProcessResultTests
         {
             b.Services.AddKeyedSingleton<IEndPoint>("Failing", new FakeEndPoint(usesNativeDeadLetter: false, failPosts: true));
             b.RegisterEndpoint("Failing");
+            b.AddRoute<ResultOrder>(r => r.To("Failing"));
         });
-        h.Broker.Route<ResultOrder>().To("Failing").Build();
 
         var result = await h.Broker.ProcessAsync(Envelope(h.Serializer, new ResultOrder { Id = 5 }), source, TestContext.Current.CancellationToken);
 
@@ -376,8 +376,8 @@ public sealed class ProcessResultTests
         {
             b.Services.AddKeyedSingleton<IEndPoint>("Failing", new FakeEndPoint(usesNativeDeadLetter: false, failPosts: true));
             b.RegisterEndpoint("Failing");
+            b.AddRoute<ResultOrder>(r => r.To("Failing"));
         });
-        h.Broker.Route<ResultOrder>().To("Failing").Build();
 
         await Assert.ThrowsAsync<IOException>(() => h.Broker.PublishAsync(new ResultOrder { Id = 8 }, TestContext.Current.CancellationToken));
     }

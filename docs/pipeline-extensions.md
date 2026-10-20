@@ -15,7 +15,10 @@ public sealed class BlockTestTraffic : IMessageFilter
         => context.Address?.From == "TestInbox" ? null : context;
 }
 
-broker.AddFilter(new BlockTestTraffic());   // on INymBroker; filters run in the order they were added
+services.AddNymBroker()
+    .AddFilter(new BlockTestTraffic())   // an instance; filters run in the order they were added
+    .AddFilter<TenantFilter>()           // or resolved from DI (registered as a singleton)
+    .Build();
 ```
 
 Built-in filters, added on the builder:
@@ -100,9 +103,8 @@ services.AddNymBroker()
     .AddMemoryEndPoint("CsvInbox")
     .AddFileEndPoint("LegacyOut", new FileSettings { PostPath = "legacy-out" }, EndpointMode.WriteOnly)
     .AddOutputTransformer<OrderXmlTransformer>("LegacyOut")
+    .AddRoute<OrderCreated>(r => r.To("LegacyOut").WhenFrom("CsvInbox"))
     .Build();
-
-broker.Route<OrderCreated>().To("LegacyOut").WhenFrom("CsvInbox").Build();
 ```
 
 - **Every send to the endpoint** goes through it: `PostAsync`, `PostBatchAsync`, route and topic deliveries, and the wire-tap or dead-letter endpoint if you point one at it. Other endpoints still get the envelope.
@@ -118,21 +120,19 @@ broker.Route<OrderCreated>().To("LegacyOut").WhenFrom("CsvInbox").Build();
 
 Run code periodically while the broker is running — for example to post a heartbeat, poll an external system, or trigger a nightly job.
 
+Scheduled actions are added on the builder. Each run gets its own DI scope (`services`) and the broker's stop token:
+
 ```csharp
-// Every 30 seconds (first run after 30 seconds).
-broker.AddScheduledAction(TimeSpan.FromSeconds(30), () => logger.LogInformation("alive"));
+services.AddNymBroker()
+    // ...
+    // Every minute (first run one minute after start).
+    .AddScheduledAction(TimeSpan.FromMinutes(1), (services, ct) =>
+        services.GetRequiredService<INymBroker>().PostAsync("Prices", new PriceRequest("ACME"), ct))
 
-// With parameters (one or two), e.g. to post a message.
-broker.AddScheduledAction<INymBroker>(
-    TimeSpan.FromMinutes(1),
-    b => b.PostAsync("Prices", new PriceRequest("ACME")).GetAwaiter().GetResult(),
-    broker);
-
-// Cron (5-field syntax, local time zone): weekdays at 17:00.
-broker.AddScheduledAction<INymBroker>(
-    "0 17 * * 1-5",
-    b => b.PostAsync("Reports", new DailyReportRequest()).GetAwaiter().GetResult(),
-    broker);
+    // Cron (5-field syntax, local time zone): weekdays at 17:00.
+    .AddScheduledAction("0 17 * * 1-5", async (services, ct) =>
+        await services.GetRequiredService<ReportJob>().RunAsync(ct))   // scoped services work, e.g. a DbContext
+    .Build();
 ```
 
 #### Cron syntax
@@ -154,6 +154,7 @@ Five fields, `minute hour day-of-month month day-of-week`, separated by whitespa
 - Daylight saving time: an occurrence in the spring-forward gap fires at the transition; in the fall-back overlap, fixed-time expressions fire once (first pass) and interval-style expressions (`*`, ranges or steps in the minute or hour field, e.g. `*/15 * * * *`) fire in both offsets.
 - An invalid expression throws a `FormatException` when the action is added.
 
-- Actions are synchronous (`Action`); call async code with `.GetAwaiter().GetResult()`, or post a message and do the async work in a consumer.
-- Actions start with `StartAsync` and stop with `StopAsync`. They can be added at any time: an action added while the broker is running starts right away, is stopped by `StopAsync`, and — like the others — is started again by a later `StartAsync`.
+- Actions are asynchronous: `(IServiceProvider services, CancellationToken ct) => Task`. A run is awaited before the schedule waits for the next one, so runs of one action never overlap. Pass `ct` on; it is cancelled when the broker stops.
+- Actions start with `StartAsync`, stop with `StopAsync`, and start again with a later `StartAsync`. They can't be added after the broker is built.
+- An interval must be positive; it throws `ArgumentOutOfRangeException` otherwise.
 - A run that throws is logged at `Error` and the schedule continues with the next occurrence. `StopAsync` never throws because of an action.

@@ -57,11 +57,12 @@ Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml` (every 
 ## Key abstractions
 
 ```
-IEndPoint                 ← every transport: Mode, PostAsync(byte[]), PostBatchAsync(IReadOnlyList<byte[]>), HealthCheck()
+IEndPoint                 ← every transport: Mode, PostAsync(byte[]), PostBatchAsync(IReadOnlyList<byte[]>), HealthCheck() / HealthCheckAsync(ct)
   IEndPointEventDriven    ← receiving: StartListeningAsync(handler) / StopListeningAsync; UsesNativeDeadLetter
 EndpointMode              ← ReadWrite (default) | ReadOnly | WriteOnly (no listener)
 ProcessResult             ← handler result the endpoint settles by: Completed | Retry(ex) | DeadLetter(reason, description)
-INymBroker                ← PostAsync<T>, PostRawAsync (bytes as-is), PostBatchAsync<T>, PublishAsync<T>, Route<T>(), ProcessAsync, CheckHealthAsync
+INymBroker                ← runtime only: PostAsync<T>, PostRawAsync (bytes as-is), PostBatchAsync<T>, PublishAsync<T>, ProcessAsync, Start/StopAsync, CheckHealthAsync
+NymBrokerBuilder          ← all configuration: endpoints, consumers, AddRoute, AddTopic, AddFilter, transformers, AddScheduledAction, dead letter, wire tap
 IConsume<T> / ISubscribe<T> ← one consumer per message type / any number of topic subscribers
 IMessageContext           ← envelope metadata: Id, CorrelationId, Address, MessageType, Created, DeadLetter
 LeasedQueueListener       ← shared poll loop of the queue-table endpoints;  EndpointHandler.InvokeAsync ← call a handler safely

@@ -155,12 +155,15 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDispos
         }
     }
 
-    public IHealthCheckResult HealthCheck()
+    /// <summary>Blocking form for callers of the synchronous API; the broker calls <see cref="HealthCheckAsync"/>.</summary>
+    public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
+
+    public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken cancellationToken = default)
     {
         if (_processor is { IsProcessing: false, IsClosed: false })
-            return HealthCheckResult.Unhealthy($"Azure Service Bus endpoint '{_name}' is not processing messages");
+            return Task.FromResult(HealthCheckResult.Unhealthy($"Azure Service Bus endpoint '{_name}' is not processing messages"));
 
-        return HealthCheckResult.FromProbe("Azure Service Bus", _name, _logger, ProbeAsync);
+        return HealthCheckResult.FromProbeAsync("Azure Service Bus", _name, _logger, ProbeAsync, cancellationToken: cancellationToken);
     }
 
     public async ValueTask DisposeAsync()

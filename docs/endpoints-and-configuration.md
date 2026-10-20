@@ -131,8 +131,8 @@ The HTTP endpoint only **sends**: each message posted or routed to it becomes on
   ```csharp
   .AddSqliteEndPoint("Outbox", new SqliteSettings { ConnectionString = "Data Source=outbox.db" })
   .AddHttpEndPoint("PartnerHook", new HttpSettings { Url = "https://partner.example.com/hooks/orders" })
+  .AddRoute<OrderCreated>(r => r.To("PartnerHook").WhenFrom("Outbox"))
   …
-  broker.Route<OrderCreated>().To("PartnerHook").WhenFrom("Outbox").Build();
   await broker.PostAsync("Outbox", order);   // durable at once; delivered (and retried) by the queue
   ```
 

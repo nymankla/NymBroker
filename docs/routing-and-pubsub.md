@@ -31,29 +31,31 @@ flowchart TD
 
 ## Routes
 
-Routes are added on `INymBroker` — typically right after the host is built, before or after `StartAsync`:
+Routes are configured on the builder, like endpoints and topics:
 
 ```csharp
-var broker = host.Services.GetRequiredService<INymBroker>();
+services.AddNymBroker()
+    .AddMemoryEndPoint("WebOrders")
+    .AddSqliteEndPoint("Archive", archiveSettings)
+    // ...
 
-// Every OrderCreated goes to the "Archive" endpoint.
-broker.Route<OrderCreated>().To("Archive").Build();
+    // Every OrderCreated goes to the "Archive" endpoint.
+    .AddRoute<OrderCreated>(r => r.To("Archive"))
 
-// Only high-priority orders, and only those received on "WebOrders".
-broker.Route<OrderCreated>()
-    .To("Priority")
-    .WhenFrom("WebOrders")
-    .When(msg => msg.GetProperty("priority").GetString() == "high")
-    .Build();
+    // Only high-priority orders, and only those received on "WebOrders".
+    .AddRoute<OrderCreated>(r => r
+        .To("Priority")
+        .WhenFrom("WebOrders")
+        .When(msg => msg.GetProperty("priority").GetString() == "high"))
 
-// Any message type older than 5 minutes.
-broker.Route()
-    .To("Stale")
-    .WhenMessageIsOlderThan(TimeSpan.FromMinutes(5))
+    // Any message type older than 5 minutes.
+    .AddRoute(r => r
+        .To("Stale")
+        .WhenMessageIsOlderThan(TimeSpan.FromMinutes(5)))
     .Build();
 ```
 
-`.Build()` registers the route; it throws if `.To(...)` is missing.
+`AddRoute` throws if the route has no `.To(...)`; `StartAsync` throws if a destination is not a registered endpoint or is read-only. Routes can't be added once the broker is built: since 0.14 the builder is the only place to configure it.
 
 ### Conditions
 
@@ -69,12 +71,11 @@ Conditions in a chain must **all** match: each `When`, `WhenMessageIsOlderThan`,
 
 ```csharp
 // large AND high-priority AND older than a minute
-broker.Route<OrderCreated>()
+.AddRoute<OrderCreated>(r => r
     .To("Review")
     .When(m => m.GetProperty("amount").GetDecimal() > 10_000m)
     .When(m => m.GetProperty("priority").GetString() == "high")
-    .WhenMessageIsOlderThan(TimeSpan.FromMinutes(1))
-    .Build();
+    .WhenMessageIsOlderThan(TimeSpan.FromMinutes(1)))
 ```
 
 For OR, pass condition objects to `Or` (and `And` to nest them); the result is AND-ed with the rest of the chain:
@@ -83,24 +84,23 @@ For OR, pass condition objects to `Or` (and `And` to nest them); the result is A
 using NymBroker.Core.Route;
 
 // (large OR high-priority) AND received on "WebOrders"
-broker.Route<OrderCreated>()
+.AddRoute<OrderCreated>(r => r
     .To("Review")
     .WhenFrom("WebOrders")
     .Or(new JsonRouteCondition(m => m.GetProperty("amount").GetDecimal() > 10_000m),
-        new JsonRouteCondition(m => m.GetProperty("priority").GetString() == "high"))
-    .Build();
+        new JsonRouteCondition(m => m.GetProperty("priority").GetString() == "high")))
 ```
 
 > Before 0.3.3 each condition **replaced** the previous one, so `.When(a).When(b)` only checked `b` ([#47](https://github.com/nymankla/NymBroker/issues/47)). If you relied on that, keep only the last condition.
 
-The condition classes (`JsonRouteCondition`, `FromRouteCondition`, `NotFromRouteCondition`, `MessageAgeRouteCondition`, `AndRouteCondition`, `OrRouteCondition`) implement `IRouteCondition`; implement it yourself for custom logic. For full control, subclass `RouteContext`, override `Evaluate(messageType, context, payload)`, and register it with `broker.Route(() => new MyRouteContext()).To("Destination").Build()`. A `Condition` set on such a context is AND-ed with any conditions added in the chain.
+The condition classes (`JsonRouteCondition`, `FromRouteCondition`, `NotFromRouteCondition`, `MessageAgeRouteCondition`, `AndRouteCondition`, `OrRouteCondition`) implement `IRouteCondition`; implement it yourself for custom logic. For full control, subclass `RouteContext`, override `Evaluate(messageType, context, payload)`, and register it with `.AddRoute(() => new MyRouteContext(), r => r.To("Destination"))`. A `Condition` set on such a context is AND-ed with any conditions added in the chain.
 
 ### Avoid routing loops
 
 Every endpoint that can receive is listened to by the broker. A route whose destination is an endpoint the broker also listens on delivers the message there, where it is processed again — and matches the same route again. Guard such routes with `WhenFrom` / `WhenNotFrom`, or make the destination `WriteOnly`:
 
 ```csharp
-broker.Route<OrderCreated>().To("Copies").WhenNotFrom("Copies").Build();
+.AddRoute<OrderCreated>(r => r.To("Copies").WhenNotFrom("Copies"))
 ```
 
 ## Topics and subscribers

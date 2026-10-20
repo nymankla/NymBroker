@@ -44,6 +44,7 @@ var host = Host.CreateDefaultBuilder()
             // WriteOnly: the broker only sends to it. Every message sent there is written as XML.
             .AddMemoryEndPoint(XmlOut, mode: EndpointMode.WriteOnly)
             .AddOutputTransformer<OrderXmlTransformer>(XmlOut)
+            .AddRoute<OrderMessage>(r => r.To(XmlOut).WhenFrom(Endpoint))
             .AddConsumer<OrderConsumer>()
             .Build();
     })
@@ -52,7 +53,6 @@ var host = Host.CreateDefaultBuilder()
 await host.StartAsync();
 
 var broker = host.Services.GetRequiredService<INymBroker>();
-broker.Route<OrderMessage>().To(XmlOut).WhenFrom(Endpoint).Build();
 
 Console.WriteLine($"CsvSample  endpoint={Endpoint}");
 Console.WriteLine($"Posting {csvLines.Length} line(s)...");

@@ -171,48 +171,6 @@ public sealed class NymBrokerAdditionalTests
 
     private sealed class InvocationState { public bool Invoked { get; set; } }
 
-    [Fact]
-    public async Task AddScheduledAction_WithOneParam_ExecutesAction()
-    {
-        var (broker, _) = BuildBroker();
-        var state = new InvocationState();
-        using var ready = new ManualResetEventSlim(false);
-
-        broker.AddScheduledAction(TimeSpan.FromMilliseconds(50), s =>
-        {
-            s.Invoked = true;
-            ready.Set();
-        }, state);
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await broker.StartAsync(cts.Token);
-
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
-        await broker.StopAsync(TestContext.Current.CancellationToken);
-        Assert.True(state.Invoked);
-    }
-
-    [Fact]
-    public async Task AddScheduledAction_WithTwoParams_ExecutesAction()
-    {
-        var (broker, _) = BuildBroker();
-        var sum = 0;
-        using var ready = new ManualResetEventSlim(false);
-
-        broker.AddScheduledAction(TimeSpan.FromMilliseconds(50), (a, b) =>
-        {
-            sum = a + b;
-            ready.Set();
-        }, 3, 4);
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await broker.StartAsync(cts.Token);
-
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
-        await broker.StopAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(7, sum);
-    }
-
     // --- AddScheduledAction null-guard ---
 
     [Fact]
@@ -220,20 +178,6 @@ public sealed class NymBrokerAdditionalTests
     {
         var (broker, _) = BuildBroker();
         Assert.Throws<ArgumentNullException>(() => broker.AddScheduledAction(TimeSpan.FromSeconds(1), (Action)null!));
-    }
-
-    [Fact]
-    public void AddScheduledAction_WithParam_ThrowsArgumentNullException_WhenActionIsNull()
-    {
-        var (broker, _) = BuildBroker();
-        Assert.Throws<ArgumentNullException>(() => broker.AddScheduledAction(TimeSpan.FromSeconds(1), (Action<int>)null!, 1));
-    }
-
-    [Fact]
-    public void AddScheduledAction_WithTwoParams_ThrowsArgumentNullException_WhenActionIsNull()
-    {
-        var (broker, _) = BuildBroker();
-        Assert.Throws<ArgumentNullException>(() => broker.AddScheduledAction(TimeSpan.FromSeconds(1), (Action<int, int>)null!, 1, 2));
     }
 
     [Fact]

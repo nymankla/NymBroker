@@ -24,24 +24,25 @@ Settle (ask only what is unclear):
 
 ## 2. Routes
 
-Routes are added on `INymBroker` (namespace `NymBroker.Core.Impl`) after the service provider is built — in ASP.NET Core right after `var app = builder.Build();`, in a worker after `host = builder.Build()`. Add them before `app.Run()` / `host.RunAsync()` so they exist when messages start flowing.
+Routes are added on the builder, in the same `AddNymBroker()` chain as the endpoints (NymBroker 0.14+; earlier versions used `broker.Route<T>()...Build()` on `INymBroker`, which no longer exists).
 
 ```csharp
-var broker = app.Services.GetRequiredService<INymBroker>();
+builder.Services.AddNymBroker()
+    // ... endpoints ...
 
-// Every OrderCreated received on "WebOrders" also goes to "Archive" (WriteOnly).
-broker.Route<OrderCreated>().To("Archive").WhenFrom("WebOrders").Build();
+    // Every OrderCreated received on "WebOrders" also goes to "Archive" (WriteOnly).
+    .AddRoute<OrderCreated>(r => r.To("Archive").WhenFrom("WebOrders"))
 
-// High priority or large orders go to "Priority", the rest to "Standard".
-broker.Route<OrderCreated>()
-    .To("Priority")
-    .WhenFrom("Inbox")
-    .Or(new JsonRouteCondition(m => m.GetProperty("priority").GetString() == "high"),
-        new JsonRouteCondition(m => m.GetProperty("amount").GetDecimal() > 10_000m))
+    // High priority or large orders go to "Priority", the rest to "Standard".
+    .AddRoute<OrderCreated>(r => r
+        .To("Priority")
+        .WhenFrom("Inbox")
+        .Or(new JsonRouteCondition(m => m.GetProperty("priority").GetString() == "high"),
+            new JsonRouteCondition(m => m.GetProperty("amount").GetDecimal() > 10_000m)))
+
+    // Any message type older than 5 minutes → "Stale".
+    .AddRoute(r => r.To("Stale").WhenMessageIsOlderThan(TimeSpan.FromMinutes(5)))
     .Build();
-
-// Any message type older than 5 minutes → "Stale".
-broker.Route().To("Stale").WhenMessageIsOlderThan(TimeSpan.FromMinutes(5)).Build();
 ```
 
 | Condition | Matches when |
@@ -53,8 +54,8 @@ broker.Route().To("Stale").WhenMessageIsOlderThan(TimeSpan.FromMinutes(5)).Build
 
 - All conditions in one chain are **AND-ed**. Use `.Or(...)` for alternatives.
 - In `When` predicates use `TryGetProperty` when a property may be missing — `GetProperty` throws, which fails the message.
-- `.Build()` is required; it throws if `.To(...)` is missing. `broker.Route()` (no type) matches every message type.
-- Custom logic: implement `IRouteCondition`, or subclass `RouteContext` and override `Evaluate`, then `broker.Route(() => new MyRouteContext()).To("X").Build()`.
+- `AddRoute` throws if `.To(...)` is missing; `StartAsync` throws if a destination is not registered or is `ReadOnly`. `AddRoute(r => …)` (no type) matches every message type. No `.Build()` inside the lambda.
+- Custom logic: implement `IRouteCondition`, or subclass `RouteContext` and override `Evaluate`, then `.AddRoute(() => new MyRouteContext(), r => r.To("X"))`.
 - To send a routed message in another format (XML, CSV), give the destination an output transformer (`AddOutputTransformer<T>(endpoint)`; nymbroker-input-transformer skill).
 
 ## 3. Topics

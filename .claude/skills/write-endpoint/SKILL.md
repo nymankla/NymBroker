@@ -43,7 +43,7 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - **Pull loops drain back to back**: wait `PollInterval` only after an empty poll. For a lease-based queue (database table), **derive a private nested class from `LeasedQueueListener`** (`NymBroker.Core.Endpoint.Queue`) instead of writing the loop: implement `FinalizeAndClaimAsync` (claim a batch in one statement and write batch N's outcomes in the same transaction, guarded by the claimed attempt number) and `FinalizeAsync`; the settings implement `ILeasedQueueSettings`. Copy `SqlServerEndPoint` (simplest) or `PostgresEndPoint` (overrides `WaitWhenIdleAsync` for `NOTIFY`); guide §5.
 - Override `PostBatchAsync(IReadOnlyList<byte[]>)` when the transport can batch (one statement / transaction / client batch); keep order and one envelope per message, and document atomicity. Otherwise rely on the default (sequential `PostAsync`).
 - Create tables or other one-time setup with `AsyncOnce` (`NymBroker.Core.Endpoint`): `_schema.RunAsync((Owner: this, Conn: conn), static (s, ct) => s.Owner.CreateSchemaAsync(s.Conn, ct), ct)`. Never hand-roll a semaphore and flag.
-- `HealthCheck()` has a timeout and never throws: use `HealthCheckResult.FromProbe(kind, name, logger, ct => …)` for an async probe.
+- Health: a check that contacts the server goes in `HealthCheckAsync(CancellationToken cancellationToken = default) => HealthCheckResult.FromProbeAsync(kind, name, logger, ct => …, cancellationToken: cancellationToken)` (5 s timeout, never throws); `HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult()`. A check of in-memory state (connection open, loop alive) can stay in `HealthCheck()` alone. The broker only calls `HealthCheckAsync`.
 - Retries use `NymBroker.Core.Resilience.RetryPolicy` (one per endpoint, `OnRetry` logs; options in `docs/resilience.md`). **Never add Polly.**
 - Constructor: `(string name, TSettings settings, ILogger<T> logger, EndpointMode mode = EndpointMode.ReadWrite)`.
 - Use `RetryPolicy` (`NymBroker.Core.Resilience`) if applicable
@@ -80,7 +80,7 @@ Make all tests parallel-safe with unique names, ports and tables. Cover:
 2. Each `ProcessResult` settles correctly (`Completed` → ack, `Retry` → redelivered, `DeadLetter` → dead-lettered with the reason); a throwing handler counts as `Retry`; the next message is still processed.
 3. A poll/receive error is logged and the loop recovers (pull shape).
 4. After `StopListeningAsync` returns, the handler is never called again.
-5. `HealthCheck()` reports a failed client as unhealthy without throwing.
+5. `HealthCheckAsync()` reports a failed client as unhealthy without throwing.
 
 Then run `dotnet build` (must have 0 warnings) and `dotnet test`, both without the env var and, if you added integration tests, with it set. Also build every sample, since some are excluded from the solution's Debug build.
 

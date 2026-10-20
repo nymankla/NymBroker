@@ -3,7 +3,7 @@ using NymBroker.Core.Route;
 
 namespace NymBroker.Core.Impl;
 
-public sealed partial class NymBrokerImpl
+internal sealed partial class NymBrokerImpl
 {
     public IRouteBuilder<T> Route<T>() where T : class
     {
@@ -17,6 +17,12 @@ public sealed partial class NymBrokerImpl
 
     public IRouteBuilder<IAnyMessage> Route()
         => Route<IAnyMessage>();
+
+    internal void AddRoute(RouteContext route)
+    {
+        _messageTypeRegistry.Register(route.MessageType);
+        _routes = _routes.Add(route);
+    }
 
     public RouteContext Route(IRouteBuilder routeBuilder)
     {

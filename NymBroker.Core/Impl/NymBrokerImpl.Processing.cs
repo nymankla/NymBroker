@@ -14,7 +14,7 @@ using NymBroker.Core.Transform;
 
 namespace NymBroker.Core.Impl;
 
-public sealed partial class NymBrokerImpl
+internal sealed partial class NymBrokerImpl
 {
     public async Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true) where T : class
     {

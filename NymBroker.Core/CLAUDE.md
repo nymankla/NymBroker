@@ -2,6 +2,10 @@
 
 The `NymBroker` package: broker engine, serializer, routing, topics, consumers, idempotent receiver, scheduling, splitter, health checks, configuration, DI builder, Memory and File endpoints, `RetryPolicy`, and the building blocks for endpoint packages. No transport dependency.
 
+## Configuration is builder-only
+
+`NymBrokerImpl` is `internal`; `INymBroker` exposes only runtime operations. Routes (`AddRoute`, built and validated when added, registered with the internal `AddRoute(RouteContext)`), filters (`AddFilter(instance)` / `AddFilter<T>()`), scheduled actions, transformers, dead letter, wire tap and max age are collected by `NymBrokerBuilder` and applied in the `NymBrokerImpl` factory in `Build()`, before `StartAsync` validates them. Tests construct the broker with `TestBroker.Create` (InternalsVisibleTo `NymBroker.Tests`).
+
 ## Message envelope (wire format)
 
 ```json
@@ -56,7 +60,7 @@ Registration: `AddIdempotentReceiver(ttl)` (in-memory), `(IIdempotencyStore)`, `
 
 ## Scheduled actions
 
-Interval actions fire on a timer; cron actions use the internal `CronSchedule` (`NymBroker.Core.Scheduling`, Cronos-compatible, local time zone; Cronos is only a test oracle). Each runs in a `ScheduledActionHandle` (`IAsyncDisposable`). An action added after `StartAsync` starts immediately and is stopped by `StopAsync`. `_scheduledActions` / `_activeScheduledActions` / `_scheduledActionsRunning` are guarded by `_scheduleLock` — a sync `Lock`, never held across an await, and not `_lifecycleLock`, so `AddScheduledAction` stays non-blocking and cannot deadlock against `StopAsync`. A throwing run → `LogError`, schedule continues; unexpected loop end → `LogCritical`; `DisposeAsync` logs instead of rethrowing, so `StopAsync` never throws because of an action.
+Interval actions fire on a timer; cron actions use the internal `CronSchedule` (`NymBroker.Core.Scheduling`, Cronos-compatible, local time zone; Cronos is only a test oracle). Each runs in a `ScheduledActionHandle` (`IAsyncDisposable`). Public API is the builder only: `AddScheduledAction(TimeSpan | cron, Func<IServiceProvider, CancellationToken, Task>)` runs each occurrence in a new async DI scope (`RunScopedAsync`); inside, actions are `Func<CancellationToken, Task>` and each run is awaited. The internal broker still starts an action added after `StartAsync` at once (tests use it). `_scheduledActions` / `_activeScheduledActions` / `_scheduledActionsRunning` are guarded by `_scheduleLock` — a sync `Lock`, never held across an await, and not `_lifecycleLock`, so `AddScheduledAction` stays non-blocking and cannot deadlock against `StopAsync`. A throwing run → `LogError`, schedule continues; unexpected loop end → `LogCritical`; `DisposeAsync` logs instead of rethrowing, so `StopAsync` never throws because of an action.
 
 ## Splitter, aggregator, compression
 
@@ -65,7 +69,7 @@ Interval actions fire on a timer; cron actions use the internal `CronSchedule` (
 
 ## Health check (`NymBrokerImpl.HealthCheck.cs`)
 
-`CheckHealthAsync` runs every endpoint's synchronous `HealthCheck()` on the thread pool in parallel, waits up to `BrokerHealthCheckOptions.Timeout` (10 s; a late endpoint → `Unhealthy` "timed out", its task left running), never throws except caller cancellation. Broker not started or a critical endpoint unhealthy → `Unhealthy`; only non-critical ones → `Degraded`. `.ConfigureHealthCheck(o => o.NonCritical("Audit"))` (`Build()` throws for unknown names). `services.AddHealthChecks().AddNymBroker(...)` registers `NymBrokerHealthCheck`. Endpoints use `HealthCheckResult.FromProbe(kind, name, logger, probe)` for async probes (5 s). Metrics: `nymbroker.health.checks`, `nymbroker.health.endpoint.failures`, gauges `nymbroker.health.status`, `nymbroker.health.endpoint.healthy`.
+`CheckHealthAsync` runs every endpoint's `HealthCheckAsync` in parallel (wrapped in `Task.Run`, so the default implementation — the synchronous `HealthCheck()` — cannot block the caller), waits up to `BrokerHealthCheckOptions.Timeout` (10 s; a late endpoint → `Unhealthy` "timed out", its task left running), never throws except caller cancellation. Broker not started or a critical endpoint unhealthy → `Unhealthy`; only non-critical ones → `Degraded`. `.ConfigureHealthCheck(o => o.NonCritical("Audit"))` (`Build()` throws for unknown names). `services.AddHealthChecks().AddNymBroker(...)` registers `NymBrokerHealthCheck`. Endpoints that contact a server override `HealthCheckAsync` with `HealthCheckResult.FromProbeAsync(kind, name, logger, probe, cancellationToken: ct)` (5 s timeout; caller cancellation propagates) and implement `HealthCheck()` by waiting for it. Metrics: `nymbroker.health.checks`, `nymbroker.health.endpoint.failures`, gauges `nymbroker.health.status`, `nymbroker.health.endpoint.healthy`.
 
 ## Configuration and DI
 

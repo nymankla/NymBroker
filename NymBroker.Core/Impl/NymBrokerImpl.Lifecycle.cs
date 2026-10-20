@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace NymBroker.Core.Impl;
 
-public sealed partial class NymBrokerImpl
+internal sealed partial class NymBrokerImpl
 {
     public async Task StartAsync(CancellationToken ct = default)
     {

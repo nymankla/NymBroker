@@ -62,8 +62,7 @@ public sealed class RouteConditionChainingTests
     [Fact]
     public async Task Route_ChainedWhen_RequiresAllConditions()
     {
-        var (broker, dest, serializer) = Build();
-        broker.Route<ChainOrder>().To("Dest").When(IsLarge).When(IsHigh).Build();
+        var (broker, dest, serializer) = Build(b => b.AddRoute<ChainOrder>(r => r.To("Dest").When(IsLarge).When(IsHigh)));
 
         await SendAsync(broker, serializer, new ChainOrder(1500m, "high"));
         await SendAsync(broker, serializer, new ChainOrder(1500m, "low"));    // before #47: routed (only the last When was checked)
@@ -75,8 +74,7 @@ public sealed class RouteConditionChainingTests
     [Fact]
     public async Task Route_WhenThenOlderThan_RequiresBoth()
     {
-        var (broker, dest, serializer) = Build();
-        broker.Route<ChainOrder>().To("Dest").When(IsHigh).WhenMessageIsOlderThan(TimeSpan.FromHours(1)).Build();
+        var (broker, dest, serializer) = Build(b => b.AddRoute<ChainOrder>(r => r.To("Dest").When(IsHigh).WhenMessageIsOlderThan(TimeSpan.FromHours(1))));
         var old = DateTime.UtcNow.AddHours(-2);
 
         await SendAsync(broker, serializer, new ChainOrder(1m, "high"), old);
@@ -89,12 +87,10 @@ public sealed class RouteConditionChainingTests
     [Fact]
     public async Task Route_OrThenWhen_IsOrAndedWithWhen()
     {
-        var (broker, dest, serializer) = Build();
-        broker.Route<ChainOrder>()
+        var (broker, dest, serializer) = Build(b => b.AddRoute<ChainOrder>(r => r
             .To("Dest")
             .Or(new JsonRouteCondition(IsLarge), new JsonRouteCondition(IsHigh))   // large OR high ...
-            .When(m => m.GetProperty("amount").GetDecimal() < 5000m)               // ... AND below 5000
-            .Build();
+            .When(m => m.GetProperty("amount").GetDecimal() < 5000m)));            // ... AND below 5000
 
         await SendAsync(broker, serializer, new ChainOrder(1500m, "low"));   // large, < 5000
         await SendAsync(broker, serializer, new ChainOrder(10m, "high"));    // high, < 5000
@@ -107,12 +103,10 @@ public sealed class RouteConditionChainingTests
     [Fact]
     public async Task Route_AndThenWhen_RequiresAll()
     {
-        var (broker, dest, serializer) = Build();
-        broker.Route<ChainOrder>()
+        var (broker, dest, serializer) = Build(b => b.AddRoute<ChainOrder>(r => r
             .To("Dest")
             .And(new JsonRouteCondition(IsLarge), new JsonRouteCondition(IsHigh))
-            .When(m => m.GetProperty("amount").GetDecimal() < 5000m)
-            .Build();
+            .When(m => m.GetProperty("amount").GetDecimal() < 5000m)));
 
         await SendAsync(broker, serializer, new ChainOrder(1500m, "high"));
         await SendAsync(broker, serializer, new ChainOrder(9000m, "high"));
@@ -123,11 +117,9 @@ public sealed class RouteConditionChainingTests
     [Fact]
     public async Task Route_FactoryCondition_IsCombinedWithBuilderConditions()
     {
-        var (broker, dest, serializer) = Build();
-        broker.Route(() => new ConditionedRouteContext { MessageType = typeof(ChainOrder) })   // amount > 1000
-            .To("Dest")
-            .When(IsHigh)
-            .Build();
+        var (broker, dest, serializer) = Build(b => b.AddRoute(
+            () => new ConditionedRouteContext { MessageType = typeof(ChainOrder) },   // amount > 1000
+            r => r.To("Dest").When(IsHigh)));
 
         await SendAsync(broker, serializer, new ChainOrder(1500m, "high"));
         await SendAsync(broker, serializer, new ChainOrder(1500m, "low"));
@@ -156,12 +148,66 @@ public sealed class RouteConditionChainingTests
     [Fact]
     public async Task Route_SingleCondition_StillWorks()
     {
-        var (broker, dest, serializer) = Build();
-        broker.Route<ChainOrder>().To("Dest").When(IsHigh).Build();
+        var (broker, dest, serializer) = Build(b => b.AddRoute<ChainOrder>(r => r.To("Dest").When(IsHigh)));
 
         await SendAsync(broker, serializer, new ChainOrder(1m, "high"));
         await SendAsync(broker, serializer, new ChainOrder(2m, "low"));
 
         Assert.Equal([new ChainOrder(1m, "high")], Delivered(dest, serializer));
+    }
+
+    // --- Builder-only configuration: AddRoute / AddFilter ---
+
+    [Fact]
+    public void Builder_AddRoute_WithoutTo_ThrowsWhenAdded()
+    {
+        var builder = new ServiceCollection().AddNymBroker();
+        Assert.Throws<InvalidOperationException>(() => builder.AddRoute<ChainOrder>(r => r.When(IsHigh)));
+    }
+
+    [Fact]
+    public async Task Builder_AddRoute_ToUnknownEndpoint_StartAsyncThrows()
+    {
+        var (broker, _, _) = Build(b => b.AddRoute<ChainOrder>(r => r.To("Missing")));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.StartAsync(TestContext.Current.CancellationToken));
+        Assert.Contains("'Missing' is not a registered endpoint", ex.Message);
+    }
+
+    [Fact]
+    public async Task Builder_AddRoute_AnyMessageType_RoutesEveryType()
+    {
+        var (broker, dest, serializer) = Build(b => b.AddRoute(r => r.To("Dest")));
+
+        await SendAsync(broker, serializer, new ChainOrder(1m, "low"));
+
+        Assert.Single(Delivered(dest, serializer));
+    }
+
+    private sealed class DropLowPriority : Core.Filter.IMessageFilter
+    {
+        public IMessageContext? Filter(IMessageContext context)
+            => context is RawMessageContext raw && raw.RawMessage.GetProperty("priority").GetString() == "low" ? null : context;
+    }
+
+    private sealed class DropSmall : Core.Filter.IMessageFilter
+    {
+        public IMessageContext? Filter(IMessageContext context)
+            => context is RawMessageContext raw && raw.RawMessage.GetProperty("amount").GetDecimal() < 10m ? null : context;
+    }
+
+    [Fact]
+    public async Task Builder_AddFilter_InstanceAndDiFilter_BothRun()
+    {
+        var (broker, dest, serializer) = Build(b => b
+            .AddFilter(new DropLowPriority())
+            .AddFilter<DropSmall>()
+            .AddRoute<ChainOrder>(r => r.To("Dest")));
+
+        await SendAsync(broker, serializer, new ChainOrder(50m, "high"));
+        await SendAsync(broker, serializer, new ChainOrder(50m, "low"));    // dropped by the instance filter
+        await SendAsync(broker, serializer, new ChainOrder(1m, "high"));    // dropped by the DI filter
+
+        Assert.Equal([new ChainOrder(50m, "high")], Delivered(dest, serializer));
     }
 }

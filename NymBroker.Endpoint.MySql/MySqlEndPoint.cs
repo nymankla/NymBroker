@@ -77,13 +77,16 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IAsyncDisposable
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    public IHealthCheckResult HealthCheck()
-        => HealthCheckResult.FromProbe("MySQL", _name, _logger, async ct =>
+    /// <summary>Blocking form for callers of the synchronous API; the broker calls <see cref="HealthCheckAsync"/>.</summary>
+    public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
+
+    public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken cancellationToken = default)
+        => HealthCheckResult.FromProbeAsync("MySQL", _name, _logger, async ct =>
         {
             await using var conn = await OpenConnectionAsync(ct);
             await using var cmd = new MySqlCommand("SELECT 1", conn);
             _ = await cmd.ExecuteScalarAsync(ct);
-        });
+        }, cancellationToken: cancellationToken);
 
     public async ValueTask DisposeAsync() => await StopListeningAsync();
 
