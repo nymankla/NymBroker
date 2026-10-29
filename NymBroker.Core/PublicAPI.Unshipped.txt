@@ -1,16 +1,1 @@
 #nullable enable
-NymBroker.Core.Factory.NymBrokerBuilder.AddScheduleStore(System.Func<System.IServiceProvider!, NymBroker.Core.Scheduling.IScheduleStore!>! factory) -> NymBroker.Core.Factory.NymBrokerBuilder!
-NymBroker.Core.Factory.NymBrokerBuilder.AddScheduledAction(string! name, System.TimeSpan interval, System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! action, System.Action<NymBroker.Core.Scheduling.ScheduledActionOptions!>? configure = null) -> NymBroker.Core.Factory.NymBrokerBuilder!
-NymBroker.Core.Factory.NymBrokerBuilder.AddScheduledAction(string! name, string! cronExpression, System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! action, System.Action<NymBroker.Core.Scheduling.ScheduledActionOptions!>? configure = null) -> NymBroker.Core.Factory.NymBrokerBuilder!
-NymBroker.Core.Scheduling.IScheduleStore
-NymBroker.Core.Scheduling.IScheduleStore.GetLastRunAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.DateTimeOffset?>
-NymBroker.Core.Scheduling.IScheduleStore.TryClaimAsync(string! name, System.DateTimeOffset occurrence, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
-NymBroker.Core.Scheduling.MissedRunPolicy
-NymBroker.Core.Scheduling.MissedRunPolicy.RunOnce = 1 -> NymBroker.Core.Scheduling.MissedRunPolicy
-NymBroker.Core.Scheduling.MissedRunPolicy.Skip = 0 -> NymBroker.Core.Scheduling.MissedRunPolicy
-NymBroker.Core.Scheduling.ScheduledActionOptions
-NymBroker.Core.Scheduling.ScheduledActionOptions.MaxCatchUp.get -> System.TimeSpan?
-NymBroker.Core.Scheduling.ScheduledActionOptions.MaxCatchUp.set -> void
-NymBroker.Core.Scheduling.ScheduledActionOptions.MissedRuns.get -> NymBroker.Core.Scheduling.MissedRunPolicy
-NymBroker.Core.Scheduling.ScheduledActionOptions.MissedRuns.set -> void
-NymBroker.Core.Scheduling.ScheduledActionOptions.ScheduledActionOptions() -> void

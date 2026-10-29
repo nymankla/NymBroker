@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-29
+
 ### Added
 
 - Named scheduled actions: `AddScheduledAction(name, interval | cron, (services, ct) => …, o => o.MissedRuns = MissedRunPolicy.RunOnce)`. The broker claims each occurrence in a schedule store before it runs it, so instances that share the store run it once, and with `MissedRunPolicy.RunOnce` an action that missed occurrences while the app was down runs once right away on start (`MaxCatchUp` limits how old a missed run may be). A claim counts as the run, even if the action fails. Named interval actions run on a fixed grid (multiples of the interval since 1970-01-01 UTC) so instances agree on occurrences. Unnamed actions are unchanged.

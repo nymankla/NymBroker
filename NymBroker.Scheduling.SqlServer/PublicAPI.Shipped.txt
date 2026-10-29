@@ -1,1 +1,16 @@
 #nullable enable
+NymBroker.Scheduling.SqlServer.NymBrokerBuilderSqlServerScheduleExtensions
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStore
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStore.GetLastRunAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.DateTimeOffset?>
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStore.SqlServerScheduleStore(NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Scheduling.SqlServer.SqlServerScheduleStore!>! logger) -> void
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStore.TryClaimAsync(string! name, System.DateTimeOffset occurrence, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings.AutoCreateTable.get -> bool
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings.AutoCreateTable.set -> void
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings.ConnectionString.get -> string!
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings.ConnectionString.set -> void
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings.SqlServerScheduleStoreSettings() -> void
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings.TableName.get -> string!
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings.TableName.set -> void
+NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings.Validate() -> void
+static NymBroker.Scheduling.SqlServer.NymBrokerBuilderSqlServerScheduleExtensions.AddSqlServerScheduleStore(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Scheduling.SqlServer.SqlServerScheduleStoreSettings? settings = null) -> NymBroker.Core.Factory.NymBrokerBuilder!

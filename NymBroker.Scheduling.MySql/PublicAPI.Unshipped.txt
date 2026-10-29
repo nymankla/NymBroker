@@ -1,16 +1,1 @@
 #nullable enable
-NymBroker.Scheduling.MySql.MySqlScheduleStore
-NymBroker.Scheduling.MySql.MySqlScheduleStore.GetLastRunAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.DateTimeOffset?>
-NymBroker.Scheduling.MySql.MySqlScheduleStore.MySqlScheduleStore(NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Scheduling.MySql.MySqlScheduleStore!>! logger) -> void
-NymBroker.Scheduling.MySql.MySqlScheduleStore.TryClaimAsync(string! name, System.DateTimeOffset occurrence, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
-NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings
-NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings.AutoCreateTable.get -> bool
-NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings.AutoCreateTable.set -> void
-NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings.ConnectionString.get -> string!
-NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings.ConnectionString.set -> void
-NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings.MySqlScheduleStoreSettings() -> void
-NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings.TableName.get -> string!
-NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings.TableName.set -> void
-NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings.Validate() -> void
-NymBroker.Scheduling.MySql.NymBrokerBuilderMySqlScheduleExtensions
-static NymBroker.Scheduling.MySql.NymBrokerBuilderMySqlScheduleExtensions.AddMySqlScheduleStore(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Scheduling.MySql.MySqlScheduleStoreSettings? settings = null) -> NymBroker.Core.Factory.NymBrokerBuilder!
