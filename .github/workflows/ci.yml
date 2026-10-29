@@ -24,7 +24,7 @@ jobs:
           test "${GITHUB_REF_NAME#v}" = "$version"
       - run: dotnet test NymBroker.Tests/NymBroker.Tests.csproj --configuration Release -p:ContinuousIntegrationBuild=true
       - run: pwsh ./scripts/pack.ps1 -OutputDir artifacts/nupkg
-      - run: test "$(find artifacts/nupkg -name '*.snupkg' | wc -l)" -eq 13
+      - run: test "$(find artifacts/nupkg -name '*.snupkg' | wc -l)" -eq 17
       - run: test -f artifacts/nymbroker-skills.zip
       - name: Upload packages
         if: startsWith(github.ref, 'refs/tags/v')
