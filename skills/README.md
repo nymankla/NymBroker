@@ -11,6 +11,7 @@ Agent skills that help an AI coding agent (Claude Code, or any tool that reads `
 | [nymbroker-producer-worker](nymbroker-producer-worker/SKILL.md) | Splits an app into a `WriteOnly` producer and scalable worker services sharing a durable queue |
 | [nymbroker-input-transformer](nymbroker-input-transformer/SKILL.md) | Reads CSV, XML, plain text or foreign JSON into typed messages |
 | [nymbroker-scheduled](nymbroker-scheduled/SKILL.md) | Interval and cron scheduled actions, preferably posting a trigger message to a consumer |
+| [nymbroker-scheduled-recovery](nymbroker-scheduled-recovery/SKILL.md) | Named scheduled actions with a schedule store: run once across instances and catch up a run missed while the app was down |
 | [nymbroker-testing](nymbroker-testing/SKILL.md) | Unit and integration tests for consumers, routes and retries, without flaky delays |
 | [nymbroker-observability](nymbroker-observability/SKILL.md) | OpenTelemetry metrics and traces, health checks and probes, logging, alerts |
 | [nymbroker-dead-letters](nymbroker-dead-letters/SKILL.md) | Finds, inspects and replays failed messages for each transport |

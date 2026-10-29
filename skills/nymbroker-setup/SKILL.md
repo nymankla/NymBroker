@@ -63,6 +63,7 @@ dotnet add package Microsoft.Extensions.Hosting          # only for a console ap
 | HTTP (send) | `NymBroker.Endpoint.Http` | `AddHttpEndPoint`, `WithHttp()` (`NymBroker.Endpoint.Http`) |
 | Durable dedup, one host | `NymBroker.Idempotency.Sqlite` | `AddSqliteIdempotency` (`NymBroker.Idempotency.Sqlite`) |
 | Durable dedup, shared | `NymBroker.Idempotency.Postgres` / `.SqlServer` / `.MySql` | `AddPostgresIdempotency` / `AddSqlServerIdempotency` / `AddMySqlIdempotency` |
+| Scheduled jobs once per cluster / catch up missed runs | `NymBroker.Scheduling.Sqlite` (one host) / `.Postgres` / `.SqlServer` / `.MySql` | `AddSqliteScheduleStore` / `AddPostgresScheduleStore` / `AddSqlServerScheduleStore` / `AddMySqlScheduleStore` + named `AddScheduledAction` (**nymbroker-scheduled-recovery** skill) |
 
 ## 4. Register the broker
 

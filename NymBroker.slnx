@@ -12,6 +12,10 @@
   <Project Path="NymBroker.Idempotency.SqlServer/NymBroker.Idempotency.SqlServer.csproj" />
   <Project Path="NymBroker.Idempotency.Postgres/NymBroker.Idempotency.Postgres.csproj" />
   <Project Path="NymBroker.Idempotency.Sqlite/NymBroker.Idempotency.Sqlite.csproj" />
+  <Project Path="NymBroker.Scheduling.MySql/NymBroker.Scheduling.MySql.csproj" />
+  <Project Path="NymBroker.Scheduling.Postgres/NymBroker.Scheduling.Postgres.csproj" />
+  <Project Path="NymBroker.Scheduling.SqlServer/NymBroker.Scheduling.SqlServer.csproj" />
+  <Project Path="NymBroker.Scheduling.Sqlite/NymBroker.Scheduling.Sqlite.csproj" />
   <Project Path="NymBroker.Tests/NymBroker.Tests.csproj" />
   <Project Path="samples/NymBroker.AwsSqsSample/NymBroker.AwsSqsSample.csproj">
     <Build Solution="Debug|*" Project="false" />

@@ -84,7 +84,7 @@ expires_at_utc  timestamp      NOT NULL       -- index this for cleanup
 created_at_utc  timestamp      NOT NULL DEFAULT now
 ```
 
-`CreateSchema` must be idempotent: `IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS`, and the same for the index. Two stores on one table must both start cleanly.
+`CreateSchema` must be idempotent: `IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS`, and the same for the index. Two stores on one table must both start cleanly, **also concurrently** (instances starting together): `IF NOT EXISTS` alone races. SQL Server: wrap each CREATE in `TRY`/`CATCH` ignoring 2714 (table) / 1913 (index); PostgreSQL: run the schema in a transaction after `pg_advisory_xact_lock(hashtext(@lockKey))`. Test it with 8 stores claiming at once on a fresh table.
 
 ## 4. Tests: `NymBroker.Tests/<Db>IdempotencyStoreTests.cs`
 

@@ -1,0 +1,17 @@
+#nullable enable
+NymBroker.Scheduling.Sqlite.NymBrokerBuilderSqliteScheduleExtensions
+NymBroker.Scheduling.Sqlite.SqliteScheduleStore
+NymBroker.Scheduling.Sqlite.SqliteScheduleStore.DisposeAsync() -> System.Threading.Tasks.ValueTask
+NymBroker.Scheduling.Sqlite.SqliteScheduleStore.GetLastRunAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.DateTimeOffset?>
+NymBroker.Scheduling.Sqlite.SqliteScheduleStore.SqliteScheduleStore(NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Scheduling.Sqlite.SqliteScheduleStore!>! logger) -> void
+NymBroker.Scheduling.Sqlite.SqliteScheduleStore.TryClaimAsync(string! name, System.DateTimeOffset occurrence, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings
+NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings.AutoCreateTable.get -> bool
+NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings.AutoCreateTable.set -> void
+NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings.ConnectionString.get -> string!
+NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings.ConnectionString.set -> void
+NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings.SqliteScheduleStoreSettings() -> void
+NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings.TableName.get -> string!
+NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings.TableName.set -> void
+NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings.Validate() -> void
+static NymBroker.Scheduling.Sqlite.NymBrokerBuilderSqliteScheduleExtensions.AddSqliteScheduleStore(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Scheduling.Sqlite.SqliteScheduleStoreSettings? settings = null) -> NymBroker.Core.Factory.NymBrokerBuilder!

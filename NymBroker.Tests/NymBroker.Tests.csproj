@@ -38,6 +38,10 @@
     <ProjectReference Include="..\NymBroker.Idempotency.SqlServer\NymBroker.Idempotency.SqlServer.csproj" />
     <ProjectReference Include="..\NymBroker.Idempotency.Postgres\NymBroker.Idempotency.Postgres.csproj" />
     <ProjectReference Include="..\NymBroker.Idempotency.Sqlite\NymBroker.Idempotency.Sqlite.csproj" />
+    <ProjectReference Include="..\NymBroker.Scheduling.MySql\NymBroker.Scheduling.MySql.csproj" />
+    <ProjectReference Include="..\NymBroker.Scheduling.Postgres\NymBroker.Scheduling.Postgres.csproj" />
+    <ProjectReference Include="..\NymBroker.Scheduling.SqlServer\NymBroker.Scheduling.SqlServer.csproj" />
+    <ProjectReference Include="..\NymBroker.Scheduling.Sqlite\NymBroker.Scheduling.Sqlite.csproj" />
     <ProjectReference Include="..\NymBroker.Endpoint.Postgres\NymBroker.Endpoint.Postgres.csproj" />
     <ProjectReference Include="..\NymBroker.Endpoint.RabbitMq\NymBroker.Endpoint.RabbitMq.csproj" />
     <ProjectReference Include="..\NymBroker.Endpoint.Sqlite\NymBroker.Endpoint.Sqlite.csproj" />

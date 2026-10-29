@@ -4,6 +4,18 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- Named scheduled actions: `AddScheduledAction(name, interval | cron, (services, ct) => …, o => o.MissedRuns = MissedRunPolicy.RunOnce)`. The broker claims each occurrence in a schedule store before it runs it, so instances that share the store run it once, and with `MissedRunPolicy.RunOnce` an action that missed occurrences while the app was down runs once right away on start (`MaxCatchUp` limits how old a missed run may be). A claim counts as the run, even if the action fails. Named interval actions run on a fixed grid (multiples of the interval since 1970-01-01 UTC) so instances agree on occurrences. Unnamed actions are unchanged.
+- `IScheduleStore` and `NymBrokerBuilder.AddScheduleStore(factory)`; without a registered store, named actions use an in-process store.
+- New packages with durable schedule stores: `NymBroker.Scheduling.Sqlite` (`AddSqliteScheduleStore`, one host), `NymBroker.Scheduling.Postgres` (`AddPostgresScheduleStore`), `NymBroker.Scheduling.SqlServer` (`AddSqlServerScheduleStore`) and `NymBroker.Scheduling.MySql` (`AddMySqlScheduleStore`). One row per action name, created automatically.
+- Client skill `nymbroker-scheduled-recovery`: sets up named scheduled actions with a schedule store.
+
+### Fixed
+
+- A cron scheduled action whose next occurrence was more than about 49 days away (e.g. `@yearly`) stopped with a `Critical` log, because `Task.Delay` rejects such a delay. The wait now happens in steps of at most one day.
+- The SQL Server and PostgreSQL idempotency stores could fail their first claim when several instances started at the same time and raced to create the table (SQL Server: "an index … already exists"; PostgreSQL: duplicate key on `pg_type`). The broker returned `Retry`, so no message was lost. SQL Server now ignores the "already exists" errors of a concurrent create, and PostgreSQL serializes the creation with a transaction-scoped advisory lock.
+
 ### Changed
 
 - `samples/NymBroker.EfCoreTransactionSample`: an out-of-stock order is now rejected as a business outcome: the consumer rolls back to a savepoint, records an `OrderRejections` row in the same transaction and completes the message, instead of throwing so the queue retries it `MaxRetryCount` times and marks it `Failed`. Unexpected errors still throw and are retried.
