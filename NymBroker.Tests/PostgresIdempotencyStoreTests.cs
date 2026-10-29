@@ -226,6 +226,17 @@ public sealed class PostgresIdempotencyStoreTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AutoCreate_StoresStartingAtOnce_AllCreateTheTable()
+    {
+        RequirePostgres();
+        // Instances starting together race on creating the table; the losers must not fail.
+        var results = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => CreateStore().TryClaimAsync(Guid.NewGuid(), Ct).AsTask()));
+
+        Assert.All(results, r => Assert.Equal(IdempotencyClaimResult.Claimed, r));
+    }
+
+    [Fact]
     public async Task ConcurrentClaims_ExactlyOneWins()
     {
         RequirePostgres();

@@ -6,7 +6,7 @@ NymBroker is a .NET 10 message-processing framework based on [Enterprise Integra
 
 ## Packages and endpoints
 
-Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org for the broker, Memory, and File endpoints. Each optional transport and durable idempotency store is a separate package; all packages share one version.
+Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org for the broker, Memory, and File endpoints. Each optional transport, durable idempotency store and schedule store is a separate package; all packages share one version.
 
 | Package | Endpoint or capability |
 |---|---|
@@ -23,6 +23,10 @@ Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org 
 | [`NymBroker.Idempotency.Postgres`](https://www.nuget.org/packages/NymBroker.Idempotency.Postgres/) | Shared durable idempotency |
 | [`NymBroker.Idempotency.SqlServer`](https://www.nuget.org/packages/NymBroker.Idempotency.SqlServer/) | Shared durable idempotency |
 | [`NymBroker.Idempotency.MySql`](https://www.nuget.org/packages/NymBroker.Idempotency.MySql/) | Shared durable idempotency |
+| [`NymBroker.Scheduling.Sqlite`](https://www.nuget.org/packages/NymBroker.Scheduling.Sqlite/) | Scheduled actions that catch up missed runs, one host |
+| [`NymBroker.Scheduling.Postgres`](https://www.nuget.org/packages/NymBroker.Scheduling.Postgres/) | Scheduled actions that run once per cluster and catch up missed runs |
+| [`NymBroker.Scheduling.SqlServer`](https://www.nuget.org/packages/NymBroker.Scheduling.SqlServer/) | Scheduled actions that run once per cluster and catch up missed runs |
+| [`NymBroker.Scheduling.MySql`](https://www.nuget.org/packages/NymBroker.Scheduling.MySql/) | Scheduled actions that run once per cluster and catch up missed runs |
 
 ## Quick start
 

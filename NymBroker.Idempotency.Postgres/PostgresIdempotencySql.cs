@@ -35,7 +35,9 @@ internal static class PostgresIdempotencySql
             ? $"{QuoteSimpleIdentifier(parts[0])}.{QuoteSimpleIdentifier(indexName)}"
             : QuoteSimpleIdentifier(indexName);
 
+        // @lockKey: serializes concurrent creators (run inside a transaction; see PostgresIdempotencyStore.CreateSchemaAsync).
         return $"""
+            SELECT pg_advisory_xact_lock(hashtext(@lockKey));
             CREATE TABLE IF NOT EXISTS {table} (
                 message_id     UUID        PRIMARY KEY,
                 status         SMALLINT    NOT NULL CHECK (status IN ({InProgress}, {Completed})),

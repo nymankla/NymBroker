@@ -31,6 +31,8 @@ internal static class SqlServerIdempotencySql
     /// <summary>
     /// Clustered on <c>message_id</c>: every operation is a single-row seek by ID, and rows are narrow, so the page
     /// splits of random-GUID inserts stay cheap. A second index on <c>expires_at_utc</c> serves the cleanup.
+    /// Safe when several instances start at once: the loser of a concurrent CREATE gets error 2714 (table) or 1913
+    /// (index), which is ignored.
     /// </summary>
     internal static string CreateSchema(string tableName)
     {
@@ -43,7 +45,7 @@ internal static class SqlServerIdempotencySql
         return $"""
             SET NOCOUNT ON;
             IF OBJECT_ID(N'{tableLiteral}', N'U') IS NULL
-            BEGIN
+            BEGIN TRY
                 CREATE TABLE {table} (
                     message_id     UNIQUEIDENTIFIER NOT NULL,
                     status         TINYINT          NOT NULL CHECK (status IN ({InProgress}, {Completed})),
@@ -51,9 +53,17 @@ internal static class SqlServerIdempotencySql
                     created_at_utc DATETIME2(7)     NOT NULL DEFAULT SYSUTCDATETIME(),
                     CONSTRAINT {QuoteSimpleIdentifier(primaryKey)} PRIMARY KEY CLUSTERED (message_id)
                 );
-            END;
+            END TRY
+            BEGIN CATCH
+                IF ERROR_NUMBER() <> 2714 THROW;
+            END CATCH;
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(expiresIndex)}' AND object_id = OBJECT_ID(N'{tableLiteral}'))
+            BEGIN TRY
                 CREATE INDEX {QuoteSimpleIdentifier(expiresIndex)} ON {table}(expires_at_utc);
+            END TRY
+            BEGIN CATCH
+                IF ERROR_NUMBER() <> 1913 THROW;
+            END CATCH;
             """;
     }
 
