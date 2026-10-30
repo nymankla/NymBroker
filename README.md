@@ -75,6 +75,7 @@ The [user guide](https://github.com/nymankla/NymBroker/blob/master/docs/user-gui
 - [Delivery guarantees](https://github.com/nymankla/NymBroker/blob/master/docs/delivery-guarantees.md)
 - [Retry policy](https://github.com/nymankla/NymBroker/blob/master/docs/resilience.md)
 - [Pipeline extensions](https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md)
+- [Scheduling](https://github.com/nymankla/NymBroker/blob/master/docs/scheduling.md)
 - [Metrics, tracing, and health checks](https://github.com/nymankla/NymBroker/blob/master/docs/observability.md)
 - [Production security](https://github.com/nymankla/NymBroker/blob/master/docs/security.md)
 - [Writing an endpoint](https://github.com/nymankla/NymBroker/blob/master/docs/writing-an-endpoint.md)

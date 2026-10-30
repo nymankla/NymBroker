@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using NymBroker.Core.Endpoint;
 using Microsoft.Extensions.Logging;
 
@@ -81,9 +82,18 @@ internal sealed partial class NymBrokerImpl
         }
     }
 
+    /// <remarks>
+    /// Always stops, even when <paramref name="ct"/> is already cancelled: the host passes a cancelled token once its
+    /// shutdown timeout has passed, and throwing then would leave every listener running. The lifecycle lock is therefore
+    /// taken without the token; a concurrent <see cref="StartAsync"/> holds it only until it has started (the host
+    /// cancels the start token on shutdown), and stopping itself takes no token.
+    /// A listener that fails to stop does not keep the others running: each failure is logged, every listener is still
+    /// stopped and the broker counts as stopped, then the failure is rethrown (several as an <see cref="AggregateException"/>).
+    /// </remarks>
     public async Task StopAsync(CancellationToken ct = default)
     {
-        await _lifecycleLock.WaitAsync(ct);
+        await _lifecycleLock.WaitAsync(CancellationToken.None);
+        List<Exception>? failures = null;
         try
         {
             if (!_started)
@@ -91,20 +101,38 @@ internal sealed partial class NymBrokerImpl
 
             await StopScheduledActionsAsync();
 
-            foreach (var kvp in _endpoints.Where(kvp => kvp.Value is IEndPointEventDriven))
+            foreach (var (name, endpoint) in _endpoints)
             {
-                await ((IEndPointEventDriven)kvp.Value).StopListeningAsync();
-                if (_logger.IsEnabled(LogLevel.Information))
-                    _logger.LogInformation("Stopped listening on endpoint '{Name}'", kvp.Key);
+                if (endpoint is not IEndPointEventDriven eventDriven)
+                    continue;
+
+                try
+                {
+                    await eventDriven.StopListeningAsync();
+                    _logger.LogInformation("Stopped listening on endpoint '{Name}'", name);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Endpoint '{Name}' failed to stop listening; stopping the other endpoints", name);
+                    (failures ??= []).Add(ex);
+                }
             }
 
             _started = false;
-            _logger.LogInformation("Broker stopped");
+            if (failures is null)
+                _logger.LogInformation("Broker stopped");
+            else
+                _logger.LogError("Broker stopped; {Count} endpoint(s) failed to stop listening", failures.Count);
         }
         finally
         {
             _lifecycleLock.Release();
         }
+
+        if (failures is [var single])
+            ExceptionDispatchInfo.Throw(single);
+        if (failures is not null)
+            throw new AggregateException("One or more endpoints failed to stop listening.", failures);
     }
 
     // A missing target would only show up when the first message is lost, so fail at startup instead.

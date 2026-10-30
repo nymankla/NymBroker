@@ -4,6 +4,15 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Fixed
+
+- `StopAsync` threw `OperationCanceledException` without stopping anything when its token was already cancelled, for example when the host's shutdown timeout had passed before NymBroker's hosted service was stopped. The listeners kept running. `StopAsync` now always stops the scheduled actions and every listener; the token no longer aborts stopping.
+- When one endpoint's `StopListeningAsync` threw, `StopAsync` did not stop the endpoints after it, and the broker still counted as started, so a later `StopAsync` did nothing and `StartAsync` did not restart them. Now each failure is logged at `Error`, every other endpoint is still stopped and the broker counts as stopped; then the failure is rethrown (several failures as one `AggregateException`).
+
+### Changed
+
+- Docs: scheduled actions, cron syntax and named actions with schedule stores moved from `docs/pipeline-extensions.md` to their own page, [`docs/scheduling.md`](docs/scheduling.md), linked from the user guide and the README.
+
 ## [0.15.0] - 2026-10-29
 
 ### Added

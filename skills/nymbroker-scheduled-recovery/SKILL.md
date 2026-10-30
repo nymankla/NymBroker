@@ -10,7 +10,7 @@ Plain scheduled actions (**nymbroker-scheduled** skill) run on every instance an
 - instances sharing the store run each occurrence **once**;
 - with `MissedRuns = MissedRunPolicy.RunOnce`, an action that missed one or more occurrences while the broker was down runs **once, right away** on start.
 
-Requires a NymBroker version newer than 0.14.0 (the first with named actions and the `NymBroker.Scheduling.*` packages); check the installed version first. Docs: https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md#named-actions-run-once-across-instances-catch-up-missed-runs
+Requires a NymBroker version newer than 0.14.0 (the first with named actions and the `NymBroker.Scheduling.*` packages); check the installed version first. Docs: https://github.com/nymankla/NymBroker/blob/master/docs/scheduling.md#named-actions-run-once-across-instances-catch-up-missed-runs
 
 ## 1. Clarify
 

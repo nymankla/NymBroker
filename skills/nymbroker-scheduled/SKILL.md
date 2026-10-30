@@ -7,7 +7,7 @@ description: Run recurring work with NymBroker scheduled actions — interval ti
 
 `AddScheduledAction` on the `AddNymBroker()` builder runs an async action on an interval or a cron schedule while the broker is running. Each run gets its own DI scope and the broker's stop token. Actions start with `StartAsync` and stop with `StopAsync` (NymBroker 0.14+; earlier versions had synchronous `INymBroker.AddScheduledAction` overloads, which no longer exist).
 
-Docs: https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md#scheduled-actions
+Docs: https://github.com/nymankla/NymBroker/blob/master/docs/scheduling.md#scheduled-actions
 
 ## 1. Clarify
 

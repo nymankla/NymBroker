@@ -54,5 +54,6 @@ These credentials are for local development only.
 - Calling or receiving webhooks: **NymBroker.WebhookSample**.
 - Dead-lettering and retries: **NymBroker.AzureServiceBusSample** (native dead-letter queue), **NymBroker.AwsSqsSample** (broker dead-letter endpoint on a queue), and [Reliability](reliability.md).
 - Non-JSON input or output (CSV in, XML out): **NymBroker.CsvSample**, and [Pipeline extensions](pipeline-extensions.md).
+- Interval and cron jobs: **NymBroker.Sample**, and [Scheduling](scheduling.md).
 - Coming from MediatR, or building CQRS: **NymBroker.MediatRSample**, explained in [MediatR patterns with NymBroker](mediatr-comparison.md).
 - Comparing transport and feature performance: **NymBroker.Benchmarks**, explained in [Benchmarks](benchmarks.md).

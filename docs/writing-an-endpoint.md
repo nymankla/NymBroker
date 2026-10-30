@@ -55,7 +55,7 @@ public readonly record struct ProcessResult(ProcessOutcome Outcome, string? Reas
 |---|---|---|
 | A route, topic, wire tap, dead-letter or `PostAsync` targets the endpoint | `PostAsync(bytes, ct)` | Deliver the bytes durably (or throw). |
 | `StartAsync` (host start), if the endpoint is `IEndPointEventDriven` and not `WriteOnly` | `StartListeningAsync(handler, ct)` | Start receiving **in the background** and return quickly. Call `handler(bytes, ct)` once per received message and **settle the message by the `ProcessResult` it returns**. |
-| `StopAsync` (host stop) | `StopListeningAsync()` | Stop receiving. Let in-flight messages finish. |
+| `StopAsync` (host stop) | `StopListeningAsync()` | Stop receiving. Let in-flight messages finish. If it throws, the broker logs the error, still stops the other endpoints, and rethrows it from `StopAsync`. |
 | `CheckHealthAsync` / `/health` probes | `HealthCheckAsync(ct)` | Report whether the transport is usable. Never throw. Override it when the check contacts a server; a check of in-memory state can stay in `HealthCheck()`. |
 | `broker.PostBatchAsync` / topic fan-out of `PublishBatchAsync` | `PostBatchAsync(envelopes, ct)` | Optional override: send all envelopes in order, in as few round trips as the transport allows. Each is still received on its own. |
 
