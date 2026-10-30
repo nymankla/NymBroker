@@ -40,7 +40,7 @@ dotnet add package NymBroker
 dotnet add package Microsoft.Extensions.Hosting
 ```
 
-Then add only the optional packages for the transports, idempotency stores and schedule stores you use:
+Then add only the optional packages for the transports, idempotency stores and [schedule stores](scheduling.md#named-actions-run-once-across-instances-catch-up-missed-runs) you use:
 
 ```bash
 dotnet add package NymBroker.Endpoint.Sqlite            # SQLite queue
@@ -144,8 +144,8 @@ sequenceDiagram
 ## The broker's lifetime
 
 - `Build()` registers `INymBroker` as a singleton and a hosted service that calls `StartAsync` / `StopAsync` with the host. In a plain console app without a host you can call `broker.StartAsync()` and `broker.StopAsync()` yourself.
-- `StartAsync` validates the configuration (a route, topic, dead-letter or wire-tap target that is not a registered endpoint, or is read-only, throws), starts scheduled actions, and starts listening on every endpoint that can receive.
-- `StopAsync` stops the listeners. Endpoints finish the message they are handling and record its result before returning, so stopping does not cause duplicates.
+- `StartAsync` validates the configuration (a route, topic, dead-letter or wire-tap target that is not a registered endpoint, or is read-only, throws), starts [scheduled actions](scheduling.md), and starts listening on every endpoint that can receive.
+- `StopAsync` stops the listeners. Endpoints finish the message they are handling and record its result before returning, so stopping does not cause duplicates. It always stops, even if its token is already cancelled (for example when the host's shutdown timeout has passed); the token does not abort stopping. If an endpoint fails to stop, the error is logged, the other endpoints are still stopped and the broker counts as stopped; then `StopAsync` rethrows the error (several as one `AggregateException`).
 - You can `PostAsync` before `StartAsync` — the message waits in the transport and is processed once the broker starts.
 
 ## Where to go next
