@@ -75,7 +75,7 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 |---|---|---|
 | Handled, filtered, or no consumer | `Completed` | `Completed` |
 | Undecodable / expired / unknown compression | `DeadLetter(reason)` | posted to the `WithDeadLetterEndpoint` endpoint, `Completed` |
-| Consumer or topic subscriber throws | `Retry(ex)` — the transport redelivers, then dead-letters | posted to the dead-letter endpoint, `Completed` |
+| Consumer or topic subscriber throws | `Retry(ex)` — the transport redelivers, then dead-letters; `DeadLetter(ConsumerFailed)` for a consumer added with `RetryOnFailure = false` | posted to the dead-letter endpoint, `Completed` |
 | A route's destination throws, or anything unexpected | `Retry(ex)` | `Retry(ex)` |
 
 ## Where the details are

@@ -51,6 +51,7 @@ The `NymBroker` package: broker engine, serializer, routing, topics, consumers, 
 
 - `ConsumerDispatcher` builds a compiled expression lambda per message type (cached in a `ConcurrentDictionary`; ~10× faster than `MethodInfo.Invoke`) and creates an async DI scope per dispatch, so scoped consumers (and a scoped `DbContext`) get one instance per message.
 - A consumer may implement several `IConsume<T>`; `AddConsumer<T>()` registers all. **One consumer per message type**: a different second consumer throws at `AddConsumer` and in `ConsumerDispatcher.RegisterConsumer`; the same one twice is a no-op; two consumer classes with the same simple name throw (DI key collision). Several handlers → topic with `ISubscribe<T>` (`SubscriberDispatcher`).
+- `AddConsumer<T>(o => o.RetryOnFailure = false)` (`ConsumerOptions`): the builder passes the flag to `NymBrokerImpl.RegisterConsumer(type, key, retryOnFailure)`, which adds the message types to `_noRetryMessageTypes`; in consumer dispatch a native-dead-letter source then gets `DeadLetter(ConsumerFailed)` instead of `Retry`. The same consumer registered again with a different flag throws. `ConsumerDispatcher` (public) is unchanged.
 
 ## Idempotent receiver (`NymBrokerImpl.Idempotency.cs`)
 
