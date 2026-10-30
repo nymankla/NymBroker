@@ -38,7 +38,7 @@ $env:NYMBROKER_MYSQL_CS     = "Server=localhost;Port=3306;Database=nymbroker;Use
 $env:NYMBROKER_SQS_URL       = "http://localhost:9324"
 ```
 
-Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml`, one script per service, each with `-Stop` / `-Logs`: `setup-rabbitmq.ps1` (5672, UI 15672), `setup-postgres.ps1` (5432), `setup-sqlserver.ps1` (1433, creates db `nymbroker`), `setup-mysql.ps1` (MySQL 8.4 on 3306, db `nymbroker`), `setup-servicebus.ps1` (emulator on 5673; starts SQL Server too, entities in `scripts/servicebus/Config.json`), `setup-sqs.ps1` (ElasticMQ, SQS API on 9324, UI 9325; queues are created by the tests). `setup-rabbitmq -Stop` / `setup-postgres -Stop` run `docker compose down` and stop **all** services; the SQL Server / MySQL / Service Bus / SQS `-Stop` stop only their own. If `docker` cannot connect, Docker Desktop is not running.
+Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml` (every service has `pull_policy: always`, so each `up` pulls the newest image for its tag; tags stay on the current major version so the data volumes keep working), one script per service, each with `-Stop` / `-Logs`: `setup-rabbitmq.ps1` (5672, UI 15672), `setup-postgres.ps1` (5432), `setup-sqlserver.ps1` (1433, creates db `nymbroker`), `setup-mysql.ps1` (MySQL 8.4 on 3306, db `nymbroker`), `setup-servicebus.ps1` (emulator on 5673; starts SQL Server too, entities in `scripts/servicebus/Config.json`), `setup-sqs.ps1` (ElasticMQ, SQS API on 9324, UI 9325; queues are created by the tests). `setup-rabbitmq -Stop` / `setup-postgres -Stop` run `docker compose down` and stop **all** services; the SQL Server / MySQL / Service Bus / SQS `-Stop` stop only their own. If `docker` cannot connect, Docker Desktop is not running.
 
 ## Solution layout
 
@@ -49,19 +49,21 @@ Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml`, one sc
 | `NymBroker.Endpoint.Http` | Send-only HTTP / webhook endpoint (`AddHttpEndPoint` / `WithHttp`) on `IHttpClientFactory` |
 | `NymBroker.Endpoint.RabbitMq` / `.AzureServiceBus` / `.AwsSqs` | Broker transports (`AddRabbitMqEndPoint` / `WithRabbitMq`, `AddAzureServiceBusEndPoint` / `WithAzureServiceBus`, `AddAwsSqsEndPoint` / `WithAwsSqs`) |
 | `NymBroker.Idempotency.Sqlite` / `.Postgres` / `.SqlServer` / `.MySql` | Durable `IExpiringIdempotencyStore`s (`AddSqliteIdempotency` …) registered through Core's `AddIdempotencyStore`; independent of the endpoint packages. SQLite is restart-safe on one host only |
-| `NymBroker.Tests` | xUnit. Unit tests use Memory and SQLite `:memory:`; `PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `MySqlEndPointTests`, `MySqlIdempotencyStoreTests`, `AzureServiceBusEndPointTests`, `RabbitMqEndPointTests` and `AwsSqsEndPointTests` need their `NYMBROKER_*` variable (their unit tests always run) |
+| `NymBroker.Scheduling.Sqlite` / `.Postgres` / `.SqlServer` / `.MySql` | Durable `IScheduleStore`s (`AddSqliteScheduleStore` …) registered through Core's `AddScheduleStore`: named scheduled actions run once per cluster and catch up missed runs. One row per action name (`name`, `last_run_utc`), atomic forward-only claim; no cleanup |
+| `NymBroker.Tests` | xUnit. Unit tests use Memory and SQLite `:memory:`; `PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `MySqlEndPointTests`, `MySqlIdempotencyStoreTests`, the `*ScheduleStoreTests` (on `ScheduleStoreContractTests`; SQLite always runs), `AzureServiceBusEndPointTests`, `RabbitMqEndPointTests` and `AwsSqsEndPointTests` need their `NYMBROKER_*` variable (their unit tests always run) |
 | `samples/*` | Runnable apps — table in [docs/samples.md](docs/samples.md). Self-checking: `NymBroker.MediatRSample -- --demo`, `NymBroker.EfCoreTransactionSample` (needs SQL Server), `NymBroker.AwsSqsSample` (needs ElasticMQ), `NymBroker.WebhookSample -- --demo` |
-| `skills/` | Agent skills for **client** apps (`nymbroker-setup`, `-message`, `-consumer`, `-routing`, `-producer-worker`, `-input-transformer`, `-scheduled`, `-testing`, `-observability`, `-dead-letters`, `-troubleshoot`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`) |
+| `skills/` | Agent skills for **client** apps (`nymbroker-setup`, `-message`, `-consumer`, `-routing`, `-producer-worker`, `-input-transformer`, `-scheduled`, `-scheduled-recovery`, `-testing`, `-observability`, `-dead-letters`, `-troubleshoot`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`) |
 | `docs/` | User documentation, index in [docs/user-guide.md](docs/user-guide.md) |
 
 ## Key abstractions
 
 ```
-IEndPoint                 ← every transport: Mode, PostAsync(byte[]), PostBatchAsync(IReadOnlyList<byte[]>), HealthCheck()
+IEndPoint                 ← every transport: Mode, PostAsync(byte[]), PostBatchAsync(IReadOnlyList<byte[]>), HealthCheck() / HealthCheckAsync(ct)
   IEndPointEventDriven    ← receiving: StartListeningAsync(handler) / StopListeningAsync; UsesNativeDeadLetter
 EndpointMode              ← ReadWrite (default) | ReadOnly | WriteOnly (no listener)
 ProcessResult             ← handler result the endpoint settles by: Completed | Retry(ex) | DeadLetter(reason, description)
-INymBroker                ← PostAsync<T>, PostRawAsync (bytes as-is), PostBatchAsync<T>, PublishAsync<T>, Route<T>(), ProcessAsync, CheckHealthAsync
+INymBroker                ← runtime only: PostAsync<T>, PostRawAsync (bytes as-is), PostBatchAsync<T>, PublishAsync<T>, ProcessAsync, Start/StopAsync, CheckHealthAsync
+NymBrokerBuilder          ← all configuration: endpoints, consumers, AddRoute, AddTopic, AddFilter, transformers, AddScheduledAction, dead letter, wire tap
 IConsume<T> / ISubscribe<T> ← one consumer per message type / any number of topic subscribers
 IMessageContext           ← envelope metadata: Id, CorrelationId, Address, MessageType, Created, DeadLetter
 LeasedQueueListener       ← shared poll loop of the queue-table endpoints;  EndpointHandler.InvokeAsync ← call a handler safely
@@ -73,7 +75,7 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 |---|---|---|
 | Handled, filtered, or no consumer | `Completed` | `Completed` |
 | Undecodable / expired / unknown compression | `DeadLetter(reason)` | posted to the `WithDeadLetterEndpoint` endpoint, `Completed` |
-| Consumer or topic subscriber throws | `Retry(ex)` — the transport redelivers, then dead-letters | posted to the dead-letter endpoint, `Completed` |
+| Consumer or topic subscriber throws | `Retry(ex)` — the transport redelivers, then dead-letters; `DeadLetter(ConsumerFailed)` for a consumer added with `RetryOnFailure = false` | posted to the dead-letter endpoint, `Completed` |
 | A route's destination throws, or anything unexpected | `Retry(ex)` | `Retry(ex)` |
 
 ## Where the details are
@@ -94,7 +96,7 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 - **Ask before architectural decisions** (new projects, public API shape, new dependencies) — built incrementally with explicit sign-off.
 - **Never swallow exceptions silently** — every catch block and fire-and-forget boundary logs. `OperationCanceledException` from the component's *own* stop token is a clean exit; one raised by user code (e.g. an HTTP timeout) is a failure.
 - DI: `Microsoft.Extensions.DependencyInjection` only (no Autofac). Serialization: `System.Text.Json` only (no Newtonsoft). Retries: Core's `RetryPolicy` (no Polly). No Cronos in packable projects. No Dapper. No Windows-only endpoints.
-- **Package naming**: transports `NymBroker.Endpoint.<Transport>`, stores `NymBroker.Idempotency.<Db>` (folder = project = package ID = namespace). Config type names (`"Sql"`, `"RabbitMq"`, …) are separate and stable.
+- **Package naming**: transports `NymBroker.Endpoint.<Transport>`, idempotency stores `NymBroker.Idempotency.<Db>`, schedule stores `NymBroker.Scheduling.<Db>` (folder = project = package ID = namespace). Config type names (`"Sql"`, `"RabbitMq"`, …) are separate and stable.
 - New receiving endpoints implement `IEndPointEventDriven`, call the handler through `EndpointHandler.InvokeAsync` and settle by its `ProcessResult`; a lease-based queue derives from `LeasedQueueListener`. `UsesNativeDeadLetter` only if the transport has its own dead-letter queue. Send-only sinks: plain `IEndPoint`, `Mode => WriteOnly`.
 - Routes use `IRouteCondition` / `Func<JsonElement, bool>`; no XML/XSLT. `RouteContext` stays non-sealed with a virtual `Evaluate()`.
 - Consumers are keyed services, key = `typeof(TConsumer).Name`.

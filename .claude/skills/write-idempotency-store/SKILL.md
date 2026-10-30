@@ -53,7 +53,7 @@ New project **`NymBroker.Idempotency.<Db>`**, namespace `NymBroker.Idempotency.<
 | `NymBroker.Idempotency.<Db>.csproj` | Reference `NymBroker.Core` plus the driver, at the same version as the matching endpoint project. Add `InternalsVisibleTo NymBroker.Tests`. Do **not** reference the endpoint project (`NymBroker.Endpoint.<Db>`). |
 | `<Db>IdempotencySettings.cs` | `ConnectionString`, `TableName`, `Ttl` (24 h), `LeaseTimeout` (5 min), `AutoCreateTable` (true), `CleanupInterval` (10 min; `Zero` disables it), `CleanupBatchSize` (1000), and `Validate()` throwing `ArgumentException`. Use whole seconds if the database's date arithmetic needs integers. |
 | `<Db>IdempotencySql.cs` | Internal static SQL builders: `CreateSchema`, `Claim`, `Complete`, `Release`, `DeleteExpired`, plus identifier quoting. |
-| `<Db>IdempotencyStore.cs` | Public `IExpiringIdempotencyStore` (`NymBroker.Core.Idempotency`). Validate settings in the constructor, build the SQL once, create the schema lazily under a `SemaphoreSlim` with a `volatile bool` ready flag, and implement `DeleteExpiredAsync`. No cleanup service of its own: Core's generic one calls `DeleteExpiredAsync` on `CleanupInterval`. |
+| `<Db>IdempotencyStore.cs` | Public `IExpiringIdempotencyStore` (`NymBroker.Core.Idempotency`). Validate settings in the constructor, build the SQL once, create the schema lazily with Core's `AsyncOnce` (`_schema.RunAsync(this, static (self, ct) => self.CreateSchemaAsync(ct), ct)` when `AutoCreateTable`), and implement `DeleteExpiredAsync`. No cleanup service of its own: Core's generic one calls `DeleteExpiredAsync` on `CleanupInterval`. |
 | `NymBrokerBuilder<Db>IdempotencyExtensions.cs` | `Add<Db>Idempotency(this NymBrokerBuilder, settings?)`, described below. |
 
 The extension method:
@@ -84,7 +84,7 @@ expires_at_utc  timestamp      NOT NULL       -- index this for cleanup
 created_at_utc  timestamp      NOT NULL DEFAULT now
 ```
 
-`CreateSchema` must be idempotent: `IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS`, and the same for the index. Two stores on one table must both start cleanly.
+`CreateSchema` must be idempotent: `IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS`, and the same for the index. Two stores on one table must both start cleanly, **also concurrently** (instances starting together): `IF NOT EXISTS` alone races. SQL Server: wrap each CREATE in `TRY`/`CATCH` ignoring 2714 (table) / 1913 (index); PostgreSQL: run the schema in a transaction after `pg_advisory_xact_lock(hashtext(@lockKey))`. Test it with 8 stores claiming at once on a fresh table.
 
 ## 4. Tests: `NymBroker.Tests/<Db>IdempotencyStoreTests.cs`
 

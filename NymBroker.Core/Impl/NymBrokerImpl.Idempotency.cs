@@ -6,7 +6,7 @@ using NymBroker.Core.Idempotency;
 
 namespace NymBroker.Core.Impl;
 
-public sealed partial class NymBrokerImpl
+internal sealed partial class NymBrokerImpl
 {
     private IIdempotencyStore? _idempotencyStore;
 

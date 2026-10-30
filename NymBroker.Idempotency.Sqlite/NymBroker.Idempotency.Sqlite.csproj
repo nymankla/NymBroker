@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Idempotency.Sqlite</PackageId>
     <PackageDescription>Durable SQLite idempotency store (idempotent receiver) for NymBroker. Single host only.</PackageDescription>
+    <PackageTags>$(PackageTags);idempotency;deduplication;inbox;sqlite</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
   </ItemGroup>
 
   <ItemGroup>

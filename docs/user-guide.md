@@ -50,7 +50,8 @@ flowchart LR
 | [Delivery guarantees](delivery-guarantees.md) | At-least-once limits, ordering, crash behavior and endpoint capabilities |
 | [Reliability](reliability.md) | Retries, dead-lettering (native and broker), the dead-letter reason, TTL, wire tap, duplicate detection |
 | [Retry policy](resilience.md) | `RetryPolicy` options, backoff and jitter, how the File and RabbitMQ endpoints use it |
-| [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, scheduled actions |
+| [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, output transformers |
+| [Scheduling](scheduling.md) | Interval and cron scheduled actions; named actions that run once across instances and catch up missed runs (schedule stores) |
 | [Observability](observability.md) | Metrics, tracing, logging and health checks |
 | [Production security](security.md) | TLS and certificate verification per transport (RabbitMQ, SQL Server, PostgreSQL, MySQL, Service Bus, SQS), secrets, least privilege, what can leak |
 | [Samples](samples.md) | The runnable sample apps, what each shows, and the local infrastructure they need |

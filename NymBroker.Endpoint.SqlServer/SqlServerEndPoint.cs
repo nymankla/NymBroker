@@ -25,11 +25,10 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     private readonly SqlServerSettings _settings;
     private readonly ILogger<SqlServerEndPoint> _logger;
-    private readonly SemaphoreSlim _schemaLock = new(1, 1);
+    private readonly AsyncOnce _schema = new();
     private readonly string _name;
     private readonly Listener _listener;
 
-    private bool _schemaEnsured;
 
     public EndpointMode Mode { get; }
 
@@ -80,20 +79,19 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    public IHealthCheckResult HealthCheck()
-        => HealthCheckResult.FromProbe("SQL Server", _name, _logger, async ct =>
+    /// <summary>Blocking form for callers of the synchronous API; the broker calls <see cref="HealthCheckAsync"/>.</summary>
+    public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
+
+    public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken cancellationToken = default)
+        => HealthCheckResult.FromProbeAsync("SQL Server", _name, _logger, async ct =>
         {
             await using var conn = await OpenConnectionAsync(ct);
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT 1";
             _ = await cmd.ExecuteScalarAsync(ct);
-        });
+        }, cancellationToken: cancellationToken);
 
-    public async ValueTask DisposeAsync()
-    {
-        await StopListeningAsync();
-        _schemaLock.Dispose();
-    }
+    public async ValueTask DisposeAsync() => await StopListeningAsync();
 
     private async Task<IReadOnlyList<QueueMessage>> FinalizeAndClaimAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
     {
@@ -153,7 +151,7 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
         {
             await conn.OpenAsync(ct);
             if (_settings.AutoCreateTable)
-                await EnsureSchemaAsync(conn, ct);
+                await _schema.RunAsync((Owner: this, Conn: conn), static (s, ct) => s.Owner.CreateSchemaAsync(s.Conn, ct), ct);
             return conn;
         }
         catch
@@ -163,24 +161,11 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
-    private async Task EnsureSchemaAsync(SqlConnection conn, CancellationToken ct)
+    private async Task CreateSchemaAsync(SqlConnection conn, CancellationToken ct)
     {
-        if (_schemaEnsured) return;
-
-        await _schemaLock.WaitAsync(ct);
-        try
-        {
-            if (_schemaEnsured) return;
-
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = SqlServerQueueSql.CreateSchema(_settings.TableName);
-            await cmd.ExecuteNonQueryAsync(ct);
-            _schemaEnsured = true;
-        }
-        finally
-        {
-            _schemaLock.Release();
-        }
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = SqlServerQueueSql.CreateSchema(_settings.TableName);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private sealed record BatchItem(int I, byte[] P);

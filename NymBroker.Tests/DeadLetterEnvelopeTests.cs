@@ -51,13 +51,7 @@ public sealed class DeadLetterEnvelopeTests
         var sp = services.BuildServiceProvider();
 
         dlq = new MemoryQueueEndPoint("DLQ");
-        var broker = new NymBrokerImpl(
-            new MessageSerializerJson(),
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
         broker.AddEndpoint("DLQ", dlq);
         foreach (var t in messageTypes) broker.RegisterConsumer(t, "consumer");
         broker.SetDeadLetterEndpoint("DLQ");

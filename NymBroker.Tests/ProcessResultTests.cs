@@ -259,6 +259,54 @@ public sealed class ProcessResultTests
         Assert.Single(await h.DrainDeadLettersAsync());
     }
 
+    // --- Consumer registered with RetryOnFailure = false: dead-lettered at once ---
+
+    [Fact]
+    public async Task ConsumerFailure_RetryOff_Native_ReturnsDeadLetter()
+    {
+        var h = Build(b => b.AddConsumer<ThrowingConsumer>(o => o.RetryOnFailure = false));
+
+        var result = await h.Broker.ProcessAsync(Envelope(h.Serializer, new ResultOrder { Id = 3 }), Native, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProcessOutcome.DeadLetter, result.Outcome);
+        Assert.Equal(DeadLetterReasons.ConsumerFailed, result.Reason);
+        Assert.Equal("consumer failed", result.Description);
+        Assert.IsType<InvalidOperationException>(result.Exception);
+        Assert.Empty(await h.DrainDeadLettersAsync());
+    }
+
+    [Fact]
+    public async Task ConsumerFailure_RetryOff_Plain_PostsToDeadLetterEndpoint_AndCompletes()
+    {
+        var h = Build(b => b.AddConsumer<ThrowingConsumer>(o => o.RetryOnFailure = false));
+
+        var result = await h.Broker.ProcessAsync(Envelope(h.Serializer, new ResultOrder { Id = 3 }), Plain, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProcessResult.Completed, result);
+        var item = Assert.Single(await h.DrainDeadLettersAsync());
+        var ctx = (RawMessageContext)new MessageSerializerJson().Deserialize(item);
+        Assert.Equal(DeadLetterReasons.ConsumerFailed, ctx.DeadLetter!.Reason);
+    }
+
+    [Fact]
+    public async Task ConsumerFailure_RetryOnExplicitlyTrue_Native_ReturnsRetry()
+    {
+        var h = Build(b => b.AddConsumer<ThrowingConsumer>(o => o.RetryOnFailure = true));
+
+        var result = await h.Broker.ProcessAsync(Envelope(h.Serializer, new ResultOrder { Id = 3 }), Native, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProcessOutcome.Retry, result.Outcome);
+    }
+
+    [Fact]
+    public void AddConsumer_SameConsumerWithDifferentRetryOption_Throws()
+    {
+        var builder = new ServiceCollection().AddNymBroker().AddConsumer<ThrowingConsumer>();
+
+        builder.AddConsumer<ThrowingConsumer>(o => o.RetryOnFailure = true); // same options: a no-op
+        Assert.Throws<InvalidOperationException>(() => builder.AddConsumer<ThrowingConsumer>(o => o.RetryOnFailure = false));
+    }
+
     // --- A consumer's own cancellation (e.g. an HTTP timeout) is a failure, not a shutdown ---
 
     [Theory]
@@ -327,8 +375,8 @@ public sealed class ProcessResultTests
         {
             b.Services.AddKeyedSingleton<IEndPoint>("Failing", new FakeEndPoint(usesNativeDeadLetter: false, failPosts: true));
             b.RegisterEndpoint("Failing");
+            b.AddRoute<ResultOrder>(r => r.To("Failing"));
         });
-        h.Broker.Route<ResultOrder>().To("Failing").Build();
 
         var result = await h.Broker.ProcessAsync(Envelope(h.Serializer, new ResultOrder { Id = 5 }), source, TestContext.Current.CancellationToken);
 
@@ -376,8 +424,8 @@ public sealed class ProcessResultTests
         {
             b.Services.AddKeyedSingleton<IEndPoint>("Failing", new FakeEndPoint(usesNativeDeadLetter: false, failPosts: true));
             b.RegisterEndpoint("Failing");
+            b.AddRoute<ResultOrder>(r => r.To("Failing"));
         });
-        h.Broker.Route<ResultOrder>().To("Failing").Build();
 
         await Assert.ThrowsAsync<IOException>(() => h.Broker.PublishAsync(new ResultOrder { Id = 8 }, TestContext.Current.CancellationToken));
     }

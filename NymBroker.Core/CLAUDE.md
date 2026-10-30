@@ -2,6 +2,10 @@
 
 The `NymBroker` package: broker engine, serializer, routing, topics, consumers, idempotent receiver, scheduling, splitter, health checks, configuration, DI builder, Memory and File endpoints, `RetryPolicy`, and the building blocks for endpoint packages. No transport dependency.
 
+## Configuration is builder-only
+
+`NymBrokerImpl` is `internal`; `INymBroker` exposes only runtime operations. Routes (`AddRoute`, built and validated when added, registered with the internal `AddRoute(RouteContext)`), filters (`AddFilter(instance)` / `AddFilter<T>()`), scheduled actions, transformers, dead letter, wire tap and max age are collected by `NymBrokerBuilder` and applied in the `NymBrokerImpl` factory in `Build()`, before `StartAsync` validates them. Tests construct the broker with `TestBroker.Create` (InternalsVisibleTo `NymBroker.Tests`).
+
 ## Message envelope (wire format)
 
 ```json
@@ -30,20 +34,24 @@ The `NymBroker` package: broker engine, serializer, routing, topics, consumers, 
 
 `ProcessAsync(raw, source, ct)` never throws except `OperationCanceledException` from **its own** token; a consumer's own `OperationCanceledException` (e.g. an `HttpClient` timeout) is a failure. Results are in the root `CLAUDE.md` table. Helpers: `UsesNativeDeadLetter(source)`, `DeadLetterAsync(...)`, `TryPostToDeadLetterAsync` (posts `DeadLetterEnvelope.Annotate(raw, info)`; a failing post → `LogError`). For split messages the part that completes the group carries the reassembled message's result. The processing-duration histogram has a `result` tag (`completed`/`retry`/`dead_letter`); `nymbroker.messages.dead_lettered` is tagged `reason`/`source`/`mode` (`broker`|`native`).
 
-`StartAsync` starts every `IEndPointEventDriven` endpoint whose `Mode` is not `WriteOnly`, and throws (`ValidateTarget`) if a route, topic, dead-letter or wire-tap target is not registered or is `ReadOnly`; routes and topics added after start are not checked. A startup exception → `LogError`, scheduled actions rolled back, rethrown.
+`StartAsync` starts every `IEndPointEventDriven` endpoint whose `Mode` is not `WriteOnly`, and throws (`ValidateTarget`) if a route, topic, dead-letter or wire-tap target is not registered or is `ReadOnly`; routes and topics added after start are not checked. A startup exception → `LogError`, scheduled actions rolled back, rethrown. `StopAsync` takes `_lifecycleLock` with `CancellationToken.None` and ignores its token: the host passes an already-cancelled token once its shutdown timeout has passed, and throwing then left every listener running. Each `StopListeningAsync` failure → `LogError`, the loop continues, `_started = false`, and after releasing the lock the failure is rethrown (`ExceptionDispatchInfo` for one, `AggregateException` for several). Endpoints are iterated in `ImmutableDictionary` (hash) order, not registration order.
+
+## Output transformers
+
+`AddOutputTransformer(transformer, endpoint)` (`_outputTransformers`, keyed by endpoint name). Every send to an endpoint goes through `SendAsync` / `SendBatchAsync` in `NymBrokerImpl.Processing.cs` (posts, routes, topics, wire tap, dead letter). Never call `endpoint.PostAsync` directly on a send path, or the transformer is bypassed. The helper deserializes the envelope to a `RawMessageContext` and sends the transformer's bytes; null skips the message, and non-envelope bytes throw. `ToWireMessages` throws for `splitThresholdBytes` on such an endpoint. `StartAsync` throws if the endpoint is unregistered or read-only, or if the broker listens on it without an input transformer.
 
 ## Routing
 
 - `RouteContext` is non-sealed with a virtual `Evaluate()` — subclass for custom routing. Conditions implement `IRouteCondition`: `JsonRouteCondition` (`.When(Func<JsonElement,bool>)`), `FromRouteCondition` (`.WhenFrom`), `NotFromRouteCondition` (`.WhenNotFrom`), `MessageAgeRouteCondition` (`.WhenMessageIsOlderThan`), `AndRouteCondition`, `OrRouteCondition`.
 - Predicates receive the **payload** element, not the envelope. `IAnyMessage` routes match every type.
 - Chained content conditions (`When`, `WhenMessageIsOlderThan`, `And`, `Or`, topics' `When`) are AND-ed via `RouteConditions.Combine`, also with a `Condition` preset on a factory-created `RouteContext`. `WhenFrom` / `WhenNotFrom` are single fields.
-- `IRouteBuilder<T>.Transform(fileName)` / `RouteContext.Transform` are `[Obsolete]` no-ops — don't use or extend; remove in a future minor version.
 - **Loop hazard**: routing to an event-driven endpoint the broker listens on re-evaluates all routes — infinite loop without `WhenFrom` / `WhenNotFrom`.
 
 ## Consumers and topics
 
 - `ConsumerDispatcher` builds a compiled expression lambda per message type (cached in a `ConcurrentDictionary`; ~10× faster than `MethodInfo.Invoke`) and creates an async DI scope per dispatch, so scoped consumers (and a scoped `DbContext`) get one instance per message.
 - A consumer may implement several `IConsume<T>`; `AddConsumer<T>()` registers all. **One consumer per message type**: a different second consumer throws at `AddConsumer` and in `ConsumerDispatcher.RegisterConsumer`; the same one twice is a no-op; two consumer classes with the same simple name throw (DI key collision). Several handlers → topic with `ISubscribe<T>` (`SubscriberDispatcher`).
+- `AddConsumer<T>(o => o.RetryOnFailure = false)` (`ConsumerOptions`): the builder passes the flag to `NymBrokerImpl.RegisterConsumer(type, key, retryOnFailure)`, which adds the message types to `_noRetryMessageTypes`; in consumer dispatch a native-dead-letter source then gets `DeadLetter(ConsumerFailed)` instead of `Retry`. The same consumer registered again with a different flag throws. `ConsumerDispatcher` (public) is unchanged.
 
 ## Idempotent receiver (`NymBrokerImpl.Idempotency.cs`)
 
@@ -53,7 +61,9 @@ Registration: `AddIdempotentReceiver(ttl)` (in-memory), `(IIdempotencyStore)`, `
 
 ## Scheduled actions
 
-Interval actions fire on a timer; cron actions use the internal `CronSchedule` (`NymBroker.Core.Scheduling`, Cronos-compatible, local time zone; Cronos is only a test oracle). Each runs in a `ScheduledActionHandle` (`IAsyncDisposable`). An action added after `StartAsync` starts immediately and is stopped by `StopAsync`. `_scheduledActions` / `_activeScheduledActions` / `_scheduledActionsRunning` are guarded by `_scheduleLock` — a sync `Lock`, never held across an await, and not `_lifecycleLock`, so `AddScheduledAction` stays non-blocking and cannot deadlock against `StopAsync`. A throwing run → `LogError`, schedule continues; unexpected loop end → `LogCritical`; `DisposeAsync` logs instead of rethrowing, so `StopAsync` never throws because of an action.
+Interval actions fire on a timer; cron actions use the internal `CronSchedule` (`NymBroker.Core.Scheduling`, Cronos-compatible, local time zone; Cronos is only a test oracle). Each runs in a `ScheduledActionHandle` (`IAsyncDisposable`). Public API is the builder only: `AddScheduledAction(TimeSpan | cron, Func<IServiceProvider, CancellationToken, Task>)` runs each occurrence in a new async DI scope (`RunScopedAsync`); inside, actions are `Func<CancellationToken, Task>` and each run is awaited. The internal broker still starts an action added after `StartAsync` at once (tests use it). `_scheduledActions` / `_activeScheduledActions` / `_scheduledActionsRunning` are guarded by `_scheduleLock` — a sync `Lock`, never held across an await, and not `_lifecycleLock`, so `AddScheduledAction` stays non-blocking and cannot deadlock against `StopAsync`. A throwing run → `LogError`, schedule continues; unexpected loop end → `LogCritical`; `DisposeAsync` logs instead of rethrowing, so `StopAsync` never throws because of an action. Cron and named actions share `StartTimedScheduledAction` over a `ScheduleTiming` (`CronTiming`, or `GridTiming` = multiples of the interval since the Unix epoch, whole ms); `DelayUntilAsync` waits in steps of at most `MaxScheduleDelay` (1 day) because `Task.Delay` rejects > ~49 days.
+
+Named actions (`AddScheduledAction(name, interval | cron, action, configure?)`, RS0026 suppressed: the overloads differ in a required parameter): the builder validates the name (`ScheduledActionName`: ≤ 200 chars, no control chars, unique case-insensitively) and options; the broker's `AddNamedScheduledAction` claims each occurrence with `IScheduleStore.TryClaimAsync(name, utcOccurrence)` before running it (`RunClaimedOccurrenceAsync`). The claim counts as the run, whatever the outcome. Claim throws → `LogError`, occurrence skipped (never run unclaimed); lost claim → `LogDebug`. `MissedRunPolicy.RunOnce` → before the loop, `RunMissedOccurrenceAsync` reads `GetLastRunAsync` and runs `ScheduleTiming.FindMissed(lastRun, now, maxCatchUp)` (latest occurrence in (lastRun, now]) once; no recorded run → nothing to catch up; read failure → `LogError`, loop starts anyway. Store: `_scheduleStore`, default internal `InMemoryScheduleStore`, replaced by `SetScheduleStore` in the builder's factory when `AddScheduleStore(factory)` was called (the `NymBroker.Scheduling.*` packages do). Stores need no cleanup: one row per name.
 
 ## Splitter, aggregator, compression
 
@@ -62,7 +72,7 @@ Interval actions fire on a timer; cron actions use the internal `CronSchedule` (
 
 ## Health check (`NymBrokerImpl.HealthCheck.cs`)
 
-`CheckHealthAsync` runs every endpoint's synchronous `HealthCheck()` on the thread pool in parallel, waits up to `BrokerHealthCheckOptions.Timeout` (10 s; a late endpoint → `Unhealthy` "timed out", its task left running), never throws except caller cancellation. Broker not started or a critical endpoint unhealthy → `Unhealthy`; only non-critical ones → `Degraded`. `.ConfigureHealthCheck(o => o.NonCritical("Audit"))` (`Build()` throws for unknown names). `services.AddHealthChecks().AddNymBroker(...)` registers `NymBrokerHealthCheck`. Endpoints use `HealthCheckResult.FromProbe(kind, name, logger, probe)` for async probes (5 s). Metrics: `nymbroker.health.checks`, `nymbroker.health.endpoint.failures`, gauges `nymbroker.health.status`, `nymbroker.health.endpoint.healthy`.
+`CheckHealthAsync` runs every endpoint's `HealthCheckAsync` in parallel (wrapped in `Task.Run`, so the default implementation — the synchronous `HealthCheck()` — cannot block the caller), waits up to `BrokerHealthCheckOptions.Timeout` (10 s; a late endpoint → `Unhealthy` "timed out", its task left running), never throws except caller cancellation. Broker not started or a critical endpoint unhealthy → `Unhealthy`; only non-critical ones → `Degraded`. `.ConfigureHealthCheck(o => o.NonCritical("Audit"))` (`Build()` throws for unknown names). `services.AddHealthChecks().AddNymBroker(...)` registers `NymBrokerHealthCheck`. Endpoints that contact a server override `HealthCheckAsync` with `HealthCheckResult.FromProbeAsync(kind, name, logger, probe, cancellationToken: ct)` (5 s timeout; caller cancellation propagates) and implement `HealthCheck()` by waiting for it. Metrics: `nymbroker.health.checks`, `nymbroker.health.endpoint.failures`, gauges `nymbroker.health.status`, `nymbroker.health.endpoint.healthy`.
 
 ## Configuration and DI
 
@@ -72,6 +82,7 @@ Interval actions fire on a timer; cron actions use the internal `CronSchedule` (
 ## Shared endpoint building blocks
 
 - `EndpointHandler.InvokeAsync` — calls the handler; an exception → `LogError` + `Retry`; only the stop token's cancellation is rethrown.
+- `AsyncOnce` (`Endpoint`) — runs an async initialization once (schema creation in the SQL endpoints and idempotency stores); concurrent callers wait, a failure is retried by the next caller, and the call after success is lock- and allocation-free when given a `static` lambda plus state.
 - `LeasedQueueListener` (`Endpoint/Queue`) — owns start/stop, the drain/idle loop, the `ProcessResult` → `QueueMessageStatus` mapping (Completed; DeadLetter → Failed; Retry → Pending, or Failed at `MaxRetryCount`) and its log lines, poll-error / `Critical` logging, and the shutdown write with a fresh 10 s token. Subclasses supply `FinalizeAndClaimAsync` (write outcomes + claim next batch in one transaction) and `FinalizeAsync`; optional `WaitWhenIdleAsync` / `OnLoopExitAsync`. Settings implement `ILeasedQueueSettings` (an interface so no shipped settings members moved).
 
 ## Memory and File endpoints

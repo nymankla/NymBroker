@@ -44,27 +44,25 @@ var host = Host.CreateDefaultBuilder(args)
                 .SubscribeTo("AuditLog")
                 .Build()
 
+            // --- Routes: orders arriving on Inbox go to VIP or Standard ---
+            .AddRoute<OrderMessage>(r => r
+                .To("VIP")
+                .WhenFrom("Inbox")
+                .When(msg =>
+                    (msg.TryGetProperty("amount",   out var a) && a.GetDecimal() > 500m) ||
+                    (msg.TryGetProperty("priority", out var p) && p.GetString() == "high")))
+            .AddRoute<OrderMessage>(r => r
+                .To("Standard")
+                .WhenFrom("Inbox")
+                .When(msg =>
+                    !(msg.TryGetProperty("amount",   out var a) && a.GetDecimal() > 500m) &&
+                    !(msg.TryGetProperty("priority", out var p) && p.GetString() == "high")))
+
             .Build();
     })
     .Build();
 
 var broker = host.Services.GetRequiredService<INymBroker>();
-
-broker.Route<OrderMessage>()
-    .To("VIP")
-    .WhenFrom("Inbox")
-    .When(msg =>
-        (msg.TryGetProperty("amount",   out var a) && a.GetDecimal() > 500m) ||
-        (msg.TryGetProperty("priority", out var p) && p.GetString() == "high"))
-    .Build();
-
-broker.Route<OrderMessage>()
-    .To("Standard")
-    .WhenFrom("Inbox")
-    .When(msg =>
-        !(msg.TryGetProperty("amount",   out var a) && a.GetDecimal() > 500m) &&
-        !(msg.TryGetProperty("priority", out var p) && p.GetString() == "high"))
-    .Build();
 
 await host.StartAsync();
 

@@ -1,6 +1,6 @@
 ---
 name: nymbroker-input-transformer
-description: Make a NymBroker endpoint accept data that is not a NymBroker JSON envelope — CSV, XML, fixed-width, plain text, or another system's JSON — by writing an IInputTransformer that turns raw bytes into a typed message for normal consumers and routes. Use when the user wants to read/import files, integrate a legacy or third-party system, parse CSV/XML/foreign JSON, or receive messages not produced by NymBroker.
+description: Make a NymBroker endpoint accept data that is not a NymBroker JSON envelope — CSV, XML, fixed-width, plain text, or another system's JSON — by writing an IInputTransformer that turns raw bytes into a typed message for normal consumers and routes; or send messages in a destination's own format (JSON → XML, CSV, a partner schema) with an IOutputTransformer. Use when the user wants to read/import or write/export files in another format, integrate a legacy or third-party system, parse or produce CSV/XML/foreign JSON, or receive messages not produced by NymBroker.
 ---
 
 # NymBroker input transformer
@@ -88,3 +88,36 @@ Unit-test `Transform` directly with sample inputs (valid, invalid, edge cases su
 ## 5. Finish
 
 Build and run the tests; tell the user how bad input is handled and where to drop files or send data.
+
+## Output transformers (the other direction)
+
+When a **destination** needs its own format, write an `IOutputTransformer` for that endpoint. Every message sent there is converted just before the transport gets it, whether it comes from `PostAsync`, `PostBatchAsync`, a route, a topic, or a wire-tap or dead-letter endpoint pointed at it.
+
+```csharp
+public sealed class OrderXmlTransformer : IOutputTransformer
+{
+    public byte[]? Transform(RawMessageContext message, string destinationEndpoint)
+    {
+        var order = message.RawMessage;                    // payload as JsonElement (camelCase); metadata on message
+        var xml = new XElement("Order",
+            new XAttribute("id", order.GetProperty("orderId").GetString()!),
+            new XElement("Amount", order.GetProperty("amount").GetDecimal()));
+        return Encoding.UTF8.GetBytes(xml.ToString(SaveOptions.DisableFormatting));   // null = send nothing
+    }
+}
+
+builder.Services.AddNymBroker()
+    .AddFileEndPoint("LegacyOut", new FileSettings { PostPath = "legacy-out" }, EndpointMode.WriteOnly)
+    .AddOutputTransformer<OrderXmlTransformer>("LegacyOut")
+    .Build();
+```
+
+Rules:
+
+- Make the endpoint **`WriteOnly`**. If the broker also listens on it and no input transformer reads the new format back, `StartAsync` throws.
+- Don't post to it with `splitThresholdBytes` (throws), and don't `PostRawAsync` non-envelope bytes to it (throws).
+- If the message type might change shape, check `message.MessageType` and decide per type. Throw for a type you cannot convert, so the failure is visible (`PostAsync` throws; a route makes the source retry).
+- Transports don't learn the format. HTTP sends a non-JSON body as `application/octet-stream` without the `Idempotency-Key` header; Service Bus still says `application/json`; the File endpoint still names files `*.json`.
+- Test `Transform` directly. Add one test that posts to a Memory `WriteOnly` endpoint with the transformer and drains it with `ReadAsync()`.
+
+Docs: https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md#output-transformers

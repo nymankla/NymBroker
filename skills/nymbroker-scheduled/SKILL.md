@@ -5,16 +5,16 @@ description: Run recurring work with NymBroker scheduled actions — interval ti
 
 # NymBroker scheduled actions
 
-`INymBroker.AddScheduledAction` runs a synchronous `Action` on an interval or a cron schedule while the broker is running. Actions start with `StartAsync`, stop with `StopAsync`, and can be added before or after start.
+`AddScheduledAction` on the `AddNymBroker()` builder runs an async action on an interval or a cron schedule while the broker is running. Each run gets its own DI scope and the broker's stop token. Actions start with `StartAsync` and stop with `StopAsync` (NymBroker 0.14+; earlier versions had synchronous `INymBroker.AddScheduledAction` overloads, which no longer exist).
 
-Docs: https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md#scheduled-actions
+Docs: https://github.com/nymankla/NymBroker/blob/master/docs/scheduling.md#scheduled-actions
 
 ## 1. Clarify
 
 - **What** runs and **when** (every N seconds/minutes, or a calendar time like weekdays 17:00 — which time zone?).
-- **How many instances** of the app run. Every instance runs every scheduled action. If the job must run once per occurrence across a cluster, see section 4.
+- **How many instances** of the app run. Every instance runs every unnamed scheduled action. If the job must run once per occurrence across a cluster, or must not be skipped when the app was down, see section 4.
 - Does the work need retries? Then post a message and do the work in a consumer (recommended pattern below).
-- Is NymBroker the right tool? For complex job scheduling (persistence of missed runs, dashboards, distributed locks) suggest a job scheduler (Quartz.NET, Hangfire) instead. Scheduled actions have no catch-up for runs missed while the app was down.
+- Is NymBroker the right tool? Named actions with a schedule store (**nymbroker-scheduled-recovery** skill) cover "once per cluster" and "catch up one missed run". For job dashboards, per-slot backfill of every missed run or job chains, suggest a job scheduler (Quartz.NET, Hangfire).
 
 ## 2. Recommended: schedule a message, work in a consumer
 
@@ -28,36 +28,34 @@ public sealed record DailyReportRequested(DateOnly Day);
 ```
 
 ```csharp
-// After the app/host is built, before it runs:
-var broker = app.Services.GetRequiredService<INymBroker>();
+builder.Services.AddNymBroker()
+    // ... endpoints, consumers ...
 
-// Weekdays at 17:00 local time.
-broker.AddScheduledAction<INymBroker>(
-    "0 17 * * 1-5",
-    b => b.PostAsync("Jobs", new DailyReportRequested(DateOnly.FromDateTime(DateTime.Now))).GetAwaiter().GetResult(),
-    broker);
+    // Weekdays at 17:00 local time.
+    .AddScheduledAction("0 17 * * 1-5", (services, ct) =>
+        services.GetRequiredService<INymBroker>()
+            .PostAsync("Jobs", new DailyReportRequested(DateOnly.FromDateTime(DateTime.Now)), ct))
 
-// Every 5 minutes.
-broker.AddScheduledAction<INymBroker>(
-    TimeSpan.FromMinutes(5),
-    b => b.PostAsync("Jobs", new PollSupplierFeed()).GetAwaiter().GetResult(),
-    broker);
+    // Every 5 minutes.
+    .AddScheduledAction(TimeSpan.FromMinutes(5), (services, ct) =>
+        services.GetRequiredService<INymBroker>().PostAsync("Jobs", new PollSupplierFeed(), ct))
+    .Build();
 ```
 
 Register a `Jobs` endpoint (a durable one if a trigger must not be lost) and a consumer for each trigger message (**nymbroker-consumer** skill).
 
 ## 3. API
 
-| Overload | Runs |
+| Builder method | Runs |
 |---|---|
-| `AddScheduledAction(TimeSpan interval, Action action)` | every `interval`; the first run is one interval after start |
-| `AddScheduledAction<T1>(TimeSpan, Action<T1>, T1 arg)` / `<T1, T2>(TimeSpan, Action<T1, T2>, T1, T2)` | same, with arguments |
-| `AddScheduledAction<T1>(string cron, Action<T1>, T1 arg)` | on a cron schedule, local time zone |
+| `AddScheduledAction(TimeSpan interval, Func<IServiceProvider, CancellationToken, Task> action)` | every `interval` (must be positive); the first run is one interval after start |
+| `AddScheduledAction(string cron, Func<IServiceProvider, CancellationToken, Task> action)` | on a cron schedule, local time zone |
+| `AddScheduledAction(string name, TimeSpan interval \| string cron, action, o => …)` | named: claimed in a schedule store, once per cluster, optional catch-up (see **nymbroker-scheduled-recovery**) |
 
-- Actions are **synchronous**. For async code use `.GetAwaiter().GetResult()` inside the action (it runs on its own background task), or better, post a message.
-- Don't capture scoped services (e.g. a `DbContext`) in the action — it lives for the app's lifetime. Create a scope inside (`using var scope = app.Services.CreateScope();`) or use the message pattern.
+- The `IServiceProvider` is a **new scope per run**, so scoped services (a `DbContext`) are safe to resolve from it. Don't capture services from outside the lambda.
+- Each run is awaited before the next wait, so runs of one action never overlap. Pass `ct` to async calls; it is cancelled when the broker stops.
 - A run that throws is logged at `Error`; the schedule continues. `StopAsync` never throws because of an action.
-- An invalid cron expression throws `FormatException` when the action is added.
+- An invalid cron expression throws `FormatException` when the action is added (at `AddScheduledAction`, not at startup).
 
 ### Cron syntax
 
@@ -75,11 +73,11 @@ Examples: `*/15 * * * *` every 15 min · `0 2 * * *` daily 02:00 · `0 8 1 * *` 
 
 ## 4. Several instances
 
-Each instance fires every action. Options:
+Each instance fires every unnamed action. Options:
 
-- Make the work idempotent and accept duplicates (e.g. "generate report for day X" that skips if it already exists). Usually the simplest.
+- **Name the action and register a shared schedule store** (`AddScheduledAction("nightly-report", "0 2 * * *", …)` + `AddSqlServerScheduleStore` / `AddPostgresScheduleStore` / `AddMySqlScheduleStore`): each occurrence runs on one instance, and `MissedRunPolicy.RunOnce` catches up a run missed while the app was down. Use the **nymbroker-scheduled-recovery** skill.
+- Make the work idempotent and accept duplicates (e.g. "generate report for day X" that skips if it already exists).
 - Run the schedule in one designated instance only (a config flag such as `Jobs:EnableScheduler`, checked before adding the actions).
-- Use a dedicated scheduler for strict once-only semantics.
 
 Tell the user which option you chose and why.
 

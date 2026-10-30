@@ -9,6 +9,6 @@
 - **FIFO** (queue name/URL ends in `.fifo`): group id = `MessageGroupId` ?? envelope `correlationId` ?? `"nymbroker"`; dedup id = envelope `id` ?? SHA-256 of the body. Parsed with a `Utf8JsonReader` over top-level properties only.
 - **Batch send**: chunks of ≤ 10 entries and ≤ 256 KiB per request (conservative, valid on every SQS-compatible server). SQS accepts entries individually: on a failed entry the method throws, later chunks are not sent.
 - **Client**: one `AmazonSQSClient` per endpoint (thread-safe), disposed with the endpoint. `ServiceUrl` (ElasticMQ/LocalStack) needs an `AuthenticationRegion` for signing — `Region` or `us-east-1`. `Credentials` is code-only (`[JsonIgnore]`); otherwise the SDK's default chain. `QueueName` is resolved to a URL on first use and cached (a failed lookup is retried next time).
-- **Health**: `GetQueueAttributes` via `HealthCheckResult.FromProbe`; unhealthy if the loop ended unexpectedly (`_loopFailed`).
+- **Health**: `GetQueueAttributes` via `HealthCheckResult.FromProbeAsync` in `HealthCheckAsync`; unhealthy if the loop ended unexpectedly (`_loopFailed`).
 
 Integration tests: `AwsSqsEndPointTests` (`NYMBROKER_SQS_URL=http://localhost:9324`, `./scripts/setup-sqs.ps1`) create a unique queue + DLQ with a redrive policy per test and delete them afterwards. ElasticMQ supports redrive, FIFO deduplication, `PurgeQueue` and the JSON protocol the v4 SDK uses.

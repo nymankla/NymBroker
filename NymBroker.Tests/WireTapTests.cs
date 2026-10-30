@@ -38,13 +38,7 @@ public sealed class WireTapTests
         var sp = services.BuildServiceProvider();
 
         var tap = new MemoryQueueEndPoint("Tap");
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.AddEndpoint("Tap", tap);
         broker.RegisterConsumer(typeof(Event), nameof(EventConsumer));
@@ -90,13 +84,7 @@ public sealed class WireTapTests
         var tap1 = new MemoryQueueEndPoint("Tap1");
         var tap2 = new MemoryQueueEndPoint("Tap2");
 
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.AddEndpoint("Tap1", tap1);
         broker.AddEndpoint("Tap2", tap2);

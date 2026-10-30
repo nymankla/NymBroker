@@ -38,13 +38,7 @@ public sealed class MessageTtlTests
     private static NymBrokerImpl BuildBroker(ServiceProvider sp, ReportConsumer consumer,
         TimeSpan maxAge, MemoryQueueEndPoint? dlq = null)
     {
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.RegisterConsumer(typeof(Report), nameof(ReportConsumer));
         broker.SetMaxMessageAge(maxAge);

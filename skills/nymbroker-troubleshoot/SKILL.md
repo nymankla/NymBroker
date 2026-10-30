@@ -11,7 +11,7 @@ Docs: https://github.com/nymankla/NymBroker/blob/master/docs/user-guide.md
 
 ## 1. Collect facts
 
-1. **Registration**: find the `AddNymBroker()` chain. Note every endpoint (name, transport, `EndpointMode`), consumers, topics, `WithDeadLetterEndpoint`, idempotency, and the code adding routes (`broker.Route…`) and filters (`broker.AddFilter`). Check `.Build()` is called once.
+1. **Registration**: find the `AddNymBroker()` chain. Note every endpoint (name, transport, `EndpointMode`), consumers, topics, routes (`AddRoute`), filters (`AddFilter`), `WithDeadLetterEndpoint`, idempotency and scheduled actions — since 0.14 all of these are on the builder. Check `.Build()` is called once.
 2. **Logs**: ask for or find them (console, Application Insights, Seq…). Useful lines:
    - `Endpoint 'X' registered (ReadWrite)` / `Started listening on endpoint 'X'` (Information) — the endpoint exists and listens.
    - Each processed message has a log scope with `MessageId`, `CorrelationId`, `MessageType`, `SourceEndpoint` — enable scopes (`"IncludeScopes": true` for the console logger) to correlate.

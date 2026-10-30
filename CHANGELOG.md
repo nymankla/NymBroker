@@ -4,6 +4,98 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-30
+
+### Added
+
+- `AddConsumer<TConsumer>(o => o.RetryOnFailure = false)`: a message whose consumer throws is dead-lettered at once (reason `ConsumerFailed`) instead of being returned for retry, when it came from an endpoint with its own dead-letter queue (the SQL queue tables, RabbitMQ, Service Bus). Messages from other endpoints already went straight to the broker's dead-letter endpoint. The option is per consumer, applies to all its message types, and does not affect topic subscribers or route destinations. Registering the same consumer again with a different value throws.
+
+## [0.15.1] - 2026-10-30
+
+### Fixed
+
+- `StopAsync` threw `OperationCanceledException` without stopping anything when its token was already cancelled, for example when the host's shutdown timeout had passed before NymBroker's hosted service was stopped. The listeners kept running. `StopAsync` now always stops the scheduled actions and every listener; the token no longer aborts stopping.
+- When one endpoint's `StopListeningAsync` threw, `StopAsync` did not stop the endpoints after it, and the broker still counted as started, so a later `StopAsync` did nothing and `StartAsync` did not restart them. Now each failure is logged at `Error`, every other endpoint is still stopped and the broker counts as stopped; then the failure is rethrown (several failures as one `AggregateException`).
+
+### Changed
+
+- Docs: scheduled actions, cron syntax and named actions with schedule stores moved from `docs/pipeline-extensions.md` to their own page, [`docs/scheduling.md`](docs/scheduling.md), linked from the user guide and the README.
+
+## [0.15.0] - 2026-10-29
+
+### Added
+
+- Named scheduled actions: `AddScheduledAction(name, interval | cron, (services, ct) => …, o => o.MissedRuns = MissedRunPolicy.RunOnce)`. The broker claims each occurrence in a schedule store before it runs it, so instances that share the store run it once, and with `MissedRunPolicy.RunOnce` an action that missed occurrences while the app was down runs once right away on start (`MaxCatchUp` limits how old a missed run may be). A claim counts as the run, even if the action fails. Named interval actions run on a fixed grid (multiples of the interval since 1970-01-01 UTC) so instances agree on occurrences. Unnamed actions are unchanged.
+- `IScheduleStore` and `NymBrokerBuilder.AddScheduleStore(factory)`; without a registered store, named actions use an in-process store.
+- New packages with durable schedule stores: `NymBroker.Scheduling.Sqlite` (`AddSqliteScheduleStore`, one host), `NymBroker.Scheduling.Postgres` (`AddPostgresScheduleStore`), `NymBroker.Scheduling.SqlServer` (`AddSqlServerScheduleStore`) and `NymBroker.Scheduling.MySql` (`AddMySqlScheduleStore`). One row per action name, created automatically.
+- Client skill `nymbroker-scheduled-recovery`: sets up named scheduled actions with a schedule store.
+
+### Fixed
+
+- A cron scheduled action whose next occurrence was more than about 49 days away (e.g. `@yearly`) stopped with a `Critical` log, because `Task.Delay` rejects such a delay. The wait now happens in steps of at most one day.
+- The SQL Server and PostgreSQL idempotency stores could fail their first claim when several instances started at the same time and raced to create the table (SQL Server: "an index … already exists"; PostgreSQL: duplicate key on `pg_type`). The broker returned `Retry`, so no message was lost. SQL Server now ignores the "already exists" errors of a concurrent create, and PostgreSQL serializes the creation with a transaction-scoped advisory lock.
+
+### Changed
+
+- `samples/NymBroker.EfCoreTransactionSample`: an out-of-stock order is now rejected as a business outcome: the consumer rolls back to a savepoint, records an `OrderRejections` row in the same transaction and completes the message, instead of throwing so the queue retries it `MaxRetryCount` times and marks it `Failed`. Unexpected errors still throw and are retried.
+
+## [0.14.0] - 2026-10-20
+
+### Added
+
+- `IEndPoint.HealthCheckAsync(CancellationToken)` and `HealthCheckResult.FromProbeAsync(...)`. `CheckHealthAsync` (and `/health`) now calls the async check, so a slow database or broker no longer holds a thread-pool thread for up to 5 s per endpoint. The default implementation calls `HealthCheck()`, so existing endpoints keep working unchanged. The SQLite, PostgreSQL, SQL Server, MySQL, SQS, Service Bus and HTTP endpoints implement it; their `HealthCheck()` now waits for it.
+- Builder methods `AddRoute<T>(r => …)`, `AddRoute(r => …)`, `AddRoute(routeContextFactory, r => …)`, `AddFilter(filter)`, `AddFilter<TFilter>()`, and `AddScheduledAction(TimeSpan | cron, (services, ct) => …)`. A scheduled action is async, gets a new DI scope for every run and the broker's stop token. A route without `.To(...)` and an invalid cron expression throw when they are added.
+
+### Changed
+
+- **Breaking:** the broker is configured only on the builder (`AddNymBroker()`). `INymBroker` keeps the runtime operations (post, publish, process, start/stop, health), and `NymBrokerImpl` is now internal. Before, routes, filters and the dead-letter endpoint could be changed on a running broker, which skipped the startup checks (#81, #83). Migration:
+
+  | Before (on `INymBroker`) | Now (on the builder) |
+  |---|---|
+  | `broker.Route<T>().To("X").When(…).Build()` | `.AddRoute<T>(r => r.To("X").When(…))` |
+  | `broker.Route().To("X").Build()` | `.AddRoute(r => r.To("X"))` |
+  | `broker.Route(() => new MyContext()).To("X").Build()` | `.AddRoute(() => new MyContext(), r => r.To("X"))` |
+  | `broker.AddFilter(new MyFilter())` | `.AddFilter(new MyFilter())` or `.AddFilter<MyFilter>()` |
+  | `broker.AddScheduledAction<INymBroker>(interval, b => b.PostAsync(…).GetAwaiter().GetResult(), broker)` | `.AddScheduledAction(interval, (sp, ct) => sp.GetRequiredService<INymBroker>().PostAsync(…, ct))` (same for a cron string) |
+  | `broker.SetDeadLetterEndpoint("X")` / `AddWireTap("X")` / `SetMaxMessageAge(t)` | `.WithDeadLetterEndpoint("X")` / `.AddWireTap("X")` / `.DiscardMessagesOlderThan(t)` |
+  | `broker.AddInputTransformer(instance, "X")` | `.AddInputTransformer<T>("X")` |
+  | `new NymBrokerImpl(...)` | `services.AddNymBroker()…Build()` and resolve `INymBroker` |
+
+  Scheduled actions can no longer be added after the broker is built.
+- Dependencies: `Microsoft.Extensions.*`, `Microsoft.Data.Sqlite` 10.0.13, `AWSSDK.SQS` 4.0.100.19, `Microsoft.SourceLink.GitHub` 10.0.402.
+
+## [0.13.0] - 2026-10-19
+
+### Security
+
+- `NymBroker.Endpoint.SqlServer` and `NymBroker.Idempotency.SqlServer` reference `System.Security.Cryptography.Pkcs` 10.0.13 directly. `Microsoft.Data.SqlClient` 7.1.1 (the latest) pulls in 9.0.18, which is affected by CVE-2026-84008 (high) and CVE-2026-70162 (moderate), both .NET denial-of-service vulnerabilities. The pin will be removed once SqlClient references a patched version.
+
+### Added
+
+- Output transformers (#83): `IOutputTransformer` and `AddOutputTransformer<T>(endpoint)` convert every message sent to an endpoint into the destination's own format, e.g. JSON → XML for a legacy system. They apply to `PostAsync`, `PostBatchAsync`, routes, topics and wire-tap or dead-letter endpoints. A null result sends nothing. Splitting a message to such an endpoint throws, and `StartAsync` throws if the broker would also listen on it without an input transformer. `samples/NymBroker.CsvSample` now also writes its orders as XML.
+
+### Fixed
+
+- A reassembled split message was counted as one more received message and processing time, and was copied twice (bytes → string → bytes) before processing. Now only the parts are counted, and the reassembled bytes are processed directly.
+
+### Changed
+
+- A message sent to several routes, or to several subscriber endpoints of a topic, is serialized once instead of once per destination.
+- The broker's per-message log lines ("Routed message …", "Topic '…' delivered …", "Splitting message …") are logged at `Debug` instead of `Information`. At normal throughput they flooded production logs; the `nymbroker.messages.routed` metric counts the same events. Set the `NymBroker` category to `Debug` to see them again.
+- The SQL endpoints and idempotency stores create their tables through one shared `AsyncOnce` helper (`NymBroker.Core.Endpoint`), instead of six hand-written lock-and-flag copies, some of which took the lock on every operation. `AsyncOnce` is public for endpoint and store authors.
+
+### Removed
+
+- **Breaking:** `IRouteBuilder<T>.Transform(fileName)` and `RouteContext.Transform`, obsolete no-ops since #48. Migration: delete the call; it never changed the message. To send a routed message in another format, use an output transformer on the destination.
+
+## [0.12.1] - 2026-10-13
+
+### Changed
+
+- NuGet package tags and descriptions: shared tags for messaging and Enterprise Integration Patterns, plus per-package tags for the transport or database (`rabbitmq`, `azure-service-bus`, `sqs`, `postgresql`, …), so the packages show up in NuGet search.
+
+## [0.12.0] - 2026-10-12
+
 ### Added
 
 - Metric `nymbroker.message.age` (histogram, seconds, tag `source`): how old each message is when the broker starts processing it, measured from the envelope's `created`. It rises when a backlog builds, on every transport. Queue depth is still not measured by the broker; [docs/observability.md](docs/observability.md) lists where to read it for each transport.

@@ -49,3 +49,4 @@ NymBroker.Endpoint.Sqlite.SqliteSynchronous.Normal = 1 -> NymBroker.Endpoint.Sql
 NymBroker.Endpoint.Sqlite.SqliteSynchronous.Off = 0 -> NymBroker.Endpoint.Sqlite.SqliteSynchronous
 static NymBroker.Endpoint.Sqlite.NymBrokerBuilderSqliteExtensions.AddSqliteEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.Sqlite.SqliteSettings? settings = null, NymBroker.Core.Endpoint.EndpointMode mode = NymBroker.Core.Endpoint.EndpointMode.ReadWrite) -> NymBroker.Core.Factory.NymBrokerBuilder!
 static NymBroker.Endpoint.Sqlite.NymBrokerBuilderSqliteExtensions.WithSql(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!

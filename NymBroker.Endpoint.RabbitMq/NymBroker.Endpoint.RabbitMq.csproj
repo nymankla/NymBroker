@@ -19,7 +19,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Endpoint.RabbitMq</PackageId>
-    <PackageDescription>RabbitMQ endpoint add-on for NymBroker.</PackageDescription>
+    <PackageDescription>RabbitMQ transport for NymBroker: publish and consume with acks, batched acknowledgements, redelivery and native dead-lettering.</PackageDescription>
+    <PackageTags>$(PackageTags);rabbitmq;amqp</PackageTags>
   </PropertyGroup>
 
 </Project>

@@ -230,13 +230,6 @@ NymBroker.Core.Impl.ConsumerDispatcher.ConsumerDispatcher(Microsoft.Extensions.D
 NymBroker.Core.Impl.ConsumerDispatcher.DispatchAsync(System.Type! messageType, object! message, NymBroker.Core.Message.IMessageContext! context, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.ConsumerDispatcher.RegisterConsumer(System.Type! messageType, string! serviceKey) -> void
 NymBroker.Core.Impl.INymBroker
-NymBroker.Core.Impl.INymBroker.AddFilter(NymBroker.Core.Filter.IMessageFilter! filter) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.INymBroker.AddInputTransformer(NymBroker.Core.Transform.IInputTransformer! transformer, string? endpoint = null) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.INymBroker.AddScheduledAction(System.TimeSpan timeSpan, System.Action! action) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.INymBroker.AddScheduledAction<T1, T2>(System.TimeSpan timeSpan, System.Action<T1, T2>! action, T1 param1, T2 param2) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.INymBroker.AddScheduledAction<T1>(System.TimeSpan timeSpan, System.Action<T1>! action, T1 param1) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.INymBroker.AddScheduledAction<T1>(string! expression, System.Action<T1>! action, T1 param1) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.INymBroker.AddWireTap(string! endpointName) -> NymBroker.Core.Impl.INymBroker!
 NymBroker.Core.Impl.INymBroker.CheckHealthAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.BrokerHealthReport!>!
 NymBroker.Core.Impl.INymBroker.PostAsync<T>(string! endpointName, T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.INymBroker.PostBatchAsync<T>(string! endpointName, System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true, System.Guid? correlationId = null) -> System.Threading.Tasks.Task!
@@ -246,49 +239,12 @@ NymBroker.Core.Impl.INymBroker.PublishAsync<T>(T! message, System.Threading.Canc
 NymBroker.Core.Impl.INymBroker.PublishAsync<T>(string! topicName, T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.INymBroker.PublishBatchAsync<T>(System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.INymBroker.PublishBatchAsync<T>(string! topicName, System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.Route() -> NymBroker.Core.Route.IRouteBuilder<NymBroker.Core.Message.IAnyMessage!>!
-NymBroker.Core.Impl.INymBroker.Route(NymBroker.Core.Route.IRouteBuilder! routeBuilder) -> NymBroker.Core.Route.RouteContext!
-NymBroker.Core.Impl.INymBroker.Route(System.Func<NymBroker.Core.Route.RouteContext!>! routeContextFactory) -> NymBroker.Core.Route.IRouteBuilder<NymBroker.Core.Message.IAnyMessage!>!
-NymBroker.Core.Impl.INymBroker.Route<T>() -> NymBroker.Core.Route.IRouteBuilder<T!>!
-NymBroker.Core.Impl.INymBroker.SetDeadLetterEndpoint(string! endpointName) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.INymBroker.SetMaxMessageAge(System.TimeSpan maxAge) -> NymBroker.Core.Impl.INymBroker!
 NymBroker.Core.Impl.INymBroker.StartAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.INymBroker.StopAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.MessageTypeRegistry
 NymBroker.Core.Impl.MessageTypeRegistry.MessageTypeRegistry() -> void
 NymBroker.Core.Impl.MessageTypeRegistry.Register(System.Type! messageType) -> void
 NymBroker.Core.Impl.MessageTypeRegistry.Resolve(string? messageType) -> System.Type?
-NymBroker.Core.Impl.NymBrokerImpl
-NymBroker.Core.Impl.NymBrokerImpl.AddEndpoint(string! name, NymBroker.Core.Endpoint.IEndPoint! endpoint) -> void
-NymBroker.Core.Impl.NymBrokerImpl.AddFilter(NymBroker.Core.Filter.IMessageFilter! filter) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.NymBrokerImpl.AddInputTransformer(NymBroker.Core.Transform.IInputTransformer! transformer, string? endpoint = null) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.NymBrokerImpl.AddScheduledAction(System.TimeSpan timeSpan, System.Action! action) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.NymBrokerImpl.AddScheduledAction<T1, T2>(System.TimeSpan timeSpan, System.Action<T1, T2>! action, T1 param1, T2 param2) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.NymBrokerImpl.AddScheduledAction<T1>(System.TimeSpan timeSpan, System.Action<T1>! action, T1 param1) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.NymBrokerImpl.AddScheduledAction<T1>(string! expression, System.Action<T1>! action, T1 param1) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.NymBrokerImpl.AddTopic(NymBroker.Core.PubSub.TopicContext! topic) -> void
-NymBroker.Core.Impl.NymBrokerImpl.AddWireTap(string! endpointName) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.NymBrokerImpl.CheckHealthAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.BrokerHealthReport!>!
-NymBroker.Core.Impl.NymBrokerImpl.ConfigureHealthCheck(NymBroker.Core.Endpoint.HealthCheck.BrokerHealthCheckOptions! options) -> void
-NymBroker.Core.Impl.NymBrokerImpl.NymBrokerImpl(NymBroker.Core.Serialize.MessageSerializerJson! serializer, NymBroker.Core.Aggregator.IAggregator! aggregator, NymBroker.Core.Impl.MessageTypeRegistry! messageTypeRegistry, NymBroker.Core.Impl.ConsumerDispatcher! consumerDispatcher, NymBroker.Core.PubSub.SubscriberDispatcher! subscriberDispatcher, Microsoft.Extensions.Logging.ILogger<NymBroker.Core.Impl.NymBrokerImpl!>! logger, NymBroker.Core.Splitter.ISplitter? splitter = null, NymBroker.Core.Splitter.ICompressor? compressor = null) -> void
-NymBroker.Core.Impl.NymBrokerImpl.PostAsync<T>(string! endpointName, T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.NymBrokerImpl.PostBatchAsync<T>(string! endpointName, System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true, System.Guid? correlationId = null) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.NymBrokerImpl.ProcessAsync(byte[]! raw, string? sourceEndpoint = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!
-NymBroker.Core.Impl.NymBrokerImpl.ProcessAsync(string! raw, string? sourceEndpoint = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!
-NymBroker.Core.Impl.NymBrokerImpl.PublishAsync<T>(T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.NymBrokerImpl.PublishAsync<T>(string! topicName, T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.NymBrokerImpl.PublishBatchAsync<T>(System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.NymBrokerImpl.PublishBatchAsync<T>(string! topicName, System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.NymBrokerImpl.RegisterConsumer(System.Type! messageType, string! serviceKey) -> void
-NymBroker.Core.Impl.NymBrokerImpl.Route() -> NymBroker.Core.Route.IRouteBuilder<NymBroker.Core.Message.IAnyMessage!>!
-NymBroker.Core.Impl.NymBrokerImpl.Route(NymBroker.Core.Route.IRouteBuilder! routeBuilder) -> NymBroker.Core.Route.RouteContext!
-NymBroker.Core.Impl.NymBrokerImpl.Route(System.Func<NymBroker.Core.Route.RouteContext!>! routeContextFactory) -> NymBroker.Core.Route.IRouteBuilder<NymBroker.Core.Message.IAnyMessage!>!
-NymBroker.Core.Impl.NymBrokerImpl.Route<T>() -> NymBroker.Core.Route.IRouteBuilder<T!>!
-NymBroker.Core.Impl.NymBrokerImpl.SetDeadLetterEndpoint(string! endpointName) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.NymBrokerImpl.SetIdempotencyStore(NymBroker.Core.Idempotency.IIdempotencyStore! store) -> void
-NymBroker.Core.Impl.NymBrokerImpl.SetMaxMessageAge(System.TimeSpan maxAge) -> NymBroker.Core.Impl.INymBroker!
-NymBroker.Core.Impl.NymBrokerImpl.StartAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.NymBrokerImpl.StopAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Core.Message.DeadLetterEnvelope
 NymBroker.Core.Message.DeadLetterInfo
 NymBroker.Core.Message.DeadLetterInfo.<Clone>$() -> NymBroker.Core.Message.DeadLetterInfo!
@@ -424,7 +380,6 @@ NymBroker.Core.Route.IRouteBuilder<T>.And(NymBroker.Core.Route.IRouteCondition! 
 NymBroker.Core.Route.IRouteBuilder<T>.Build() -> NymBroker.Core.Route.RouteContext!
 NymBroker.Core.Route.IRouteBuilder<T>.Or(NymBroker.Core.Route.IRouteCondition! lhs, NymBroker.Core.Route.IRouteCondition! rhs) -> NymBroker.Core.Route.IRouteBuilder<T!>!
 NymBroker.Core.Route.IRouteBuilder<T>.To(string! endpointName) -> NymBroker.Core.Route.IRouteBuilder<T!>!
-NymBroker.Core.Route.IRouteBuilder<T>.Transform(string! fileName) -> NymBroker.Core.Route.IRouteBuilder<T!>!
 NymBroker.Core.Route.IRouteBuilder<T>.When(System.Func<System.Text.Json.JsonElement, bool>! condition) -> NymBroker.Core.Route.IRouteBuilder<T!>!
 NymBroker.Core.Route.IRouteBuilder<T>.WhenFrom(string! sourceEndpoint) -> NymBroker.Core.Route.IRouteBuilder<T!>!
 NymBroker.Core.Route.IRouteBuilder<T>.WhenMessageIsOlderThan(System.TimeSpan age) -> NymBroker.Core.Route.IRouteBuilder<T!>!
@@ -455,8 +410,6 @@ NymBroker.Core.Route.RouteContext.MessageType.set -> void
 NymBroker.Core.Route.RouteContext.RouteContext() -> void
 NymBroker.Core.Route.RouteContext.SourceEndpoint.get -> string?
 NymBroker.Core.Route.RouteContext.SourceEndpoint.set -> void
-NymBroker.Core.Route.RouteContext.Transform.get -> string?
-NymBroker.Core.Route.RouteContext.Transform.set -> void
 NymBroker.Core.Serialize.IMessageSerializer
 NymBroker.Core.Serialize.IMessageSerializer.Deserialize(System.IO.Stream! stream) -> NymBroker.Core.Message.IMessageContext!
 NymBroker.Core.Serialize.IMessageSerializer.Deserialize(System.ReadOnlySpan<byte> utf8Json) -> NymBroker.Core.Message.IMessageContext!
@@ -636,5 +589,39 @@ virtual NymBroker.Core.Endpoint.Queue.LeasedQueueListener.WaitWhenIdleAsync(Syst
 ~override NymBroker.Core.Endpoint.Queue.QueueMessageOutcome.ToString() -> string
 NymBroker.Core.Impl.INymBroker.PostRawAsync(string! endpointName, System.IO.Stream! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.INymBroker.PostRawAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.NymBrokerImpl.PostRawAsync(string! endpointName, System.IO.Stream! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.NymBrokerImpl.PostRawAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
+NymBroker.Core.Factory.NymBrokerBuilder.AddOutputTransformer<TTransformer>(string! endpoint) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Transform.IOutputTransformer
+NymBroker.Core.Transform.IOutputTransformer.Transform(NymBroker.Core.Serialize.RawMessageContext! message, string! destinationEndpoint) -> byte[]?
+NymBroker.Core.Endpoint.AsyncOnce
+NymBroker.Core.Endpoint.AsyncOnce.AsyncOnce() -> void
+NymBroker.Core.Endpoint.AsyncOnce.IsCompleted.get -> bool
+NymBroker.Core.Endpoint.AsyncOnce.RunAsync<TState>(TState state, System.Func<TState, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! action, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.Factory.NymBrokerBuilder.AddFilter(NymBroker.Core.Filter.IMessageFilter! filter) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddFilter<TFilter>() -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddRoute(System.Action<NymBroker.Core.Route.IRouteBuilder<NymBroker.Core.Message.IAnyMessage!>!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddRoute(System.Func<NymBroker.Core.Route.RouteContext!>! routeContextFactory, System.Action<NymBroker.Core.Route.IRouteBuilder<NymBroker.Core.Message.IAnyMessage!>!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddRoute<T>(System.Action<NymBroker.Core.Route.IRouteBuilder<T!>!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddScheduledAction(System.TimeSpan interval, System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! action) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddScheduledAction(string! cronExpression, System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! action) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Endpoint.IEndPoint.HealthCheckAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!
+static NymBroker.Core.Endpoint.HealthCheck.HealthCheckResult.FromProbeAsync(string! endpointKind, string! endpointName, Microsoft.Extensions.Logging.ILogger! logger, System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task!>! probe, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!
+NymBroker.Core.Factory.NymBrokerBuilder.AddScheduleStore(System.Func<System.IServiceProvider!, NymBroker.Core.Scheduling.IScheduleStore!>! factory) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddScheduledAction(string! name, System.TimeSpan interval, System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! action, System.Action<NymBroker.Core.Scheduling.ScheduledActionOptions!>? configure = null) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddScheduledAction(string! name, string! cronExpression, System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! action, System.Action<NymBroker.Core.Scheduling.ScheduledActionOptions!>? configure = null) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Scheduling.IScheduleStore
+NymBroker.Core.Scheduling.IScheduleStore.GetLastRunAsync(string! name, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.DateTimeOffset?>
+NymBroker.Core.Scheduling.IScheduleStore.TryClaimAsync(string! name, System.DateTimeOffset occurrence, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+NymBroker.Core.Scheduling.MissedRunPolicy
+NymBroker.Core.Scheduling.MissedRunPolicy.RunOnce = 1 -> NymBroker.Core.Scheduling.MissedRunPolicy
+NymBroker.Core.Scheduling.MissedRunPolicy.Skip = 0 -> NymBroker.Core.Scheduling.MissedRunPolicy
+NymBroker.Core.Scheduling.ScheduledActionOptions
+NymBroker.Core.Scheduling.ScheduledActionOptions.MaxCatchUp.get -> System.TimeSpan?
+NymBroker.Core.Scheduling.ScheduledActionOptions.MaxCatchUp.set -> void
+NymBroker.Core.Scheduling.ScheduledActionOptions.MissedRuns.get -> NymBroker.Core.Scheduling.MissedRunPolicy
+NymBroker.Core.Scheduling.ScheduledActionOptions.MissedRuns.set -> void
+NymBroker.Core.Scheduling.ScheduledActionOptions.ScheduledActionOptions() -> void
+NymBroker.Core.Consume.ConsumerOptions
+NymBroker.Core.Consume.ConsumerOptions.ConsumerOptions() -> void
+NymBroker.Core.Consume.ConsumerOptions.RetryOnFailure.get -> bool
+NymBroker.Core.Consume.ConsumerOptions.RetryOnFailure.set -> void
+NymBroker.Core.Factory.NymBrokerBuilder.AddConsumer<TConsumer>(System.Action<NymBroker.Core.Consume.ConsumerOptions!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!

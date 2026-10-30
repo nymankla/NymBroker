@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace NymBroker.Core.Impl;
 
-public sealed partial class NymBrokerImpl
+internal sealed partial class NymBrokerImpl
 {
     internal const string BrokerNotRunningMessage = "Broker is not running";
 
@@ -28,8 +28,8 @@ public sealed partial class NymBrokerImpl
         var started = Volatile.Read(ref _started);
         var endpoints = _endpoints.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase).ToList();
 
-        // HealthCheck() is synchronous and may block (database / Service Bus endpoints contact their server),
-        // so every endpoint runs on the thread pool and the total time is about the slowest one.
+        // All endpoints are checked in parallel, so the total time is about the slowest one. Task.Run keeps an
+        // endpoint that only has the synchronous HealthCheck() (the default HealthCheckAsync) from blocking the caller.
         var checks = new Task<(EndpointHealth Health, string? FailureReason)>[endpoints.Count];
         var modes = new EndpointMode[endpoints.Count];
         for (var i = 0; i < endpoints.Count; i++)
@@ -38,7 +38,7 @@ public sealed partial class NymBrokerImpl
             modes[i] = SafeMode(name, endpoint);
             var mode = modes[i];
             var critical = options.IsCritical(name);
-            checks[i] = Task.Run(() => CheckEndpoint(name, endpoint, mode, critical), CancellationToken.None);
+            checks[i] = Task.Run(() => CheckEndpointAsync(name, endpoint, mode, critical, ct), CancellationToken.None);
         }
 
         if (checks.Length > 0)
@@ -63,7 +63,7 @@ public sealed partial class NymBrokerImpl
 
             failureReasons[i] = HealthFailureTimeout;
 
-            // Still running: report it and leave the task to finish in the background (CheckEndpoint never throws).
+            // Still running: report it and leave the task to finish in the background (CheckEndpointAsync never throws).
             var name = endpoints[i].Key;
             var message = $"Health check timed out after {options.Timeout}";
             _logger.LogWarning("Health check of endpoint '{Name}' did not answer within {Timeout}", name, options.Timeout);
@@ -88,12 +88,13 @@ public sealed partial class NymBrokerImpl
     internal const string HealthFailureError = "error";
 
     /// <summary>Checks one endpoint; never throws. The failure reason is null when the endpoint is healthy.</summary>
-    private (EndpointHealth Health, string? FailureReason) CheckEndpoint(string name, IEndPoint endpoint, EndpointMode mode, bool critical)
+    private async Task<(EndpointHealth Health, string? FailureReason)> CheckEndpointAsync(string name, IEndPoint endpoint,
+        EndpointMode mode, bool critical, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         try
         {
-            var result = endpoint.HealthCheck();
+            var result = await endpoint.HealthCheckAsync(ct).ConfigureAwait(false);
             if (result is null)
                 return (new EndpointHealth(name, BrokerHealthStatus.Unhealthy, "Health check returned no result", mode, sw.Elapsed, critical),
                     HealthFailureError);
@@ -104,7 +105,8 @@ public sealed partial class NymBrokerImpl
         }
         catch (Exception ex)
         {
-            // IEndPoint.HealthCheck() should not throw; report it instead of failing the whole check.
+            // A health check should not throw; report it instead of failing the whole check (caller cancellation is
+            // re-checked by CheckHealthAsync).
             _logger.LogWarning(ex, "Health check of endpoint '{Name}' threw", name);
             return (new EndpointHealth(name, BrokerHealthStatus.Unhealthy, ex.Message, mode, sw.Elapsed, critical), HealthFailureError);
         }

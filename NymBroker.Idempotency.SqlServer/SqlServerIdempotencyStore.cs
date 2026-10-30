@@ -1,6 +1,7 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
+using NymBroker.Core.Endpoint;
 using NymBroker.Core.Idempotency;
 
 namespace NymBroker.Idempotency.SqlServer;
@@ -17,8 +18,7 @@ public sealed class SqlServerIdempotencyStore : IExpiringIdempotencyStore
     private readonly string _completeSql;
     private readonly string _releaseSql;
     private readonly string _deleteExpiredSql;
-    private readonly SemaphoreSlim _schemaLock = new(1, 1);
-    private volatile bool _schemaReady;
+    private readonly AsyncOnce _schema = new();
 
     public SqlServerIdempotencyStore(SqlServerIdempotencySettings settings, ILogger<SqlServerIdempotencyStore> logger)
     {
@@ -30,7 +30,6 @@ public sealed class SqlServerIdempotencyStore : IExpiringIdempotencyStore
         _completeSql = SqlServerIdempotencySql.Complete(settings.TableName);
         _releaseSql = SqlServerIdempotencySql.Release(settings.TableName);
         _deleteExpiredSql = SqlServerIdempotencySql.DeleteExpired(settings.TableName);
-        _schemaReady = !settings.AutoCreateTable;
     }
 
     public async ValueTask<IdempotencyClaimResult> TryClaimAsync(Guid messageId, CancellationToken ct = default)
@@ -83,24 +82,15 @@ public sealed class SqlServerIdempotencyStore : IExpiringIdempotencyStore
         }
     }
 
-    private async Task EnsureSchemaAsync(CancellationToken ct)
-    {
-        if (_schemaReady) return;
+    private Task EnsureSchemaAsync(CancellationToken ct)
+        => _settings.AutoCreateTable ? _schema.RunAsync(this, static (self, ct) => self.CreateSchemaAsync(ct), ct) : Task.CompletedTask;
 
-        await _schemaLock.WaitAsync(ct);
-        try
-        {
-            if (_schemaReady) return;
-            await using var connection = await OpenAsync(ct);
-            await using var command = new SqlCommand(SqlServerIdempotencySql.CreateSchema(_settings.TableName), connection);
-            await command.ExecuteNonQueryAsync(ct);
-            _schemaReady = true;
-            _logger.LogDebug("Idempotency table {Table} is ready", _settings.TableName);
-        }
-        finally
-        {
-            _schemaLock.Release();
-        }
+    private async Task CreateSchemaAsync(CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct);
+        await using var command = new SqlCommand(SqlServerIdempotencySql.CreateSchema(_settings.TableName), connection);
+        await command.ExecuteNonQueryAsync(ct);
+        _logger.LogDebug("Idempotency table {Table} is ready", _settings.TableName);
     }
 
     private async Task<SqlConnection> OpenAsync(CancellationToken ct)

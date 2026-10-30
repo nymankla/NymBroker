@@ -69,6 +69,7 @@ Activities started inside consumers (HTTP calls, database commands) become child
 - While a message is processed, every log entry carries a scope with `MessageId`, `CorrelationId`, `MessageType` and `SourceEndpoint` — include scopes in your log output to correlate entries for one message.
 - Failures are always logged: consumer failures and processing errors at `Error`, dead-lettering at `Warning` with its reason, listener loops that die at `Critical`. Nothing is swallowed silently.
 - `AddMessageLoggingFilter()` logs every received message, including its payload, at `Debug`.
+- Routing, topic delivery and splitting are logged per message at `Debug` ("Routed message …", "Topic '…' delivered …", "Splitting message …"); at `Information` the broker logs only startup, shutdown and other rare events. Use the `nymbroker.messages.routed` metric to watch routing in production.
 - Endpoint startup and shutdown are logged at `Information` ("Endpoint 'X' registered (ReadWrite)", "Started listening on endpoint 'X'").
 
 ## Health checks
@@ -86,9 +87,9 @@ foreach (var ep in report.Endpoints)   // ordered by name
     Console.WriteLine($"{ep.Name} ({ep.Mode}): {ep.Status} {ep.Message} in {ep.Duration.TotalMilliseconds} ms");
 ```
 
-- Each endpoint's `HealthCheck()` (connectivity to its database or broker, whether its listener is running) runs on the thread pool, all **in parallel**, so the call takes about as long as the slowest endpoint. The database and Service Bus endpoints contact their server with a 5-second timeout.
+- Each endpoint's `HealthCheckAsync()` (connectivity to its database or broker, whether its listener is running) runs **in parallel**, so the call takes about as long as the slowest endpoint. The database, SQS, Service Bus and HTTP endpoints probe their server asynchronously with a 5-second timeout, so a slow server holds no thread while the probe waits.
 - An endpoint that has not answered within the overall **timeout** (default 10 s) is reported `Unhealthy` ("Health check timed out after …") and logged at `Warning`; its check finishes in the background.
-- The call **never throws**: an endpoint whose `HealthCheck()` throws is reported `Unhealthy` with the exception message and logged at `Warning`. Only an `OperationCanceledException` from your own token propagates.
+- The call **never throws**: an endpoint whose health check throws is reported `Unhealthy` with the exception message and logged at `Warning`. Only an `OperationCanceledException` from your own token propagates.
 
 | Situation | Aggregate `Status` |
 |---|---|

@@ -37,43 +37,6 @@ public interface INymBroker
     Task PostRawAsync(string endpointName, ReadOnlyMemory<byte> message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true);
 #pragma warning restore RS0026
 
-    /// <summary>Start a fluent route definition for message type T.</summary>
-    IRouteBuilder<T> Route<T>() where T : class;
-
-    /// <summary>Start a fluent route definition that matches any message type.</summary>
-    IRouteBuilder<IAnyMessage> Route();
-
-    /// <summary>Register a route from a custom route builder.</summary>
-    RouteContext Route(IRouteBuilder routeBuilder);
-
-    /// <summary>Start a route definition backed by a custom route context factory.</summary>
-    IRouteBuilder<IAnyMessage> Route(Func<RouteContext> routeContextFactory);
-
-    INymBroker AddScheduledAction(TimeSpan timeSpan, Action action);
-    INymBroker AddScheduledAction<T1>(TimeSpan timeSpan, Action<T1> action, T1 param1);
-    INymBroker AddScheduledAction<T1, T2>(TimeSpan timeSpan, Action<T1, T2> action, T1 param1, T2 param2);
-    INymBroker AddScheduledAction<T1>(string expression, Action<T1> action, T1 param1);
-
-    INymBroker AddFilter(IMessageFilter filter);
-
-    /// <summary>
-    /// Register an input transformer for a specific endpoint, or globally when endpoint is null.
-    /// The transformer replaces the default JSON-envelope deserialization for matching messages.
-    /// </summary>
-    INymBroker AddInputTransformer(IInputTransformer transformer, string? endpoint = null);
-
-    /// <summary>
-    /// Forward messages to this endpoint when a consumer throws.
-    /// Also receives messages that exceed the configured max message age.
-    /// </summary>
-    INymBroker SetDeadLetterEndpoint(string endpointName);
-
-    /// <summary>Copy every incoming raw message to this endpoint before processing.</summary>
-    INymBroker AddWireTap(string endpointName);
-
-    /// <summary>Discard (and dead-letter if configured) messages older than maxAge.</summary>
-    INymBroker SetMaxMessageAge(TimeSpan maxAge);
-
     Task StartAsync(CancellationToken ct = default);
     Task StopAsync(CancellationToken ct = default);
 

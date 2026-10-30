@@ -32,3 +32,4 @@ NymBroker.Endpoint.Http.NymBrokerBuilderHttpExtensions
 const NymBroker.Endpoint.Http.HttpEndPointType.Http = "Http" -> string!
 static NymBroker.Endpoint.Http.NymBrokerBuilderHttpExtensions.AddHttpEndPoint(this NymBroker.Core.Factory.NymBrokerBuilder! builder, string! name, NymBroker.Endpoint.Http.HttpSettings! settings, System.Action<Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!>? configureClient = null) -> NymBroker.Core.Factory.NymBrokerBuilder!
 static NymBroker.Endpoint.Http.NymBrokerBuilderHttpExtensions.WithHttp(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Endpoint.Http.HttpEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!

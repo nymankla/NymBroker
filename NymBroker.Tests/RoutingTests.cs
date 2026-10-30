@@ -153,13 +153,7 @@ public sealed class RoutingTests
         var sp = services.BuildServiceProvider();
 
         var dest = new MemoryQueueEndPoint("Dest");
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.AddEndpoint("Dest", dest);
         broker.RegisterConsumer(typeof(PriceMessage), nameof(PriceConsumer));
@@ -179,13 +173,7 @@ public sealed class RoutingTests
 
         var sp = services.BuildServiceProvider();
 
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.RegisterConsumer(typeof(PriceMessage), nameof(ScopedPriceConsumer));
         return broker;
@@ -288,13 +276,7 @@ public sealed class RoutingTests
 
         services.AddSingleton<NymBrokerImpl>(sp =>
         {
-            var broker = new NymBrokerImpl(
-                sp.GetRequiredService<MessageSerializerJson>(),
-                sp.GetRequiredService<IAggregator>(),
-                new MessageTypeRegistry(),
-                new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-                new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-                NullLogger<NymBrokerImpl>.Instance);
+            var broker = TestBroker.Create(sp);
 
             broker.AddEndpoint("Disposable", sp.GetRequiredKeyedService<IEndPoint>("Disposable"));
             return broker;

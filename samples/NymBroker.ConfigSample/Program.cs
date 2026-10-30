@@ -6,24 +6,22 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 // Endpoints are wired entirely from queuesettings.json.
-// Consumers and routes are still registered in code — config only covers transport topology.
+// Consumers and routes are registered in code on the builder — config only covers transport topology.
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((_, services) =>
     {
         services.AddNymBroker()
-            .LoadConfiguration("queuesettings.json")   // registers MemQueue + FileOut
+            .LoadConfiguration(Path.Combine(AppContext.BaseDirectory, "queuesettings.json"))   // registers MemQueue + FileOut; copied to the output folder
             .AddConsumer<OrderConsumer>()
+            // High-priority orders are written to FileOut instead of being dispatched to consumers.
+            .AddRoute<OrderMessage>(r => r
+                .To("FileOut")
+                .When(msg => msg.TryGetProperty("priority", out var p) && p.GetString() == "high"))
             .Build();
     })
     .Build();
 
 var broker = host.Services.GetRequiredService<INymBroker>();
-
-// High-priority orders are written to FileOut instead of being dispatched to consumers.
-broker.Route<OrderMessage>()
-    .To("FileOut")
-    .When(msg => msg.TryGetProperty("priority", out var p) && p.GetString() == "high")
-    .Build();
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };

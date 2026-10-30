@@ -114,13 +114,7 @@ public sealed class ObservabilityTests
         stream.CopyTo(bytes);
 
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
-        var broker = new NymBrokerImpl(
-            serializer,
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(services, serializer: serializer);
         broker.AddEndpoint("Destination", new MemoryQueueEndPoint("Destination"));
         broker.Route<ObservedMessage>().To("Destination").Build();
 
@@ -179,13 +173,7 @@ public sealed class ObservabilityTests
 
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
         var serializer = new MessageSerializerJson();
-        var broker = new NymBrokerImpl(
-            serializer,
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(services, serializer: serializer);
 
         await broker.ProcessAsync("invalid-json", source, TestContext.Current.CancellationToken);
 
@@ -215,13 +203,7 @@ public sealed class ObservabilityTests
         listener.Start();
 
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
-        var broker = new NymBrokerImpl(
-            new MessageSerializerJson(),
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(services);
 
         var created = DateTime.UtcNow.AddSeconds(-30).ToString("O");
         await broker.ProcessAsync(
@@ -233,6 +215,28 @@ public sealed class ObservabilityTests
 
         var age = Assert.Single(ages);
         Assert.InRange(age, 29, 60);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_SplitMessage_CountsEachPartOnce_NotTheReassembledMessageAgain()
+    {
+        var source = "observability-split-test-" + Guid.NewGuid();
+        using var capture = new MetricCapture(source);
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        var broker = TestBroker.Create(services);
+        var parts = new MemoryQueueEndPoint("Parts");
+        broker.AddEndpoint("Parts", parts);
+
+        await broker.PostAsync("Parts", new ObservedMessage { Value = new string('x', 4000) },
+            TestContext.Current.CancellationToken, splitThresholdBytes: 1500, compress: false);
+        var wire = new List<string>();
+        await foreach (var part in parts.ReadAsync(TestContext.Current.CancellationToken)) wire.Add(part);
+        Assert.True(wire.Count > 1);
+
+        foreach (var part in wire)
+            await broker.ProcessAsync(part, source, TestContext.Current.CancellationToken);
+
+        Assert.Equal(wire.Count, capture.For("nymbroker.messages.received").Sum(m => m.Value));
     }
 
     [Fact]
@@ -425,17 +429,7 @@ public sealed class ObservabilityTests
         return services.BuildServiceProvider();
     }
 
-    private static NymBrokerImpl CreateBroker(IServiceProvider services)
-    {
-        var serializer = new MessageSerializerJson();
-        return new NymBrokerImpl(
-            serializer,
-            new AggregatorImpl(NullLogger<AggregatorImpl>.Instance),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
-    }
+    private static NymBrokerImpl CreateBroker(IServiceProvider services) => TestBroker.Create(services);
 
     private static async Task<string> SerializeAsync<T>(T message) where T : class
     {

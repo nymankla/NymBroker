@@ -2,7 +2,7 @@
 
 [← User guide](user-guide.md)
 
-Three ways to plug your own logic into the broker: **filters** see every message before routing, **input transformers** turn non-JSON input into messages, and **scheduled actions** run code on a timer or cron schedule.
+Three ways to plug your own logic into the broker: **filters** see every message before routing, **input transformers** turn non-JSON input into messages, and **output transformers** turn messages into a destination's own format. Scheduled actions, which run code on a timer or cron schedule, are on [Scheduling](scheduling.md).
 
 ## Filters
 
@@ -15,7 +15,10 @@ public sealed class BlockTestTraffic : IMessageFilter
         => context.Address?.From == "TestInbox" ? null : context;
 }
 
-broker.AddFilter(new BlockTestTraffic());   // on INymBroker; filters run in the order they were added
+services.AddNymBroker()
+    .AddFilter(new BlockTestTraffic())   // an instance; filters run in the order they were added
+    .AddFilter<TenantFilter>()           // or resolved from DI (registered as a singleton)
+    .Build();
 ```
 
 Built-in filters, added on the builder:
@@ -76,46 +79,43 @@ services.AddNymBroker()
 - Returning `null` drops the input without logging; log inside the transformer if you need a trace. A transformer that **throws** counts as a processing failure and is retried by transports that can.
 - To push raw input yourself, post it with `PostRawAsync(endpoint, bytes)` — see [Sending messages](sending-messages.md#pre-serialized-bytes). The `samples/NymBroker.CsvSample` project shows the full flow.
 
-## Scheduled actions
+## Output transformers
 
-Run code periodically while the broker is running — for example to post a heartbeat, poll an external system, or trigger a nightly job.
+Use an output transformer when a destination expects its **own** format rather than the NymBroker envelope: XML for a legacy system, CSV, a partner's JSON schema. It is the counterpart of an input transformer. It is registered for one endpoint, and it converts every message sent to that endpoint just before the transport gets it:
 
 ```csharp
-// Every 30 seconds (first run after 30 seconds).
-broker.AddScheduledAction(TimeSpan.FromSeconds(30), () => logger.LogInformation("alive"));
+using NymBroker.Core.Serialize;   // RawMessageContext
+using NymBroker.Core.Transform;   // IOutputTransformer
 
-// With parameters (one or two), e.g. to post a message.
-broker.AddScheduledAction<INymBroker>(
-    TimeSpan.FromMinutes(1),
-    b => b.PostAsync("Prices", new PriceRequest("ACME")).GetAwaiter().GetResult(),
-    broker);
+public sealed class OrderXmlTransformer : IOutputTransformer
+{
+    public byte[]? Transform(RawMessageContext message, string destinationEndpoint)
+    {
+        var order = message.RawMessage;   // the payload as a JsonElement; Id, CorrelationId, MessageType, Created alongside
+        var xml = new XElement("Order",
+            new XAttribute("id", order.GetProperty("orderId").GetString()!),
+            new XElement("Amount", order.GetProperty("amount").GetDecimal()));
+        return Encoding.UTF8.GetBytes(xml.ToString(SaveOptions.DisableFormatting));
+    }
+}
 
-// Cron (5-field syntax, local time zone): weekdays at 17:00.
-broker.AddScheduledAction<INymBroker>(
-    "0 17 * * 1-5",
-    b => b.PostAsync("Reports", new DailyReportRequest()).GetAwaiter().GetResult(),
-    broker);
+services.AddNymBroker()
+    .AddMemoryEndPoint("CsvInbox")
+    .AddFileEndPoint("LegacyOut", new FileSettings { PostPath = "legacy-out" }, EndpointMode.WriteOnly)
+    .AddOutputTransformer<OrderXmlTransformer>("LegacyOut")
+    .AddRoute<OrderCreated>(r => r.To("LegacyOut").WhenFrom("CsvInbox"))
+    .Build();
 ```
 
-#### Cron syntax
+- **Every send to the endpoint** goes through it: `PostAsync`, `PostBatchAsync`, route and topic deliveries, and the wire-tap or dead-letter endpoint if you point one at it. Other endpoints still get the envelope.
+- Returning **`null`** sends nothing for that message. A transformer that **throws** fails the send like a failing endpoint: `PostAsync` throws, and a route makes the source retry (see [Reliability](reliability.md)).
+- It needs an envelope. `PostRawAsync` with bytes that are not an envelope throws `InvalidOperationException`.
+- **No splitting:** posting with `splitThresholdBytes` to the endpoint throws, because `SplitMessage` parts would not be in the destination's format.
+- **Write-only:** `StartAsync` throws if the broker also listens on the endpoint (it is event-driven and not `WriteOnly`) and no input transformer can read the transformed format back. Make the endpoint `WriteOnly`, or add an input transformer for it.
+- `StartAsync` also throws if the endpoint name is not registered.
+- Transports don't learn the new format. The HTTP endpoint sends non-JSON bodies as `application/octet-stream` and, without an envelope, adds no `Idempotency-Key` / `X-NymBroker-*` headers. Service Bus still labels the message `application/json`, and the File endpoint still names its files `*.json`.
+- `samples/NymBroker.CsvSample` reads CSV with an input transformer and writes the same orders as XML with an output transformer.
 
-Five fields, `minute hour day-of-month month day-of-week`, separated by whitespace; seconds are always 0. Expressions are evaluated in the machine's local time zone. The parser is built in and is compatible with Cronos `CronFormat.Standard`, which was used before.
+## Scheduled actions
 
-| Field | Values | Also allowed |
-|---|---|---|
-| minute | 0-59 | `*` `,` `-` `/` |
-| hour | 0-23 | `*` `,` `-` `/` |
-| day-of-month | 1-31 | `*` `?` `,` `-` `/` `L` `L-n` `nW` `LW` |
-| month | 1-12 or `JAN`-`DEC` | `*` `,` `-` `/` |
-| day-of-week | 0-7 (0 and 7 = Sunday) or `SUN`-`SAT` | `*` `?` `,` `-` `/` `nL` (last weekday n of the month) `n#k` (k-th weekday n) |
-
-- Steps: `*/s`, `a-b/s` and `a/s` (from `a` to the field's maximum). Names are case-insensitive. Ranges must not be reversed (`5-1` is invalid).
-- Macros: `@yearly`, `@annually`, `@monthly`, `@weekly`, `@daily`, `@midnight`, `@hourly`.
-- When both day-of-month and day-of-week are restricted, a day must match both.
-- An expression with no future occurrence (such as `0 0 30 2 *`) never fires.
-- Daylight saving time: an occurrence in the spring-forward gap fires at the transition; in the fall-back overlap, fixed-time expressions fire once (first pass) and interval-style expressions (`*`, ranges or steps in the minute or hour field, e.g. `*/15 * * * *`) fire in both offsets.
-- An invalid expression throws a `FormatException` when the action is added.
-
-- Actions are synchronous (`Action`); call async code with `.GetAwaiter().GetResult()`, or post a message and do the async work in a consumer.
-- Actions start with `StartAsync` and stop with `StopAsync`. They can be added at any time: an action added while the broker is running starts right away, is stopped by `StopAsync`, and — like the others — is started again by a later `StartAsync`.
-- A run that throws is logged at `Error` and the schedule continues with the next occurrence. `StopAsync` never throws because of an action.
+Interval and cron scheduled actions, and named actions that run once across instances and catch up missed runs, have their own page: [Scheduling](scheduling.md).

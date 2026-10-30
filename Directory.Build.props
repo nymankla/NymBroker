@@ -5,24 +5,24 @@
     Or bump with: .\pack.ps1 -BumpPatch | -BumpMinor | -BumpMajor
   -->
   <PropertyGroup>
-    <Version>0.11.0</Version>
+    <Version>0.16.0</Version>
     <Authors>nymankla@gmail.com</Authors>
     <RepositoryUrl>https://github.com/nymankla/NymBroker</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/nymankla/NymBroker</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>NymBroker;messaging;message-processing;integration</PackageTags>
+    <PackageTags>NymBroker;messaging;message-processing;message-queue;message-broker;integration;eip;enterprise-integration-patterns;pubsub;routing;dead-letter</PackageTags>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NymBroker.Core' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AzureServiceBus' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AwsSqs' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Http' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.RabbitMq' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Sqlite' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Sqlite'">
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NymBroker.Core' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AzureServiceBus' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AwsSqs' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Http' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.RabbitMq' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Sqlite' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Sqlite' Or '$(MSBuildProjectName)' == 'NymBroker.Scheduling.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Scheduling.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Scheduling.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Scheduling.Sqlite'">
     <IsNymBrokerPackage>true</IsNymBrokerPackage>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(IsNymBrokerPackage)' == 'true'">
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.402" PrivateAssets="All" />
     <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="5.6.0" PrivateAssets="All" />
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
   </ItemGroup>

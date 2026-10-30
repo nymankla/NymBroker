@@ -26,7 +26,7 @@ After processing, the broker gives the source endpoint one of three results, and
 |---|---|---|
 | **Completed** | handled successfully, or intentionally dropped (filtered, duplicate, no consumer) | ack / complete / mark the row Completed |
 | **Retry** | a consumer or topic subscriber threw, or a route's destination failed | redeliver later; dead-letter once the retry limit is reached |
-| **DeadLetter** | the message can never succeed: undecodable bytes, expired, unknown compression | dead-letter immediately, with the reason |
+| **DeadLetter** | the message can never succeed: undecodable bytes, expired, unknown compression, or a consumer registered with `RetryOnFailure = false` threw | dead-letter immediately, with the reason |
 
 ```mermaid
 flowchart TD
@@ -48,6 +48,22 @@ flowchart TD
 | Memory, File | — (cannot redeliver) | broker dead-letter endpoint | none: failures go straight to the dead-letter endpoint |
 
 Set `UseNativeDeadLetter = false` on a RabbitMQ, Service Bus or SQL endpoint to make it behave like Memory/File: no retries, failures go to the broker's dead-letter endpoint.
+
+### No retry for one consumer
+
+Some failures are not worth retrying: invalid data, a business rule that rejects the message. Register that consumer with `RetryOnFailure = false` and a message whose consumer throws is dead-lettered at once (reason `ConsumerFailed`), without redelivery:
+
+```csharp
+services.AddNymBroker()
+    .AddSqlServerEndPoint("Orders", ordersSettings)
+    .AddConsumer<OrderConsumer>(o => o.RetryOnFailure = false)
+    .Build();
+```
+
+- From an endpoint with its own dead-letter queue the broker returns **DeadLetter** instead of **Retry**: a `Failed` row, the dead-letter exchange, the Service Bus dead-letter queue.
+- From Memory, File, Amazon SQS or an endpoint with `UseNativeDeadLetter = false` nothing changes: those failures already go straight to the broker's dead-letter endpoint.
+- The option applies to every message type the consumer handles, and only to the consumer. A topic subscriber or a route destination that fails still gives **Retry**.
+- Unlike `UseNativeDeadLetter = false`, which turns off retries for everything an endpoint receives, this is per consumer, and the message stays in the transport's own dead-letter queue.
 
 ## The broker's dead-letter endpoint
 

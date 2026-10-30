@@ -159,17 +159,20 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
-    public IHealthCheckResult HealthCheck()
+    /// <summary>Blocking form for callers of the synchronous API; the broker calls <see cref="HealthCheckAsync"/>.</summary>
+    public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
+
+    public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken cancellationToken = default)
     {
         if (_loopFailed)
-            return HealthCheckResult.Unhealthy($"AWS SQS endpoint '{_name}' listener stopped unexpectedly");
+            return Task.FromResult(HealthCheckResult.Unhealthy($"AWS SQS endpoint '{_name}' listener stopped unexpectedly"));
 
-        return HealthCheckResult.FromProbe("AWS SQS", _name, _logger, async ct =>
+        return HealthCheckResult.FromProbeAsync("AWS SQS", _name, _logger, async ct =>
             await _client.GetQueueAttributesAsync(new GetQueueAttributesRequest
             {
                 QueueUrl = await GetQueueUrlAsync(ct),
                 AttributeNames = ["ApproximateNumberOfMessages"]
-            }, ct));
+            }, ct), cancellationToken: cancellationToken);
     }
 
     public async ValueTask DisposeAsync()

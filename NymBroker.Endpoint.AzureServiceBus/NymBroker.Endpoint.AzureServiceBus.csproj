@@ -5,7 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Endpoint.AzureServiceBus</PackageId>
-    <PackageDescription>Azure Service Bus endpoint add-on for NymBroker, with native dead-lettering.</PackageDescription>
+    <PackageDescription>Azure Service Bus transport for NymBroker: queues and topic subscriptions, batched send, redelivery and native dead-lettering.</PackageDescription>
+    <PackageTags>$(PackageTags);azure;servicebus;azure-service-bus</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

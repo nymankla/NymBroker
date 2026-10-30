@@ -21,12 +21,11 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
 {
     private readonly PostgresSettings _settings;
     private readonly ILogger<PostgresEndPoint> _logger;
-    private readonly SemaphoreSlim _schemaLock = new(1, 1);
+    private readonly AsyncOnce _schema = new();
     private readonly string _name;
     private readonly Listener _listener;
 
-    private NpgsqlDataSource? _dataSource;
-    private bool _schemaEnsured;
+    private readonly Lazy<NpgsqlDataSource> _dataSource;
 
     public EndpointMode Mode { get; }
 
@@ -35,6 +34,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         _name = name;
         Mode = mode;
         _settings = settings;
+        _dataSource = new Lazy<NpgsqlDataSource>(CreateDataSource);
         _logger = logger;
         _listener = new Listener(this);
     }
@@ -80,24 +80,23 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    public IHealthCheckResult HealthCheck()
-        => HealthCheckResult.FromProbe("PostgreSQL", _name, _logger, async ct =>
+    /// <summary>Blocking form for callers of the synchronous API; the broker calls <see cref="HealthCheckAsync"/>.</summary>
+    public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
+
+    public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken cancellationToken = default)
+        => HealthCheckResult.FromProbeAsync("PostgreSQL", _name, _logger, async ct =>
         {
             await using var conn = await OpenConnectionAsync(ct);
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT 1";
             _ = await cmd.ExecuteScalarAsync(ct);
-        });
+        }, cancellationToken: cancellationToken);
 
     public async ValueTask DisposeAsync()
     {
         await StopListeningAsync();
-        if (_dataSource is not null)
-        {
-            await _dataSource.DisposeAsync();
-            _dataSource = null;
-        }
-        _schemaLock.Dispose();
+        if (_dataSource.IsValueCreated)
+            await _dataSource.Value.DisposeAsync();
     }
 
     /// <summary>
@@ -188,12 +187,11 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     private async Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken ct)
     {
-        var dataSource = await EnsureDataSourceAsync(ct);
-        var conn = await dataSource.OpenConnectionAsync(ct);
+        var conn = await _dataSource.Value.OpenConnectionAsync(ct);
         try
         {
             if (_settings.AutoCreateTable)
-                await EnsureSchemaAsync(conn, ct);
+                await _schema.RunAsync((Owner: this, Conn: conn), static (s, ct) => s.Owner.CreateSchemaAsync(s.Conn, ct), ct);
             return conn;
         }
         catch
@@ -203,48 +201,21 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
-    private async Task<NpgsqlDataSource> EnsureDataSourceAsync(CancellationToken ct)
+    private NpgsqlDataSource CreateDataSource()
     {
-        if (_dataSource is not null) return _dataSource;
-
-        await _schemaLock.WaitAsync(ct);
-        try
+        var csb = new NpgsqlConnectionStringBuilder(_settings.ConnectionString)
         {
-            if (_dataSource is not null) return _dataSource;
-
-            var csb = new NpgsqlConnectionStringBuilder(_settings.ConnectionString)
-            {
-                MaxAutoPrepare = 32,
-                AutoPrepareMinUsages = 2
-            };
-            var builder = new NpgsqlDataSourceBuilder(csb.ConnectionString);
-            _dataSource = builder.Build();
-            return _dataSource;
-        }
-        finally
-        {
-            _schemaLock.Release();
-        }
+            MaxAutoPrepare = 32,
+            AutoPrepareMinUsages = 2
+        };
+        return new NpgsqlDataSourceBuilder(csb.ConnectionString).Build();
     }
 
-    private async Task EnsureSchemaAsync(NpgsqlConnection conn, CancellationToken ct)
+    private async Task CreateSchemaAsync(NpgsqlConnection conn, CancellationToken ct)
     {
-        if (_schemaEnsured) return;
-
-        await _schemaLock.WaitAsync(ct);
-        try
-        {
-            if (_schemaEnsured) return;
-
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = PostgresQueueSql.CreateSchema(_settings.TableName);
-            await cmd.ExecuteNonQueryAsync(ct);
-            _schemaEnsured = true;
-        }
-        finally
-        {
-            _schemaLock.Release();
-        }
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = PostgresQueueSql.CreateSchema(_settings.TableName);
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     /// <summary>The shared queue loop, plus waiting for a NOTIFY instead of the full poll interval when idle.</summary>

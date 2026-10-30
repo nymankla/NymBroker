@@ -5,7 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Endpoint.AwsSqs</PackageId>
-    <PackageDescription>Amazon SQS endpoint add-on for NymBroker: standard and FIFO queues, long polling, batched settlement.</PackageDescription>
+    <PackageDescription>Amazon SQS transport for NymBroker: standard and FIFO queues, long polling, batched send and delete, redelivery through the visibility timeout and redrive policy.</PackageDescription>
+    <PackageTags>$(PackageTags);aws;sqs;amazon-sqs</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.SQS" Version="4.0.100.16" />
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.100.19" />
   </ItemGroup>
 
   <ItemGroup>

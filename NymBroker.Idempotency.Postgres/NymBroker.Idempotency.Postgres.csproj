@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <PackageId>NymBroker.Idempotency.Postgres</PackageId>
     <PackageDescription>Durable PostgreSQL idempotency store (idempotent receiver) for NymBroker.</PackageDescription>
+    <PackageTags>$(PackageTags);idempotency;deduplication;inbox;postgresql;postgres</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

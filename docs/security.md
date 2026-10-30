@@ -4,7 +4,7 @@
 
 Out of the box, NymBroker is set up for the local Docker containers in `scripts/`: plaintext RabbitMQ, a SQL Server connection that skips certificate verification, and well-known passwords. Before production, every transport needs an encrypted, verified connection, a least-privilege identity, and secrets from a secret store. This page shows how for each endpoint, and what else can leak.
 
-> **The defaults are for local development only.** `SqlServerSettings` and `SqlServerIdempotencySettings` default to `Server=localhost,1433;…;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True`, `PostgresSettings` to `…Username=postgres;Password=postgres`, and `RabbitMqSettings` to `guest` / `guest` without TLS. Always set the connection settings explicitly in production; never rely on a default.
+> **The defaults are for local development only.** `SqlServerSettings`, `SqlServerIdempotencySettings` and `SqlServerScheduleStoreSettings` default to `Server=localhost,1433;…;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True`, `PostgresSettings` to `…Username=postgres;Password=postgres`, and `RabbitMqSettings` to `guest` / `guest` without TLS. Always set the connection settings explicitly in production; never rely on a default.
 
 ## Checklist
 
@@ -86,11 +86,12 @@ Server=tcp:sql.prod.example.com,1433;Database=orders;User ID=nymbroker_orders;Pa
   SqlClient 7 moved the built-in Microsoft Entra ID modes into a separate package: add `Microsoft.Data.SqlClient.Extensions.Azure` at the same version as `Microsoft.Data.SqlClient` to your application.
 - On-premises: Windows integrated authentication (`Integrated Security=true`) or a SQL login whose password comes from the secret store. Never `sa`.
 
-**Permissions:** create the queue table (and the idempotency table) in a deployment step with a privileged identity, then run the application with `AutoCreateTable = false` and only these rights:
+**Permissions:** create the queue table (and the idempotency and schedule tables) in a deployment step with a privileged identity, then run the application with `AutoCreateTable = false` and only these rights:
 
 ```sql
 GRANT SELECT, INSERT, UPDATE ON dbo.orders_queue TO nymbroker_orders;
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.nymbroker_idempotency TO nymbroker_orders;   -- only with AddSqlServerIdempotency
+GRANT SELECT, INSERT, UPDATE ON dbo.nymbroker_schedule TO nymbroker_orders;                 -- only with AddSqlServerScheduleStore
 ```
 
 Producers that only post need `INSERT`. With `AutoCreateTable = true` the identity additionally needs `CREATE TABLE` / `ALTER` rights on the schema.
@@ -107,7 +108,7 @@ Host=pg.prod.example.com;Database=orders;Username=nymbroker_orders;Password=<fro
 
 - `VerifyFull` requires TLS and checks both the certificate chain and the host name. If the server's CA is not in the machine's trust store, point to it with `Root Certificate=/path/ca.crt` (or the `PGSSLROOTCERT` environment variable).
 - Client certificates: `SSL Certificate`, `SSL Key` and `SSL Password`.
-- **Permissions:** as for SQL Server — create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE` on the queue table (plus `DELETE` on the idempotency table). `LISTEN` / `NOTIFY` (`UseNotifications`) need no extra grant.
+- **Permissions:** as for SQL Server — create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table). `LISTEN` / `NOTIFY` (`UseNotifications`) need no extra grant.
 
 Reference: [Npgsql security and encryption](https://www.npgsql.org/doc/security.html).
 
@@ -121,11 +122,12 @@ Server=mysql.prod.example.com;Database=orders;User ID=nymbroker_orders;Password=
 
 - `VerifyFull` requires TLS and checks the certificate chain and the host name (`VerifyCA` skips the host name). If the server's CA is not in the machine's trust store, add `SslCa=/path/ca.pem`. Client certificates: `SslCert` and `SslKey`.
 - Don't add `AllowPublicKeyRetrieval=True` outside local development: it lets a man in the middle supply the key used to encrypt the password.
-- **Permissions:** create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE` on the queue table (plus `DELETE` on the idempotency table):
+- **Permissions:** create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table):
 
   ```sql
   GRANT SELECT, INSERT, UPDATE ON orders.nymbroker_messages TO 'nymbroker_orders'@'%';
   GRANT SELECT, INSERT, UPDATE, DELETE ON orders.nymbroker_idempotency TO 'nymbroker_orders'@'%';   -- only with AddMySqlIdempotency
+  GRANT SELECT, INSERT, UPDATE ON orders.nymbroker_schedule TO 'nymbroker_orders'@'%';                 -- only with AddMySqlScheduleStore
   ```
 
 Reference: [MySqlConnector connection options](https://mysqlconnector.net/connection-options/).

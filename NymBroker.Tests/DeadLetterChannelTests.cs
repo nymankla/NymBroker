@@ -43,13 +43,7 @@ public sealed class DeadLetterChannelTests
         var sp = services.BuildServiceProvider();
 
         var dlq = new MemoryQueueEndPoint("DLQ");
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
 
         broker.AddEndpoint("DLQ", dlq);
         broker.RegisterConsumer(typeof(Order), consumerKey);
@@ -120,13 +114,7 @@ public sealed class DeadLetterChannelTests
         services.AddSingleton<IAggregator, AggregatorImpl>();
         var sp = services.BuildServiceProvider();
 
-        var broker = new NymBrokerImpl(
-            sp.GetRequiredService<MessageSerializerJson>(),
-            sp.GetRequiredService<IAggregator>(),
-            new MessageTypeRegistry(),
-            new ConsumerDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<ConsumerDispatcher>.Instance),
-            new SubscriberDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), NullLogger<SubscriberDispatcher>.Instance),
-            NullLogger<NymBrokerImpl>.Instance);
+        var broker = TestBroker.Create(sp);
         broker.RegisterConsumer(typeof(Order), nameof(ThrowingConsumer));
 
         var serializer = sp.GetRequiredService<MessageSerializerJson>();

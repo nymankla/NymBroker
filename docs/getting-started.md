@@ -22,6 +22,10 @@
 | `NymBroker.Idempotency.MySql` | Durable duplicate detection shared by all instances | `AddMySqlIdempotency` |
 | `NymBroker.Idempotency.Postgres` | Durable duplicate detection shared by all instances | `AddPostgresIdempotency` |
 | `NymBroker.Idempotency.Sqlite` | Restart-safe duplicate detection on one host | `AddSqliteIdempotency` |
+| `NymBroker.Scheduling.SqlServer` | Named scheduled actions run once across instances and catch up missed runs | `AddSqlServerScheduleStore` |
+| `NymBroker.Scheduling.MySql` | Named scheduled actions run once across instances and catch up missed runs | `AddMySqlScheduleStore` |
+| `NymBroker.Scheduling.Postgres` | Named scheduled actions run once across instances and catch up missed runs | `AddPostgresScheduleStore` |
+| `NymBroker.Scheduling.Sqlite` | Named scheduled actions catch up missed runs, one host | `AddSqliteScheduleStore` |
 
 All packages are published on nuget.org — start with [NymBroker](https://www.nuget.org/packages/NymBroker/). They share one version number, so keep them on the same version.
 
@@ -36,7 +40,7 @@ dotnet add package NymBroker
 dotnet add package Microsoft.Extensions.Hosting
 ```
 
-Then add only the optional packages for the transports and idempotency stores you use:
+Then add only the optional packages for the transports, idempotency stores and [schedule stores](scheduling.md#named-actions-run-once-across-instances-catch-up-missed-runs) you use:
 
 ```bash
 dotnet add package NymBroker.Endpoint.Sqlite            # SQLite queue
@@ -51,6 +55,10 @@ dotnet add package NymBroker.Idempotency.Sqlite         # durable duplicate dete
 dotnet add package NymBroker.Idempotency.Postgres       # durable duplicate detection, shared
 dotnet add package NymBroker.Idempotency.SqlServer      # durable duplicate detection, shared
 dotnet add package NymBroker.Idempotency.MySql          # durable duplicate detection, shared
+dotnet add package NymBroker.Scheduling.Sqlite          # scheduled actions catch up missed runs, one host
+dotnet add package NymBroker.Scheduling.Postgres        # scheduled actions once per cluster + catch-up
+dotnet add package NymBroker.Scheduling.SqlServer       # scheduled actions once per cluster + catch-up
+dotnet add package NymBroker.Scheduling.MySql           # scheduled actions once per cluster + catch-up
 ```
 
 Or in the project file:
@@ -136,8 +144,8 @@ sequenceDiagram
 ## The broker's lifetime
 
 - `Build()` registers `INymBroker` as a singleton and a hosted service that calls `StartAsync` / `StopAsync` with the host. In a plain console app without a host you can call `broker.StartAsync()` and `broker.StopAsync()` yourself.
-- `StartAsync` validates the configuration (a route, topic, dead-letter or wire-tap target that is not a registered endpoint, or is read-only, throws), starts scheduled actions, and starts listening on every endpoint that can receive.
-- `StopAsync` stops the listeners. Endpoints finish the message they are handling and record its result before returning, so stopping does not cause duplicates.
+- `StartAsync` validates the configuration (a route, topic, dead-letter or wire-tap target that is not a registered endpoint, or is read-only, throws), starts [scheduled actions](scheduling.md), and starts listening on every endpoint that can receive.
+- `StopAsync` stops the listeners. Endpoints finish the message they are handling and record its result before returning, so stopping does not cause duplicates. It always stops, even if its token is already cancelled (for example when the host's shutdown timeout has passed); the token does not abort stopping. If an endpoint fails to stop, the error is logged, the other endpoints are still stopped and the broker counts as stopped; then `StopAsync` rethrows the error (several as one `AggregateException`).
 - You can `PostAsync` before `StartAsync` — the message waits in the transport and is processed once the broker starts.
 
 ## Where to go next
