@@ -28,7 +28,7 @@ public sealed class NymBrokerBuilder
 {
     private readonly IServiceCollection _services;
     private readonly List<string> _endpoints = [];
-    private readonly List<(Type ConsumerType, Type MessageType)> _consumers = [];
+    private readonly List<(Type ConsumerType, Type MessageType, bool RetryOnFailure)> _consumers = [];
     private readonly List<TopicContext> _topicContexts = [];
     private readonly List<TopicConfiguration> _configTopics = [];
     private readonly List<(Type TransformerType, string? Endpoint)> _transformers = [];
@@ -77,6 +77,21 @@ public sealed class NymBrokerBuilder
     // --- Consumer registration ---
 
     public NymBrokerBuilder AddConsumer<TConsumer>() where TConsumer : class, IMessageConsumer
+        => AddConsumer<TConsumer>(new ConsumerOptions());
+
+    /// <summary>
+    /// Registers a consumer with options, e.g. <c>o =&gt; o.RetryOnFailure = false</c> to dead-letter a message at once
+    /// when the consumer throws. The options apply to every message type the consumer handles.
+    /// </summary>
+    public NymBrokerBuilder AddConsumer<TConsumer>(Action<ConsumerOptions> configure) where TConsumer : class, IMessageConsumer
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var options = new ConsumerOptions();
+        configure(options);
+        return AddConsumer<TConsumer>(options);
+    }
+
+    private NymBrokerBuilder AddConsumer<TConsumer>(ConsumerOptions options) where TConsumer : class, IMessageConsumer
     {
         var messageTypes = typeof(TConsumer).GetInterfaces()
             .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IConsume<>))
@@ -87,9 +102,16 @@ public sealed class NymBrokerBuilder
         if (messageTypes.Count == 0)
             throw new InvalidOperationException($"{typeof(TConsumer).Name} must implement IConsume<T>.");
 
-        // Registering the same consumer twice is harmless.
-        if (_consumers.Any(c => c.ConsumerType == typeof(TConsumer)))
+        // Registering the same consumer twice is harmless, unless the options disagree.
+        var registered = _consumers.FirstOrDefault(c => c.ConsumerType == typeof(TConsumer));
+        if (registered.ConsumerType is not null)
+        {
+            if (registered.RetryOnFailure != options.RetryOnFailure)
+                throw new InvalidOperationException(
+                    $"Consumer '{typeof(TConsumer).Name}' is already registered with RetryOnFailure = {registered.RetryOnFailure}; " +
+                    "register it once, with the options it should have.");
             return this;
+        }
 
         // Consumers are keyed services by class name, so two different classes with the same name would collide.
         var sameName = _consumers.FirstOrDefault(c => c.ConsumerType.Name == typeof(TConsumer).Name);
@@ -107,7 +129,7 @@ public sealed class NymBrokerBuilder
         }
 
         foreach (var messageType in messageTypes)
-            _consumers.Add((typeof(TConsumer), messageType));
+            _consumers.Add((typeof(TConsumer), messageType, options.RetryOnFailure));
 
         _services.AddKeyedTransient(typeof(IMessageConsumer), typeof(TConsumer).Name, typeof(TConsumer));
         return this;
@@ -493,8 +515,8 @@ public sealed class NymBrokerBuilder
             foreach (var endpointName in endpoints)
                 broker.AddEndpoint(endpointName, sp.GetRequiredKeyedService<IEndPoint>(endpointName));
 
-            foreach (var (consumerType, messageType) in consumers)
-                broker.RegisterConsumer(messageType, consumerType.Name);
+            foreach (var (consumerType, messageType, retryOnFailure) in consumers)
+                broker.RegisterConsumer(messageType, consumerType.Name, retryOnFailure);
 
             foreach (var topic in topicContexts)
                 broker.AddTopic(topic);

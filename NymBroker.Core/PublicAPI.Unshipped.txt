@@ -1,1 +1,6 @@
 #nullable enable
+NymBroker.Core.Consume.ConsumerOptions
+NymBroker.Core.Consume.ConsumerOptions.ConsumerOptions() -> void
+NymBroker.Core.Consume.ConsumerOptions.RetryOnFailure.get -> bool
+NymBroker.Core.Consume.ConsumerOptions.RetryOnFailure.set -> void
+NymBroker.Core.Factory.NymBrokerBuilder.AddConsumer<TConsumer>(System.Action<NymBroker.Core.Consume.ConsumerOptions!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!

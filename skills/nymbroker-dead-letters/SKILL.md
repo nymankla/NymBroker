@@ -5,7 +5,7 @@ description: Find, inspect and replay failed (dead-lettered) NymBroker messages 
 
 # NymBroker dead letters: inspect and replay
 
-A message is dead-lettered when it can never succeed (undecodable, expired, unknown compression) or when its consumer kept failing until the transport's retry limit. Where it ends up depends on the **source endpoint**:
+A message is dead-lettered when it can never succeed (undecodable, expired, unknown compression) when its consumer kept failing until the transport's retry limit, or at once when a consumer registered with `RetryOnFailure = false` threw (reason `ConsumerFailed`). Where it ends up depends on the **source endpoint**:
 
 | Source endpoint | Retries | Dead letters go to | Reason stored in |
 |---|---|---|---|

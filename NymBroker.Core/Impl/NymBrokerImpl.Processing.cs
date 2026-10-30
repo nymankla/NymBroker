@@ -428,6 +428,13 @@ internal sealed partial class NymBrokerImpl
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 recordFailure(ex);
+                if (nativeDeadLetter && _noRetryMessageTypes.Contains(messageType))
+                {
+                    _logger.LogError(ex, "Consumer failed for message type {MessageType} — retry is off for its consumer, so the endpoint dead-letters it", messageType.Name);
+                    RecordDeadLettered(DeadLetterReasons.ConsumerFailed, sourceEndpoint, "native");
+                    return ProcessResult.DeadLetter(DeadLetterReasons.ConsumerFailed, ex.Message, ex);
+                }
+
                 if (nativeDeadLetter)
                 {
                     // The transport redelivers it and dead-letters natively once its delivery limit is reached.

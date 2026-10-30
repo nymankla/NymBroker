@@ -36,6 +36,8 @@ internal sealed partial class NymBrokerImpl : INymBroker
     private ImmutableList<RouteContext> _routes = ImmutableList<RouteContext>.Empty;
     private ImmutableList<IMessageFilter> _filters = ImmutableList<IMessageFilter>.Empty;
     private ImmutableList<TopicContext> _topics = ImmutableList<TopicContext>.Empty;
+    // Message types whose consumer was registered with RetryOnFailure = false.
+    private ImmutableHashSet<Type> _noRetryMessageTypes = ImmutableHashSet<Type>.Empty;
     private ImmutableDictionary<string, IInputTransformer> _endpointTransformers =
         ImmutableDictionary.Create<string, IInputTransformer>(StringComparer.OrdinalIgnoreCase);
     private IInputTransformer? _globalInputTransformer;
@@ -74,10 +76,12 @@ internal sealed partial class NymBrokerImpl : INymBroker
 
     public void AddEndpoint(string name, IEndPoint endpoint) => _endpoints = _endpoints.SetItem(name, endpoint);
 
-    public void RegisterConsumer(Type messageType, string serviceKey)
+    public void RegisterConsumer(Type messageType, string serviceKey, bool retryOnFailure = true)
     {
         _messageTypeRegistry.Register(messageType);
         _consumerDispatcher.RegisterConsumer(messageType, serviceKey);
+        if (!retryOnFailure)
+            ImmutableInterlocked.Update(ref _noRetryMessageTypes, types => types.Add(messageType));
     }
 
     public void AddTopic(TopicContext topic)
