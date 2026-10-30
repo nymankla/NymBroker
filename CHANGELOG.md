@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-10-30
+
 ### Fixed
 
 - `StopAsync` threw `OperationCanceledException` without stopping anything when its token was already cancelled, for example when the host's shutdown timeout had passed before NymBroker's hosted service was stopped. The listeners kept running. `StopAsync` now always stops the scheduled actions and every listener; the token no longer aborts stopping.
