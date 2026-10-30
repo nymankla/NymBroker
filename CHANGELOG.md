@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-30
+
 ### Added
 
 - `AddConsumer<TConsumer>(o => o.RetryOnFailure = false)`: a message whose consumer throws is dead-lettered at once (reason `ConsumerFailed`) instead of being returned for retry, when it came from an endpoint with its own dead-letter queue (the SQL queue tables, RabbitMQ, Service Bus). Messages from other endpoints already went straight to the broker's dead-letter endpoint. The option is per consumer, applies to all its message types, and does not affect topic subscribers or route destinations. Registering the same consumer again with a different value throws.
