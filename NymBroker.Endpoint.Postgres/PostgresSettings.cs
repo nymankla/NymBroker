@@ -23,5 +23,23 @@ public sealed class PostgresSettings : ILeasedQueueSettings
     /// </summary>
     public bool UseNativeDeadLetter { get; set; } = true;
 
+    /// <summary>
+    /// How long Completed rows are kept before a listener deletes them (default 30 days). <see cref="TimeSpan.Zero"/> keeps
+    /// them forever. Pending, InProgress and deferred messages are never deleted.
+    /// </summary>
+    public TimeSpan CompletedRetention { get; set; } = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// How long Failed rows are kept before a listener deletes them (default 90 days), which is how long they can be
+    /// inspected or replayed. <see cref="TimeSpan.Zero"/> keeps them forever.
+    /// </summary>
+    public TimeSpan FailedRetention { get; set; } = TimeSpan.FromDays(90);
+
+    /// <summary>How often a listener deletes old rows. <see cref="TimeSpan.Zero"/> disables the cleanup.</summary>
+    public TimeSpan CleanupInterval { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>Rows deleted per statement during cleanup.</summary>
+    public int CleanupBatchSize { get; set; } = 1000;
+
     public bool UseNotifications   { get; set; } = true;
 }

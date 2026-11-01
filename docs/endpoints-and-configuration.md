@@ -95,6 +95,7 @@ Each endpoint's settings type defines its available options and defaults. The mo
 | `ConnectionString`, `TableName`, `AutoCreateTable` | SQLite, PostgreSQL, SQL Server, MySQL | where the queue table lives; it is created (and migrated) on first use when `AutoCreateTable` is true |
 | `BatchSize`, `PollInterval` | SQL endpoints | rows claimed per poll; how long to wait after a poll that found nothing |
 | `LeaseTimeout`, `MaxRetryCount` | SQL endpoints | how long a claimed row is locked; attempts before a row becomes `Failed` |
+| `CompletedRetention`, `FailedRetention`, `CleanupInterval`, `CleanupBatchSize` | SQL endpoints | when finished rows are deleted (default after 30 and 90 days, checked every 10 minutes) — see [Removing old rows](#removing-old-rows) |
 | `UseNotifications` | PostgreSQL | wake idle listeners with `NOTIFY` instead of waiting out `PollInterval` |
 | `ReadQueueName`, `WriteQueueName` | RabbitMQ | queue to consume from / publish to |
 | `PrefetchCount` | RabbitMQ | unacknowledged messages delivered at a time, default 100, 0 = no limit. A higher value gives more throughput with very fast handlers; a lower one shares a backlog better between instances. Where the server applies a consumer timeout (30 minutes by default; older servers and quorum queues), keep `PrefetchCount` × handler time below it |
@@ -248,3 +249,48 @@ CREATE INDEX IX_orders_queue_deferred_Due ON orders_queue_deferred (DeliverAtUtc
 ```
 
 Listeners need `SELECT, DELETE` on this table, and whoever posts deferred messages needs `INSERT`. During a rolling upgrade, instances on an older version ignore the table, so they never deliver a deferred message early.
+
+## Removing old rows
+
+A SQL queue keeps a row after its message is handled. So that the table doesn't grow forever, a listener deletes old rows in the background:
+
+```csharp
+new SqliteSettings
+{
+    CompletedRetention = TimeSpan.FromDays(30),     // default
+    FailedRetention    = TimeSpan.FromDays(90),     // default; how long failed rows can be inspected or replayed
+    CleanupInterval    = TimeSpan.FromMinutes(10),  // default
+    CleanupBatchSize   = 1000                       // default; rows per DELETE
+};
+```
+
+In `queuesettings.json`, write the times as `"completedRetention": "30.00:00:00"`.
+
+- A row's age counts from when it became `Completed` or `Failed`, by the database's clock. `Pending` and `InProgress` rows, and rows in `<table>_deferred`, are never deleted.
+- `CompletedRetention` or `FailedRetention` set to `TimeSpan.Zero` keeps those rows forever. `CleanupInterval` set to `TimeSpan.Zero` turns the cleanup off.
+- The first cleanup runs one `CleanupInterval` after the listener starts. Only listening endpoints clean up, so a `WriteOnly` endpoint never does. Several instances on one table are safe.
+- Rows are deleted in batches, each in its own transaction, so a large backlog doesn't hold a long lock. Messages keep moving during a cleanup.
+- If a cleanup fails, an error is logged and it tries again at the next interval. Messages are not affected.
+- Nothing in NymBroker needs finished rows: duplicate detection has its own table. If you use these rows for reporting or auditing, keep them longer or copy them out first.
+- The database doesn't always give the space back to the operating system. A SQLite file stops growing, because new rows reuse the freed pages, but it only shrinks with `VACUUM`.
+
+With `AutoCreateTable = true` the indexes the cleanup uses are created on first use. With `AutoCreateTable = false`, create them in your deployment step. Without them the cleanup still works, but reads the whole table each time, and on SQLite holds the write lock while it does. The listener's identity also needs `DELETE` on the queue table ([Production security](security.md)). For a table named `orders_queue`:
+
+```sql
+-- PostgreSQL
+CREATE INDEX ix_orders_queue_completed ON orders_queue (completed_at_utc) WHERE status = 2;
+CREATE INDEX ix_orders_queue_failed    ON orders_queue (failed_at_utc)    WHERE status = 3;
+
+-- SQL Server
+CREATE INDEX ix_dbo_orders_queue_completed ON dbo.orders_queue (completed_at_utc) WHERE status = 2;
+CREATE INDEX ix_dbo_orders_queue_failed    ON dbo.orders_queue (failed_at_utc)    WHERE status = 3;
+
+-- MySQL (failed rows use the existing status index)
+ALTER TABLE orders_queue ADD INDEX ix_completed_at (completed_at_utc);
+
+-- SQLite
+CREATE INDEX IX_orders_queue_Completed ON orders_queue (CompletedAtUtc) WHERE Status = 2;
+CREATE INDEX IX_orders_queue_Failed    ON orders_queue (FailedAtUtc)    WHERE Status = 3;
+```
+
+To add them to a large PostgreSQL table without blocking writes, use `CREATE INDEX CONCURRENTLY` before upgrading; `AutoCreateTable` then finds them and does nothing.

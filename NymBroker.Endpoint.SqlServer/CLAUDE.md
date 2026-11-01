@@ -13,4 +13,6 @@
 
 **Deferred messages** wait in `<table>_deferred` with an index on the due time, never in the queue table: the claim index and plan don't change, however many wait, and older package versions never deliver them early. `PromoteDue` is a T-SQL batch of its own: `DELETE TOP … OUTPUT INTO @due`, then `INSERT … FROM @due`, in one transaction. The table variable is needed because `OUTPUT INTO` cannot target a table with a CHECK constraint. `LeasedQueueListener` decides when; running it inside every claim cost 25–30 % throughput, even with only an `IF EXISTS` on the normal path.
 
+**Retention**: `DeleteFinishedAsync` runs `DeleteCompleted` / `DeleteFailed`: `DELETE TOP (@batchSize) … WITH (UPDLOCK, READPAST, ROWLOCK)` through filtered indexes `(completed_at_utc) WHERE status = 2` and `(failed_at_utc) WHERE status = 3`. No `SET NOCOUNT ON` there: `ExecuteNonQuery` must return the row count.
+
 Integration tests: `SqlServerEndPointTests` (`NYMBROKER_SQLSERVER_CS`, `./scripts/setup-sqlserver.ps1`). Production TLS / `TrustServerCertificate`: [docs/security.md](../docs/security.md).

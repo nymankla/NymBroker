@@ -15,6 +15,8 @@ internal static partial class MySqlQueueSql
     internal const int Completed = (int)QueueMessageStatus.Completed;
     internal const int Failed = (int)QueueMessageStatus.Failed;
 
+    private const string CompletedAtIndexName = "ix_completed_at";
+
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_$]*$")]
     private static partial Regex IdentifierPart();
 
@@ -31,7 +33,9 @@ internal static partial class MySqlQueueSql
     /// <summary>
     /// InnoDB, clustered on the AUTO_INCREMENT key (append-only inserts, FIFO order). MySQL has no partial index and a
     /// generated column cannot use the AUTO_INCREMENT key, so the claim index is <c>(status, queue_id)</c>: claiming
-    /// reads only the <c>status = 0</c> range in id order, however many Completed/Failed rows accumulate.
+    /// reads only the <c>status = 0</c> range in id order, however many Completed/Failed rows accumulate. The retention
+    /// cleanup finds Completed rows through <see cref="CompletedAtIndexName"/>, which leaves out <c>status</c> so that claiming
+    /// a message doesn't write to it. Failed rows are few, so the <c>status = 3</c> range of the claim index is enough.
     /// </summary>
     internal static string CreateSchema(string table) => $"""
         CREATE TABLE IF NOT EXISTS {table} (
@@ -47,6 +51,7 @@ internal static partial class MySqlQueueSql
             payload          LONGBLOB    NOT NULL,
             PRIMARY KEY (queue_id),
             INDEX ix_status_queue (status, queue_id),
+            INDEX {CompletedAtIndexName} (completed_at_utc),
             CHECK (status IN ({Pending}, {InProgress}, {Completed}, {Failed}))
         ) ENGINE = InnoDB;
         CREATE TABLE IF NOT EXISTS {DeferredTable(table)} (
@@ -57,6 +62,24 @@ internal static partial class MySqlQueueSql
             PRIMARY KEY (deferred_id),
             INDEX ix_due (deliver_at_utc, deferred_id)
         ) ENGINE = InnoDB;
+        """;
+
+    /// <summary>Finds the index on a table from an older version; MySQL has no <c>CREATE INDEX IF NOT EXISTS</c>.</summary>
+    internal static string FindCompletedAtIndex(string table) => $"SHOW INDEX FROM {table} WHERE Key_name = '{CompletedAtIndexName}';";
+
+    internal static string AddCompletedAtIndex(string table) => $"ALTER TABLE {table} ADD INDEX {CompletedAtIndexName} (completed_at_utc);";
+
+    internal static string DeleteCompleted(string table) => DeleteFinished(table, Completed, "completed_at_utc");
+
+    internal static string DeleteFailed(string table) => DeleteFinished(table, Failed, "failed_at_utc");
+
+    /// <summary>One batch of old finished rows. READ COMMITTED, as for a claim, so the delete takes no gap locks that would block concurrent inserts.</summary>
+    private static string DeleteFinished(string table, int status, string finishedAtColumn) => $"""
+        SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+        DELETE FROM {table}
+         WHERE status = {status}
+           AND {finishedAtColumn} < UTC_TIMESTAMP(6) - INTERVAL @olderThanSeconds SECOND
+         LIMIT @batchSize;
         """;
 
     /// <summary>

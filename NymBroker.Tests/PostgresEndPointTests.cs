@@ -8,6 +8,7 @@ using NymBroker.Core.Endpoint;
 using Microsoft.Extensions.DependencyInjection;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint.HealthCheck;
+using NymBroker.Core.Endpoint.Queue;
 
 namespace NymBroker.Tests;
 
@@ -41,6 +42,46 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         Assert.False(result.IsHealthy);
         Assert.False(string.IsNullOrEmpty(result.Message));
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error);
+    }
+
+    // --- Retention ---
+
+    [Fact]
+    public async Task Retention_DeletesOnlyOldFinishedRows()
+    {
+        RequirePostgres();
+        var logger = new CapturingLogger<PostgresEndPoint>();
+        var ep = new PostgresEndPoint("PgTest", new PostgresSettings
+        {
+            ConnectionString = ConnectionString!,
+            TableName = _tableName,
+            PollInterval = TimeSpan.FromMilliseconds(20),
+            CompletedRetention = RetentionContract.CompletedRetention,
+            FailedRetention = RetentionContract.FailedRetention,
+            CleanupInterval = RetentionContract.CleanupInterval,
+            CleanupBatchSize = RetentionContract.CleanupBatchSize
+        }, logger);
+        _endpoints.Add(ep);
+
+        await RetentionContract.DeletesOnlyOldFinishedRows(ep, logger,
+            (id, status, ageMinutes) =>
+            {
+                var finishedAt = $"NOW() - INTERVAL '{ageMinutes} minutes'";
+                return ExecuteAsync($"""
+                    UPDATE {_tableName}
+                       SET status = {(int)status},
+                           created_at_utc = {finishedAt},
+                           completed_at_utc = {(status == QueueMessageStatus.Completed ? finishedAt : "NULL")},
+                           failed_at_utc = {(status == QueueMessageStatus.Failed ? finishedAt : "NULL")},
+                           locked_until_utc = {(status == QueueMessageStatus.InProgress ? "NOW() + INTERVAL '1 hour'" : "NULL")}
+                     WHERE queue_id = {id}
+                    """);
+            },
+            () => ScalarAsync<string>($"SELECT COALESCE(string_agg(queue_id::text, ',' ORDER BY queue_id), '') FROM {_tableName}"),
+            () => ScalarAsync<long>($"SELECT COUNT(*) FROM {_tableName}_deferred"));
+
+        Assert.Equal(2, await ScalarAsync<long>(
+            $"SELECT COUNT(*) FROM pg_indexes WHERE tablename = '{_tableName}' AND indexname IN ('ix_{_tableName}_completed', 'ix_{_tableName}_failed')"));
     }
 
     // --- Deferred ---

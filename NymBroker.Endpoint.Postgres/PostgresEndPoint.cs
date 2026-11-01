@@ -159,6 +159,18 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
         return await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    private async Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = status == QueueMessageStatus.Completed
+            ? PostgresQueueSql.DeleteCompleted(_settings.TableName)
+            : PostgresQueueSql.DeleteFailed(_settings.TableName);
+        cmd.Parameters.Add(new NpgsqlParameter<int>("olderThanSeconds", olderThanSeconds));
+        cmd.Parameters.Add(new NpgsqlParameter<int>("batchSize", _settings.CleanupBatchSize));
+        return await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private async Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
     {
         await using var conn = await OpenConnectionAsync(ct);
@@ -251,6 +263,9 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
             => owner.FinalizeAsync(outcomes, ct);
 
         protected override Task<int> PromoteDueAsync(CancellationToken ct) => owner.PromoteDueAsync(ct);
+
+        protected override Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
+            => owner.DeleteFinishedAsync(status, olderThanSeconds, ct);
 
         /// <summary>
         /// Waits for a NOTIFY (or <see cref="PostgresSettings.PollInterval"/>, whichever comes first). If the LISTEN

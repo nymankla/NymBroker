@@ -33,6 +33,10 @@ internal static partial class SqliteQueueSql
 
     internal static string ActiveIndexName(string tableName) => $"IX_{tableName}_Active";
 
+    internal static string CompletedIndexName(string tableName) => $"IX_{tableName}_Completed";
+
+    internal static string FailedIndexName(string tableName) => $"IX_{tableName}_Failed";
+
     /// <summary>
     /// No AUTOINCREMENT (it writes <c>sqlite_sequence</c> on every insert); <c>QueueId</c> is the rowid and still
     /// increases monotonically while rows exist. <c>MessageId</c> is a 16-byte GUID, only logged, so it has no index.
@@ -52,6 +56,8 @@ internal static partial class SqliteQueueSql
             Payload        BLOB    NOT NULL
         );
         CREATE INDEX IF NOT EXISTS {Quote(ActiveIndexName(tableName))} ON {Quote(tableName)}(QueueId) WHERE Status IN ({Pending}, {InProgress});
+        CREATE INDEX IF NOT EXISTS {Quote(CompletedIndexName(tableName))} ON {Quote(tableName)}(CompletedAtUtc) WHERE Status = {Completed};
+        CREATE INDEX IF NOT EXISTS {Quote(FailedIndexName(tableName))} ON {Quote(tableName)}(FailedAtUtc) WHERE Status = {Failed};
         CREATE TABLE IF NOT EXISTS {Quote(DeferredTableName(tableName))} (
             DeferredId    INTEGER NOT NULL PRIMARY KEY,
             DeliverAtUtc  INTEGER NOT NULL,
@@ -60,6 +66,22 @@ internal static partial class SqliteQueueSql
         );
         CREATE INDEX IF NOT EXISTS {Quote(DueIndexName(tableName))} ON {Quote(DeferredTableName(tableName))}(DeliverAtUtc, DeferredId);
         PRAGMA user_version = {SchemaVersion};
+        """;
+
+    internal static string DeleteCompleted(string tableName) => DeleteFinished(tableName, Completed, "CompletedAtUtc");
+
+    internal static string DeleteFailed(string tableName) => DeleteFinished(tableName, Failed, "FailedAtUtc");
+
+    /// <summary>
+    /// One batch of old finished rows, found through the status's partial index: without it, a cleanup with nothing to
+    /// delete would read the whole table while holding the write lock.
+    /// </summary>
+    private static string DeleteFinished(string tableName, int status, string finishedAtColumn) => $"""
+        DELETE FROM {Quote(tableName)}
+         WHERE QueueId IN (
+               SELECT QueueId FROM {Quote(tableName)}
+                WHERE Status = {status} AND {finishedAtColumn} < unixepoch() - $olderThanSeconds
+                LIMIT $batchSize)
         """;
 
     /// <summary>

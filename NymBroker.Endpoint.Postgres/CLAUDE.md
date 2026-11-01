@@ -13,4 +13,6 @@
 
 **Deferred messages** wait in `<table>_deferred` with an index on the due time, never in the queue table: the claim index and plan don't change, however many wait, and older package versions never deliver them early. `PromoteDue` (`DELETE … RETURNING` + `INSERT`, with `SKIP LOCKED`) is one statement of its own; `LeasedQueueListener` decides when.
 
+**Retention**: `DeleteFinishedAsync` runs `DeleteCompleted` / `DeleteFailed`: one batch, `FOR UPDATE SKIP LOCKED` so instances don't wait for each other, through partial indexes `(completed_at_utc) WHERE status = 2` and `(failed_at_utc) WHERE status = 3`. `CreateSchema` adds them non-concurrently (it runs in one multi-statement command, which `CONCURRENTLY` doesn't allow), so `docs/` tells owners of large tables to create them beforehand.
+
 Integration tests: `PostgresEndPointTests` (`NYMBROKER_POSTGRES_CS`, `./scripts/setup-postgres.ps1`).

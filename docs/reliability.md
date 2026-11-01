@@ -121,7 +121,7 @@ public sealed class ReplayConsumer(INymBroker broker) : IConsume<OrderCreated>
 
 **Azure Service Bus** — add a second endpoint on the same queue with `ReadDeadLetterQueue = true`. Its messages carry the same `deadLetter` block, filled from Service Bus's dead-letter reason and description. A consumer that returns normally removes the message from the dead-letter queue.
 
-**SQL endpoints** — failed rows stay in the queue table with `status = 3` and the reason in `last_error` (`LastError` in SQLite). To retry them, reset them to pending:
+**SQL endpoints** — failed rows stay in the queue table with `status = 3` and the reason in `last_error` (`LastError` in SQLite), for 90 days by default ([`FailedRetention`](endpoints-and-configuration.md#removing-old-rows)). To retry them, reset them to pending:
 
 ```sql
 -- PostgreSQL / SQL Server / MySQL (SQLite: Status, AttemptCount, LastError, FailedAtUtc)
