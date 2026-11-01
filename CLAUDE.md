@@ -27,16 +27,7 @@ dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"    # 
 dotnet run -c Release --project samples/NymBroker.Benchmarks                  # throughput benchmark
 ```
 
-Integration tests run only when their variable is set — `test-all.ps1` sets all six:
-
-```powershell
-$env:NYMBROKER_POSTGRES_CS   = "Host=localhost;Database=nymbroker;Username=postgres;Password=postgres"
-$env:NYMBROKER_SQLSERVER_CS  = "Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True"
-$env:NYMBROKER_SERVICEBUS_CS = "Endpoint=sb://localhost:5673;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
-$env:NYMBROKER_RABBITMQ_HOST = "localhost"
-$env:NYMBROKER_MYSQL_CS     = "Server=localhost;Port=3306;Database=nymbroker;User ID=root;Password=NymBroker!Dev123"
-$env:NYMBROKER_SQS_URL       = "http://localhost:9324"
-```
+Integration tests run only when their variable is set — `test-all.ps1` sets all six.
 
 Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml` (every service has `pull_policy: always`, so each `up` pulls the newest image for its tag; tags stay on the current major version so the data volumes keep working), one script per service, each with `-Stop` / `-Logs`: `setup-rabbitmq.ps1` (5672, UI 15672), `setup-postgres.ps1` (5432), `setup-sqlserver.ps1` (1433, creates db `nymbroker`), `setup-mysql.ps1` (MySQL 8.4 on 3306, db `nymbroker`), `setup-servicebus.ps1` (emulator on 5673; starts SQL Server too, entities in `scripts/servicebus/Config.json`), `setup-sqs.ps1` (ElasticMQ, SQS API on 9324, UI 9325; queues are created by the tests). `setup-rabbitmq -Stop` / `setup-postgres -Stop` run `docker compose down` and stop **all** services; the SQL Server / MySQL / Service Bus / SQS `-Stop` stop only their own. If `docker` cannot connect, Docker Desktop is not running.
 
@@ -44,31 +35,14 @@ Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml` (every 
 
 | Project | Role |
 |---|---|
-| `NymBroker.Core` (package `NymBroker`) | Broker engine, serializer, routing, topics, splitter, idempotent receiver, scheduling, health checks, DI builder, Memory and File endpoints, `RetryPolicy`, and the shared endpoint building blocks |
-| `NymBroker.Endpoint.Sqlite` / `.Postgres` / `.SqlServer` / `.MySql` | Lease-based queue tables (`Add…EndPoint`, `WithSql` / `WithPostgres` / `WithSqlServer` / `WithMySql`) |
-| `NymBroker.Endpoint.Http` | Send-only HTTP / webhook endpoint (`AddHttpEndPoint` / `WithHttp`) on `IHttpClientFactory` |
-| `NymBroker.Endpoint.RabbitMq` / `.AzureServiceBus` / `.AwsSqs` | Broker transports (`AddRabbitMqEndPoint` / `WithRabbitMq`, `AddAzureServiceBusEndPoint` / `WithAzureServiceBus`, `AddAwsSqsEndPoint` / `WithAwsSqs`) |
 | `NymBroker.Idempotency.Sqlite` / `.Postgres` / `.SqlServer` / `.MySql` | Durable `IExpiringIdempotencyStore`s (`AddSqliteIdempotency` …) registered through Core's `AddIdempotencyStore`; independent of the endpoint packages. SQLite is restart-safe on one host only |
 | `NymBroker.Scheduling.Sqlite` / `.Postgres` / `.SqlServer` / `.MySql` | Durable `IScheduleStore`s (`AddSqliteScheduleStore` …) registered through Core's `AddScheduleStore`: named scheduled actions run once per cluster and catch up missed runs. One row per action name (`name`, `last_run_utc`), atomic forward-only claim; no cleanup |
 | `NymBroker.Tests` | xUnit. Unit tests use Memory and SQLite `:memory:`; `PostgresEndPointTests`, `PostgresIdempotencyStoreTests`, `SqlServerEndPointTests`, `MySqlEndPointTests`, `MySqlIdempotencyStoreTests`, the `*ScheduleStoreTests` (on `ScheduleStoreContractTests`; SQLite always runs), `AzureServiceBusEndPointTests`, `RabbitMqEndPointTests` and `AwsSqsEndPointTests` need their `NYMBROKER_*` variable (their unit tests always run) |
 | `samples/*` | Runnable apps — table in [docs/samples.md](docs/samples.md). Self-checking: `NymBroker.MediatRSample -- --demo`, `NymBroker.EfCoreTransactionSample` (needs SQL Server), `NymBroker.AwsSqsSample` (needs ElasticMQ), `NymBroker.RabbitSqlServerSample -- --demo` (needs RabbitMQ and SQL Server), `NymBroker.WebhookSample -- --demo` |
-| `skills/` | Agent skills for **client** apps (`nymbroker-setup`, `-message`, `-consumer`, `-routing`, `-producer-worker`, `-input-transformer`, `-scheduled`, `-scheduled-recovery`, `-testing`, `-observability`, `-dead-letters`, `-troubleshoot`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`) |
+| `skills/` | Agent skills for **client** apps (`nymbroker-setup`, `-message`, `-consumer`, `-routing`, `-producer-worker`, `-input-transformer`, `-scheduled`, `-scheduled-recovery`, `-testing`, `-observability`, `-dead-letters`, `-troubleshoot`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`, `make-release`) |
 | `docs/` | User documentation, index in [docs/user-guide.md](docs/user-guide.md) |
 
 ## Key abstractions
-
-```
-IEndPoint                 ← every transport: Mode, PostAsync(byte[]), PostBatchAsync(IReadOnlyList<byte[]>), HealthCheck() / HealthCheckAsync(ct)
-  IEndPointEventDriven    ← receiving: StartListeningAsync(handler) / StopListeningAsync; UsesNativeDeadLetter
-  IDeferredEndPoint       ← optional: PostDeferredAsync(byte[], deliverAt); without it the broker's PostDeferredAsync throws (RabbitMQ, HTTP)
-EndpointMode              ← ReadWrite (default) | ReadOnly | WriteOnly (no listener)
-ProcessResult             ← handler result the endpoint settles by: Completed | Retry(ex) | DeadLetter(reason, description)
-INymBroker                ← runtime only: PostAsync<T>, PostRawAsync (bytes as-is), PostBatchAsync<T>, PostDeferredAsync<T>, PostRawDeferredAsync, PublishAsync<T>, ProcessAsync, Start/StopAsync, CheckHealthAsync
-NymBrokerBuilder          ← all configuration: endpoints, consumers, AddRoute, AddTopic, AddFilter, transformers, AddScheduledAction, dead letter, wire tap
-IConsume<T> / ISubscribe<T> ← one consumer per message type / any number of topic subscribers
-IMessageContext           ← envelope metadata: Id, CorrelationId, Address, MessageType, Created, DeadLetter
-LeasedQueueListener       ← shared poll loop of the queue-table endpoints;  EndpointHandler.InvokeAsync ← call a handler safely
-```
 
 The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't `WriteOnly` and wires it to `ProcessAsync`, which never throws (except for the broker's own cancellation) and returns how to settle the message:
 
@@ -91,6 +65,7 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 | User-facing behaviour | `docs/` — the docs describe the public contract; keep them in step with the code |
 | Production configuration (TLS, secrets, permissions) | [docs/security.md](docs/security.md) |
 | Release history and why things changed | [CHANGELOG.md](CHANGELOG.md), GitHub issues referenced as `#NN` |
+| Making a release | `.claude/skills/make-release` |
 
 ## Key design rules
 
@@ -115,13 +90,3 @@ Before saying a change is finished:
 - [ ] User-visible behaviour → `docs/` updated; public API or setup the client skills describe → `skills/*/SKILL.md` updated; the project's folder `CLAUDE.md` updated if its internals changed.
 - [ ] Samples that use the changed API still build (they are in the solution) and, for self-checking samples, still pass.
 - [ ] Commit message explains why; `Fixes #NN` when it closes an issue. After pushing to `master`, tell the user what the next release needs (changelog, PublicAPI, version level).
-
-## Release checklist
-
-Only when the user asks for a release and has chosen the level:
-
-1. `<Version>` in `Directory.Build.props` (edit the line directly; `pack.ps1 -Version` also works but drops blank lines — check the diff).
-2. `CHANGELOG.md`: rename `[Unreleased]` content to `## [x.y.z] - YYYY-MM-DD`, keep an empty `[Unreleased]` above it.
-3. Every `PublicAPI.Unshipped.txt`: move added lines to `PublicAPI.Shipped.txt`; for each `*REMOVED*<line>`, delete `<line>` from `Shipped`; leave `Unshipped` as `#nullable enable`. Build must stay at 0 warnings.
-4. Commit "Release x.y.z", `git tag -a vx.y.z -m "NymBroker x.y.z"`, push `master`, then push the tag.
-5. Watch the CI run (`gh run list --branch vx.y.z`, `gh run watch`): build, publish to nuget.org (trusted publishing), GitHub release with `nymbroker-skills.zip`. nuget.org lists the version a few minutes later.
