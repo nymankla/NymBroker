@@ -39,6 +39,29 @@ internal sealed partial class NymBrokerImpl
         => PostToEndpointAsync(endpointName, message.ToArray(), splitThresholdBytes, compress, ct);
 #pragma warning restore RS0026
 
+    public async Task PostDeferredAsync<T>(string endpointName, T message, DateTimeOffset deliverAt, CancellationToken ct = default) where T : class
+    {
+        var context = NewContext(message, endpointName);
+        // The age checks count from when the message is due: a long deferral must not expire it before its first delivery.
+        if (deliverAt.UtcDateTime > context.Created) context.Created = deliverAt.UtcDateTime;
+
+        using var stream = _serializer.Serialize(context);
+        await SendDeferredAsync(endpointName, StreamToBytes(stream), deliverAt, ct);
+    }
+
+#pragma warning disable RS0026 // see INymBroker.PostRawDeferredAsync: the overloads differ in a required parameter
+    public async Task PostRawDeferredAsync(string endpointName, Stream message, DateTimeOffset deliverAt, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        using var copy = new MemoryStream();
+        await message.CopyToAsync(copy, ct);
+        await SendDeferredAsync(endpointName, copy.ToArray(), deliverAt, ct);
+    }
+
+    public Task PostRawDeferredAsync(string endpointName, ReadOnlyMemory<byte> message, DateTimeOffset deliverAt, CancellationToken ct = default)
+        => SendDeferredAsync(endpointName, message.ToArray(), deliverAt, ct);
+#pragma warning restore RS0026
+
     public async Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
         var context = NewContext(message);
@@ -592,6 +615,17 @@ internal sealed partial class NymBrokerImpl
         if (!_outputTransformers.TryGetValue(name, out var transformer)) return endpoint.PostAsync(envelope, ct);
         var output = Transform(transformer, name, envelope);
         return output == null ? Task.CompletedTask : endpoint.PostAsync(output, ct);
+    }
+
+    // Also throws for a time in the past: whether a post works must not depend on the clock.
+    private async Task SendDeferredAsync(string name, byte[] envelope, DateTimeOffset deliverAt, CancellationToken ct)
+    {
+        if (ResolvePostTarget(name) is not IDeferredEndPoint endpoint)
+            throw new NotSupportedException($"Endpoint '{name}' cannot defer messages. Use an endpoint that implements {nameof(IDeferredEndPoint)}.");
+
+        var output = _outputTransformers.TryGetValue(name, out var transformer) ? Transform(transformer, name, envelope) : envelope;
+        if (output != null)
+            await endpoint.PostDeferredAsync(output, deliverAt, ct);
     }
 
     private Task SendBatchAsync(string name, IEndPoint endpoint, IReadOnlyList<byte[]> envelopes, CancellationToken ct)

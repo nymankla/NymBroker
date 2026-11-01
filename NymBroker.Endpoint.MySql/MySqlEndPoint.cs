@@ -17,7 +17,7 @@ namespace NymBroker.Endpoint.MySql;
 /// batch + lock the next ids, then claim + read + commit. Polls on a timer when idle.
 /// </para>
 /// </summary>
-public sealed class MySqlEndPoint : IEndPointEventDriven, IAsyncDisposable
+public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAsyncDisposable
 {
     private static readonly JsonSerializerOptions FinalizeJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -74,6 +74,17 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IAsyncDisposable
             cmd.Parameters.AddWithValue($"@m{i}", Guid.NewGuid().ToByteArray());
             cmd.Parameters.AddWithValue($"@p{i}", messages[i]);
         }
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>Stored in <c>&lt;table&gt;_deferred</c>; a listener moves the message to the queue when it is due.</summary>
+    public async Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = new MySqlCommand(MySqlQueueSql.InsertDeferred(_table), conn);
+        cmd.Parameters.AddWithValue("@deliverAt", deliverAt.UtcDateTime);
+        cmd.Parameters.AddWithValue("@messageId", Guid.NewGuid().ToByteArray());
+        cmd.Parameters.AddWithValue("@payload", message);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -137,6 +148,34 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IAsyncDisposable
         catch
         {
             // The connection goes back to the pool: don't leave the transaction (and its row locks) open until reuse.
+            await RollbackQuietlyAsync(conn);
+            throw;
+        }
+    }
+
+    private async Task<int> PromoteDueAsync(CancellationToken ct)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        try
+        {
+            var ids = new List<long>();
+            await using (var lockCmd = new MySqlCommand(MySqlQueueSql.LockDue(_table), conn))
+            {
+                lockCmd.Parameters.AddWithValue("@batchSize", _settings.BatchSize);
+                await using var reader = await lockCmd.ExecuteReaderAsync(ct);
+                do
+                {
+                    while (await reader.ReadAsync(ct))
+                        ids.Add(reader.GetInt64(0));
+                } while (await reader.NextResultAsync(ct));
+            }
+
+            await using var finish = new MySqlCommand(ids.Count == 0 ? "COMMIT;" : MySqlQueueSql.PromoteDue(_table, ids), conn);
+            await finish.ExecuteNonQueryAsync(ct);
+            return ids.Count;
+        }
+        catch
+        {
             await RollbackQuietlyAsync(conn);
             throw;
         }
@@ -209,5 +248,7 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IAsyncDisposable
 
         protected override Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
             => owner.FinalizeAsync(outcomes, ct);
+
+        protected override Task<int> PromoteDueAsync(CancellationToken ct) => owner.PromoteDueAsync(ct);
     }
 }

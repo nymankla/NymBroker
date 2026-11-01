@@ -71,6 +71,38 @@ Measured on local containers, batches of 100 raised throughput from about 540 to
 - If a non-atomic batch fails partway, some messages may already be sent. Retrying is safe if receivers use the [idempotent receiver](reliability.md#duplicate-detection).
 - Use `PostBatchAsync`, not `PostAsync`, for a list: `PostAsync("Orders", list)` compiles but posts the whole list as **one** message.
 
+## Deferring a message
+
+Use `PostDeferredAsync` when a message must not be delivered before a given time, for example because a rate-limited service is free again in five minutes:
+
+```csharp
+public async Task ConsumeAsync(FetchPage job, IMessageContext context, CancellationToken ct = default)
+{
+    if (limiter.NextFreeSlot(job.Site) is { } freeAt)
+    {
+        await broker.PostDeferredAsync("Fetch", job, freeAt, ct);   // the listener moves on to the next message
+        return;
+    }
+    await FetchAsync(job, ct);
+}
+```
+
+- **Timing.** The message is delivered at or after `deliverAt`; a time in the past means now. It can come somewhat later: on the SQL endpoints a listener checks for due messages about four times a second (and at least once per `PollInterval`), and the message then joins the back of any backlog. Other messages on the endpoint are not held up, and the order of deferred messages relative to others is not kept.
+- **Retries.** The first delivery is the first attempt, so the wait uses up no retries. Posting a new message as above gives it a new id and a fresh retry count. If the process crashes between the post and the acknowledgement, the job runs twice, as with any at-least-once delivery.
+- **Message age.** The envelope's `created` is set to `deliverAt` if that is later than now, so `WithMaxMessageAge`, age routes and the `nymbroker.message.age` metric count from the time the message becomes due. `PostRawDeferredAsync` leaves the bytes unchanged, so an envelope posted that way keeps its `created`.
+- **Replay.** A dead letter you post again with `PostRawAsync` is delivered at once.
+- **Size.** Deferred messages cannot be split. On a transport with a size limit, keep them under it.
+- **Not supported means an exception.** An endpoint that cannot defer throws `NotSupportedException` when you post, whatever the time. A message is never delivered early without saying so.
+
+| Endpoint | How it waits | Limits |
+|---|---|---|
+| SQLite, PostgreSQL, SQL Server, MySQL | In a table of its own, `<table>_deferred`; a polling listener moves due messages to the queue | Durable. Needs a listener on the table. PostgreSQL, SQL Server and MySQL compare the time with the database's clock, SQLite with the listener's. With `AutoCreateTable = false`, create the table yourself: see [Deferred messages table](endpoints-and-configuration.md#deferred-messages-table) |
+| Azure Service Bus | `ScheduledEnqueueTime` | Durable |
+| Amazon SQS | `DelaySeconds`, rounded up to a whole second | At most 15 minutes; longer throws `InvalidOperationException`. FIFO queues have no per-message delay and throw too |
+| File | The time is in the file name (`deferred-<UTC time>_<guid>.json`); a `FileEndPoint` reading the folder leaves the file until then | Durable. Another program reading the folder has to do the same |
+| Memory | In memory, not counted against `capacity` | Not durable: dropped with a warning when the endpoint stops |
+| RabbitMQ, HTTP | Not supported | Throws `NotSupportedException` |
+
 ## Large messages: split and compress
 
 Some transports limit message size (Azure Service Bus Standard: 256 KB; UDP: ~64 KB). Pass `splitThresholdBytes` and the broker splits larger messages into parts and reassembles them on the receiving side:

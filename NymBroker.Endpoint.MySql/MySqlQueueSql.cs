@@ -49,7 +49,53 @@ internal static partial class MySqlQueueSql
             INDEX ix_status_queue (status, queue_id),
             CHECK (status IN ({Pending}, {InProgress}, {Completed}, {Failed}))
         ) ENGINE = InnoDB;
+        CREATE TABLE IF NOT EXISTS {DeferredTable(table)} (
+            deferred_id    BIGINT      NOT NULL AUTO_INCREMENT,
+            deliver_at_utc DATETIME(6) NOT NULL,
+            message_id     BINARY(16)  NOT NULL,
+            payload        LONGBLOB    NOT NULL,
+            PRIMARY KEY (deferred_id),
+            INDEX ix_due (deliver_at_utc, deferred_id)
+        ) ENGINE = InnoDB;
         """;
+
+    /// <summary>
+    /// Deferred messages wait in their own table, not in the queue table, so any number of them leaves the claim's index
+    /// range untouched and older versions of this package never deliver them early. <paramref name="table"/> is quoted, so
+    /// the suffix goes inside the closing backtick.
+    /// </summary>
+    private static string DeferredTable(string table) => $"{table[..^1]}_deferred`";
+
+    internal static string InsertDeferred(string table)
+        => $"INSERT INTO {DeferredTable(table)} (deliver_at_utc, message_id, payload) VALUES (@deliverAt, @messageId, @payload);";
+
+    /// <summary>
+    /// Opens a transaction and locks up to <c>@batchSize</c> due deferred ids. READ COMMITTED and <c>SKIP LOCKED</c>, as for
+    /// a claim. Followed by <see cref="PromoteDue"/>, or by a plain COMMIT when there are none.
+    /// </summary>
+    internal static string LockDue(string table) => $"""
+        SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+        START TRANSACTION;
+        SELECT deferred_id FROM {DeferredTable(table)}
+         WHERE deliver_at_utc <= UTC_TIMESTAMP(6)
+         ORDER BY deliver_at_utc, deferred_id LIMIT @batchSize
+         FOR UPDATE SKIP LOCKED;
+        """;
+
+    /// <summary>
+    /// Moves the messages locked by <see cref="LockDue"/> to the queue and commits. The ids are inlined (they are BIGINTs
+    /// read from the table).
+    /// </summary>
+    internal static string PromoteDue(string table, IReadOnlyList<long> deferredIds)
+    {
+        var idList = string.Join(",", deferredIds);
+        return $"""
+            INSERT INTO {table} (message_id, payload)
+            SELECT message_id, payload FROM {DeferredTable(table)} WHERE deferred_id IN ({idList}) ORDER BY deliver_at_utc, deferred_id;
+            DELETE FROM {DeferredTable(table)} WHERE deferred_id IN ({idList});
+            COMMIT;
+            """;
+    }
 
     internal static string InsertMessage(string table) => $"INSERT INTO {table} (message_id, payload) VALUES (@messageId, @payload);";
 

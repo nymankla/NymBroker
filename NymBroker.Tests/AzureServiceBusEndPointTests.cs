@@ -322,6 +322,13 @@ public sealed class AzureServiceBusEndPointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Deferred_MessageWaits_OtherMessagesDoNot()
+    {
+        RequireServiceBus();
+        await DeferredContract.DeferredMessageWaits_OtherMessagesDoNot(CreateEndPoint());
+    }
+
+    [Fact]
     public async Task StopListening_WhileHandlerRuns_WaitsAndCompletesTheMessage()
     {
         // #73: stopping must not leave a handled message unsettled (it would be delivered again).

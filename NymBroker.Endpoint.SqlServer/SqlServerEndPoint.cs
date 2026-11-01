@@ -19,7 +19,7 @@ namespace NymBroker.Endpoint.SqlServer;
 /// Polls on a timer when idle — SQL Server has no lightweight LISTEN/NOTIFY equivalent.
 /// </para>
 /// </summary>
-public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
+public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAsyncDisposable
 {
     private static readonly JsonSerializerOptions FinalizeJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -79,6 +79,18 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>Stored in <c>&lt;table&gt;_deferred</c>; a listener moves the message to the queue when it is due.</summary>
+    public async Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = SqlServerQueueSql.InsertDeferred(_settings.TableName);
+        cmd.Parameters.Add("@deliverAt", SqlDbType.DateTime2).Value = deliverAt.UtcDateTime;
+        cmd.Parameters.Add("@messageId", SqlDbType.UniqueIdentifier).Value = Guid.NewGuid();
+        cmd.Parameters.Add("@payload", SqlDbType.VarBinary, -1).Value = message;
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     /// <summary>Blocking form for callers of the synchronous API; the broker calls <see cref="HealthCheckAsync"/>.</summary>
     public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
 
@@ -121,6 +133,15 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
 
         return claimed;
+    }
+
+    private async Task<int> PromoteDueAsync(CancellationToken ct)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = SqlServerQueueSql.PromoteDue(_settings.TableName);
+        cmd.Parameters.Add("@batchSize", SqlDbType.Int).Value = _settings.BatchSize;
+        return (int)(await cmd.ExecuteScalarAsync(ct))!;
     }
 
     private async Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
@@ -180,5 +201,7 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IAsyncDisposable
 
         protected override Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
             => owner.FinalizeAsync(outcomes, ct);
+
+        protected override Task<int> PromoteDueAsync(CancellationToken ct) => owner.PromoteDueAsync(ct);
     }
 }

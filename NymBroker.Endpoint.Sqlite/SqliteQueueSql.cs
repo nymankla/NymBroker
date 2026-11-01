@@ -52,7 +52,48 @@ internal static partial class SqliteQueueSql
             Payload        BLOB    NOT NULL
         );
         CREATE INDEX IF NOT EXISTS {Quote(ActiveIndexName(tableName))} ON {Quote(tableName)}(QueueId) WHERE Status IN ({Pending}, {InProgress});
+        CREATE TABLE IF NOT EXISTS {Quote(DeferredTableName(tableName))} (
+            DeferredId    INTEGER NOT NULL PRIMARY KEY,
+            DeliverAtUtc  INTEGER NOT NULL,
+            MessageId     BLOB    NOT NULL,
+            Payload       BLOB    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS {Quote(DueIndexName(tableName))} ON {Quote(DeferredTableName(tableName))}(DeliverAtUtc, DeferredId);
         PRAGMA user_version = {SchemaVersion};
+        """;
+
+    /// <summary>
+    /// Deferred messages wait in their own table, not in the queue table, so any number of them leaves the claim's
+    /// index scan untouched and older versions of this package never deliver them early.
+    /// </summary>
+    internal static string DeferredTableName(string tableName) => $"{tableName}_deferred";
+
+    internal static string DueIndexName(string tableName) => $"IX_{tableName}_deferred_Due";
+
+    /// <summary><c>DeliverAtUtc</c> is in Unix milliseconds, rounded up so a message is never early.</summary>
+    internal static string InsertDeferred(string tableName) =>
+        $"INSERT INTO {Quote(DeferredTableName(tableName))} (DeliverAtUtc, MessageId, Payload) VALUES ($deliverAt, $messageId, $payload)";
+
+    /// <summary>
+    /// First half of moving due messages to the queue. Together with <see cref="DeleteDue"/> it
+    /// selects the same rows: both have one <c>$now</c> and <c>BEGIN IMMEDIATE</c> keeps other writers out in between.
+    /// </summary>
+    internal static string CopyDue(string tableName) => $"""
+        INSERT INTO {Quote(tableName)} (MessageId, Status, CreatedAtUtc, AttemptCount, Payload)
+        SELECT MessageId, {Pending}, unixepoch(), 0, Payload
+          FROM {Quote(DeferredTableName(tableName))}
+         WHERE DeliverAtUtc <= $now
+         ORDER BY DeliverAtUtc, DeferredId
+         LIMIT $batchSize
+        """;
+
+    internal static string DeleteDue(string tableName) => $"""
+        DELETE FROM {Quote(DeferredTableName(tableName))}
+         WHERE DeferredId IN (
+               SELECT DeferredId FROM {Quote(DeferredTableName(tableName))}
+                WHERE DeliverAtUtc <= $now
+                ORDER BY DeliverAtUtc, DeferredId
+                LIMIT $batchSize)
         """;
 
     /// <summary>

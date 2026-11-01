@@ -14,7 +14,7 @@ namespace NymBroker.Endpoint.Sqlite;
 /// <c>UPDATE … RETURNING</c>, and writes the batch's outcomes in the same transaction as the next claim. The loop itself
 /// is the shared <see cref="LeasedQueueListener"/>.
 /// </summary>
-public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
+public sealed class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAsyncDisposable
 {
     private const string ReadAsyncLeaseReturnedMessage = "Message lease returned by ReadAsync without acknowledgement.";
 
@@ -61,6 +61,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
     public async IAsyncEnumerable<string> ReadAsync(
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        await PromoteDueAsync(ct);
         var messages = await FinalizeAndClaimAsync([], claim: true, ct);
         foreach (var message in messages)
         {
@@ -119,6 +120,27 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         {
             var (_, commands) = await EnsureConnectionAsync(ct);
             await ExecuteInsertAsync(commands, message, ct);
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    /// <summary>Stored in <c>&lt;table&gt;_deferred</c>; a listener moves the message to the queue when it is due.</summary>
+    public async Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
+    {
+        // Whole milliseconds, rounded up: a message must not be early.
+        var deliverAtMs = (long)Math.Ceiling((deliverAt - DateTimeOffset.UnixEpoch).TotalMilliseconds);
+
+        await _dbLock.WaitAsync(ct);
+        try
+        {
+            var (_, commands) = await EnsureConnectionAsync(ct);
+            commands.InsertDeferredDeliverAt.Value = deliverAtMs;
+            commands.InsertDeferredMessageId.Value = Guid.NewGuid().ToByteArray();
+            commands.InsertDeferredPayload.Value = message;
+            await commands.InsertDeferred.ExecuteNonQueryAsync(ct);
         }
         finally
         {
@@ -188,6 +210,36 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
             finally
             {
                 commands.SetTransaction(null);
+            }
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
+    /// <summary>Moves up to one batch of due deferred messages to the queue. See <see cref="SqliteQueueSql.CopyDue"/>.</summary>
+    private async Task<int> PromoteDueAsync(CancellationToken ct)
+    {
+        await _dbLock.WaitAsync(ct);
+        try
+        {
+            var (conn, commands) = await EnsureConnectionAsync(ct);
+            await using var tx = BeginImmediate(conn);
+            commands.CopyDue.Transaction = commands.DeleteDue.Transaction = tx;
+            try
+            {
+                commands.CopyDueNow.Value = commands.DeleteDueNow.Value = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                commands.CopyDueBatchSize.Value = commands.DeleteDueBatchSize.Value = _settings.BatchSize;
+                var moved = await commands.CopyDue.ExecuteNonQueryAsync(ct);
+                if (moved > 0)
+                    await commands.DeleteDue.ExecuteNonQueryAsync(ct);
+                await tx.CommitAsync(ct);
+                return moved;
+            }
+            finally
+            {
+                commands.CopyDue.Transaction = commands.DeleteDue.Transaction = null;
             }
         }
         finally
@@ -372,6 +424,8 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
 
         protected override Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
             => owner.FinalizeAndClaimAsync(outcomes, claim: false, ct);
+
+        protected override Task<int> PromoteDueAsync(CancellationToken ct) => owner.PromoteDueAsync(ct);
     }
 
     /// <summary>Every statement prepared once on the endpoint's connection; only parameter values change per call.</summary>
@@ -380,6 +434,19 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         public required SqliteCommand Insert { get; init; }
         public required SqliteParameter InsertMessageId { get; init; }
         public required SqliteParameter InsertPayload { get; init; }
+
+        public required SqliteCommand InsertDeferred { get; init; }
+        public required SqliteParameter InsertDeferredDeliverAt { get; init; }
+        public required SqliteParameter InsertDeferredMessageId { get; init; }
+        public required SqliteParameter InsertDeferredPayload { get; init; }
+
+        public required SqliteCommand CopyDue { get; init; }
+        public required SqliteParameter CopyDueNow { get; init; }
+        public required SqliteParameter CopyDueBatchSize { get; init; }
+
+        public required SqliteCommand DeleteDue { get; init; }
+        public required SqliteParameter DeleteDueNow { get; init; }
+        public required SqliteParameter DeleteDueBatchSize { get; init; }
 
         public required SqliteCommand Claim { get; init; }
         public required SqliteParameter ClaimLeaseSeconds { get; init; }
@@ -402,6 +469,9 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
         public static PreparedCommands Create(SqliteConnection conn, string table)
         {
             var insert = Command(conn, SqliteQueueSql.Insert(table));
+            var insertDeferred = Command(conn, SqliteQueueSql.InsertDeferred(table));
+            var copyDue = Command(conn, SqliteQueueSql.CopyDue(table));
+            var deleteDue = Command(conn, SqliteQueueSql.DeleteDue(table));
             var claim = Command(conn, SqliteQueueSql.Claim(table));
             var completed = Command(conn, SqliteQueueSql.MarkCompleted(table));
             var failed = Command(conn, SqliteQueueSql.MarkFailed(table));
@@ -412,6 +482,16 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
                 Insert = insert,
                 InsertMessageId = Parameter(insert, "$messageId", SqliteType.Blob),
                 InsertPayload = Parameter(insert, "$payload", SqliteType.Blob),
+                InsertDeferred = insertDeferred,
+                InsertDeferredDeliverAt = Parameter(insertDeferred, "$deliverAt", SqliteType.Integer),
+                InsertDeferredMessageId = Parameter(insertDeferred, "$messageId", SqliteType.Blob),
+                InsertDeferredPayload = Parameter(insertDeferred, "$payload", SqliteType.Blob),
+                CopyDue = copyDue,
+                CopyDueNow = Parameter(copyDue, "$now", SqliteType.Integer),
+                CopyDueBatchSize = Parameter(copyDue, "$batchSize", SqliteType.Integer),
+                DeleteDue = deleteDue,
+                DeleteDueNow = Parameter(deleteDue, "$now", SqliteType.Integer),
+                DeleteDueBatchSize = Parameter(deleteDue, "$batchSize", SqliteType.Integer),
                 Claim = claim,
                 ClaimLeaseSeconds = Parameter(claim, "$leaseSeconds", SqliteType.Integer),
                 ClaimBatchSize = Parameter(claim, "$batchSize", SqliteType.Integer),
@@ -428,16 +508,18 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IAsyncDisposable
                 PendingError = Parameter(pending, "$error", SqliteType.Text)
             };
 
-            foreach (var command in commands.All)
+            // Not the deferred statements: a table created by hand may not have <table>_deferred yet, which must only
+            // affect deferred messages. SQLite prepares them when they first run.
+            foreach (var command in commands.All.Except([commands.InsertDeferred, commands.CopyDue, commands.DeleteDue]))
                 command.Prepare();
             return commands;
         }
 
-        private IEnumerable<SqliteCommand> All => [Insert, Claim, MarkCompleted, MarkFailed, MarkPending];
+        private IEnumerable<SqliteCommand> All => [Insert, InsertDeferred, CopyDue, DeleteDue, Claim, MarkCompleted, MarkFailed, MarkPending];
 
         public void SetTransaction(SqliteTransaction? tx)
         {
-            foreach (var command in All)
+            foreach (var command in new[] { Insert, Claim, MarkCompleted, MarkFailed, MarkPending })
                 command.Transaction = tx;
         }
 

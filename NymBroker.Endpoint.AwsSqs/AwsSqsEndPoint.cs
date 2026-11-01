@@ -17,8 +17,11 @@ namespace NymBroker.Endpoint.AwsSqs;
 /// dead-letter endpoint takes messages that can never succeed. The SQS client is thread-safe and long-lived; transient
 /// faults are retried by the SDK, a failing receive by a backoff <see cref="RetryPolicy"/>.
 /// </summary>
-public sealed class AwsSqsEndPoint : IEndPointEventDriven, IAsyncDisposable
+public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAsyncDisposable
 {
+    /// <summary>The longest per-message delay SQS allows, 15 minutes.</summary>
+    private const int MaxDelaySeconds = 900;
+
     private readonly string _name;
     private readonly AwsSqsSettings _settings;
     private readonly ILogger<AwsSqsEndPoint> _logger;
@@ -67,14 +70,35 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IAsyncDisposable
     /// <summary>False: SQS has no "dead-letter this message" call; failures go to the broker's dead-letter endpoint.</summary>
     public bool UsesNativeDeadLetter => false;
 
-    public async Task PostAsync(byte[] message, CancellationToken ct = default)
+    public Task PostAsync(byte[] message, CancellationToken ct = default) => SendAsync(message, delaySeconds: null, ct);
+
+    /// <summary>
+    /// Sent with <c>DelaySeconds</c>, rounded up to a whole second so the message is never early. Throws
+    /// <see cref="InvalidOperationException"/> for a deferral over 15 minutes, the SQS limit, and for a FIFO queue, where
+    /// SQS has no per-message delay.
+    /// </summary>
+    public Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
+    {
+        if (_settings.IsFifo)
+            throw new InvalidOperationException($"AWS SQS endpoint '{_name}' is a FIFO queue, which has no per-message delay, so it cannot defer a message.");
+
+        var delay = Math.Ceiling((deliverAt - DateTimeOffset.UtcNow).TotalSeconds);
+        if (delay > MaxDelaySeconds)
+            throw new InvalidOperationException(
+                $"AWS SQS endpoint '{_name}' cannot defer a message to {deliverAt:O}: SQS allows at most {MaxDelaySeconds} seconds.");
+
+        return SendAsync(message, Math.Max(0, (int)delay), ct);
+    }
+
+    private async Task SendAsync(byte[] message, int? delaySeconds, CancellationToken ct)
     {
         var (body, isBase64) = SqsWireFormat.Encode(message);
         var request = new SendMessageRequest
         {
             QueueUrl = await GetQueueUrlAsync(ct),
             MessageBody = body,
-            MessageAttributes = SqsWireFormat.Attributes(isBase64)
+            MessageAttributes = SqsWireFormat.Attributes(isBase64),
+            DelaySeconds = delaySeconds
         };
         if (_settings.IsFifo)
             (request.MessageGroupId, request.MessageDeduplicationId) = SqsWireFormat.FifoIds(message, _settings.MessageGroupId);

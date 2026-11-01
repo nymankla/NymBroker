@@ -95,6 +95,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.nymbroker_idempotency TO nymbroker_o
 GRANT SELECT, INSERT, UPDATE ON dbo.nymbroker_schedule TO nymbroker_orders;                 -- only with AddSqlServerScheduleStore
 ```
 
+Queue listeners also need `SELECT, DELETE` on `<table>_deferred`, and whoever posts deferred messages needs `INSERT` on it ([Deferred messages table](endpoints-and-configuration.md#deferred-messages-table)).
+
 Producers that only post need `INSERT`. With `AutoCreateTable = true` the identity additionally needs `CREATE TABLE` / `ALTER` rights on the schema.
 
 References: [Encryption and certificate validation](https://learn.microsoft.com/sql/connect/ado-net/encryption-and-certificate-validation), [Microsoft Entra authentication with SqlClient](https://learn.microsoft.com/sql/connect/ado-net/sql/azure-active-directory-authentication), [SqlClient security best practices](https://learn.microsoft.com/sql/connect/ado-net/sql/application-security-scenarios-sql-server).
@@ -109,7 +111,7 @@ Host=pg.prod.example.com;Database=orders;Username=nymbroker_orders;Password=<fro
 
 - `VerifyFull` requires TLS and checks both the certificate chain and the host name. If the server's CA is not in the machine's trust store, point to it with `Root Certificate=/path/ca.crt` (or the `PGSSLROOTCERT` environment variable).
 - Client certificates: `SSL Certificate`, `SSL Key` and `SSL Password`.
-- **Permissions:** as for SQL Server — create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table). `LISTEN` / `NOTIFY` (`UseNotifications`) need no extra grant.
+- **Permissions:** as for SQL Server — create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table). `LISTEN` / `NOTIFY` (`UseNotifications`) need no extra grant. The `<table>_deferred` rights are the same as for SQL Server.
 
 Reference: [Npgsql security and encryption](https://www.npgsql.org/doc/security.html).
 
@@ -127,6 +129,7 @@ Server=mysql.prod.example.com;Database=orders;User ID=nymbroker_orders;Password=
 
   ```sql
   GRANT SELECT, INSERT, UPDATE ON orders.nymbroker_messages TO 'nymbroker_orders'@'%';
+  GRANT SELECT, INSERT, DELETE ON orders.nymbroker_messages_deferred TO 'nymbroker_orders'@'%';
   GRANT SELECT, INSERT, UPDATE, DELETE ON orders.nymbroker_idempotency TO 'nymbroker_orders'@'%';   -- only with AddMySqlIdempotency
   GRANT SELECT, INSERT, UPDATE ON orders.nymbroker_schedule TO 'nymbroker_orders'@'%';                 -- only with AddMySqlScheduleStore
   ```

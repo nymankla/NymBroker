@@ -44,7 +44,7 @@ flowchart LR
 |---|---|
 | [Getting started](getting-started.md) | Packages, a first broker in a console app, hosting and shutdown |
 | [Messages and consumers](messages-and-consumers.md) | Message types, the envelope, `IConsume<T>`, `IMessageContext`, DI scopes |
-| [Sending messages](sending-messages.md) | `PostAsync`, batch posting, large messages (split + compression), publishing |
+| [Sending messages](sending-messages.md) | `PostAsync`, batch posting, deferred posting, large messages (split + compression), publishing |
 | [Routing and publish/subscribe](routing-and-pubsub.md) | Routes and conditions, topics and subscribers, what decides where a message goes |
 | [Endpoints and configuration](endpoints-and-configuration.md) | Every endpoint type, endpoint modes, configuring in code or from `queuesettings.json` |
 | [Delivery guarantees](delivery-guarantees.md) | At-least-once limits, ordering, crash behavior and endpoint capabilities |

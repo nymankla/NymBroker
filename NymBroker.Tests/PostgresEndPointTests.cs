@@ -43,6 +43,72 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error);
     }
 
+    // --- Deferred ---
+
+    [Fact]
+    public async Task Deferred_MessageWaits_OtherMessagesDoNot()
+    {
+        RequirePostgres();
+        await DeferredContract.DeferredMessageWaits_OtherMessagesDoNot(CreateEndPoint());
+    }
+
+    [Fact]
+    public async Task Deferred_RetryCountStartsAtTheFirstDelivery()
+    {
+        RequirePostgres();
+        var ep = CreateEndPoint(maxRetryCount: 2);
+        await ep.PostDeferredAsync("{}"u8.ToArray(), DateTimeOffset.UtcNow.AddMilliseconds(200), TestContext.Current.CancellationToken);
+
+        await ep.StartListeningAsync((_, _) => Task.FromResult(ProcessResult.Retry(description: "again")), TestContext.Current.CancellationToken);
+
+        await WaitUntilAsync(async () => await CountAsync("status = 3 AND attempt_count = 2") == 1);
+    }
+
+    [Fact]
+    public async Task Deferred_MoreDueThanABatch_EachIsDeliveredOnce()
+    {
+        RequirePostgres();
+        var ep = CreateEndPoint(batchSize: 10);
+        var received = new ConcurrentBag<string>();
+        for (var i = 0; i < 35; i++)
+            await ep.PostDeferredAsync(Encoding.UTF8.GetBytes($"{{\"n\":{i}}}"), DateTimeOffset.UtcNow.AddMinutes(-1), TestContext.Current.CancellationToken);
+
+        await ep.StartListeningAsync((raw, _) =>
+        {
+            received.Add(Encoding.UTF8.GetString(raw));
+            return Task.FromResult(ProcessResult.Completed);
+        }, TestContext.Current.CancellationToken);
+
+        await WaitUntilAsync(() => Task.FromResult(received.Count >= 35));
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        Assert.Equal(35, received.Count);
+        Assert.Equal(35, received.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task Deferred_TwoListeners_DeliverEachMessageOnce()
+    {
+        RequirePostgres();
+        var first = CreateEndPoint();
+        var second = CreateEndPoint();
+        var received = new ConcurrentBag<string>();
+        Func<byte[], CancellationToken, Task<ProcessResult>> handler = (raw, _) =>
+        {
+            received.Add(Encoding.UTF8.GetString(raw));
+            return Task.FromResult(ProcessResult.Completed);
+        };
+        for (var i = 0; i < 40; i++)
+            await first.PostDeferredAsync(Encoding.UTF8.GetBytes($"{{\"n\":{i}}}"), DateTimeOffset.UtcNow.AddMilliseconds(300), TestContext.Current.CancellationToken);
+
+        await first.StartListeningAsync(handler, TestContext.Current.CancellationToken);
+        await second.StartListeningAsync(handler, TestContext.Current.CancellationToken);
+
+        await WaitUntilAsync(() => Task.FromResult(received.Count >= 40));
+        await Task.Delay(300, TestContext.Current.CancellationToken);
+        Assert.Equal(40, received.Count);
+        Assert.Equal(40, received.Distinct().Count());
+    }
+
     // --- Round trip ---
 
     [Fact]
@@ -443,6 +509,9 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
             await ep.DisposeAsync();
 
         if (!string.IsNullOrWhiteSpace(ConnectionString))
+        {
+            await ExecuteAsync($"DROP TABLE IF EXISTS {_tableName}_deferred");
             await ExecuteAsync($"DROP TABLE IF EXISTS {_tableName}");
+        }
     }
 }

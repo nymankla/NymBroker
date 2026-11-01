@@ -58,6 +58,7 @@ public readonly record struct ProcessResult(ProcessOutcome Outcome, string? Reas
 | `StopAsync` (host stop) | `StopListeningAsync()` | Stop receiving. Let in-flight messages finish. If it throws, the broker logs the error, still stops the other endpoints, and rethrows it from `StopAsync`. |
 | `CheckHealthAsync` / `/health` probes | `HealthCheckAsync(ct)` | Report whether the transport is usable. Never throw. Override it when the check contacts a server; a check of in-memory state can stay in `HealthCheck()`. |
 | `broker.PostBatchAsync` / topic fan-out of `PublishBatchAsync` | `PostBatchAsync(envelopes, ct)` | Optional override: send all envelopes in order, in as few round trips as the transport allows. Each is still received on its own. |
+| `broker.PostDeferredAsync` | `PostDeferredAsync(bytes, deliverAt, ct)`, if the endpoint implements `IDeferredEndPoint` | Optional interface: store the bytes durably and don't deliver them before `deliverAt`; a time in the past means now. Throw if the transport can't honour the time; never deliver early. Without it, the broker throws `NotSupportedException` to the caller. |
 
 The `handler` the broker passes in is `ProcessAsync(raw, endpointName, ct)`. The source name is already bound to it, so routes like `.WhenFrom("MyEndpoint")` work without any extra code.
 

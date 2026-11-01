@@ -207,3 +207,43 @@ services.AddNymBroker()
 - `Mode` is a name, case-insensitive (`"ReadWrite"`, `"ReadOnly"`, `"WriteOnly"`), or a number (`0`, `1`, `2`). Omitted means `ReadWrite`. An unknown value makes the configuration fail to load with a `JsonException`.
 - Secrets such as a Service Bus `TokenCredential` cannot come from the file; register those endpoints in code.
 - To read from `appsettings.json` / `IConfiguration` instead of a file: `.ApplyConfiguration(BrokerConfigurationReader.Read(configuration))`.
+
+## Deferred messages table
+
+Each SQL queue has a second table, `<table>_deferred`, for messages posted with [`PostDeferredAsync`](sending-messages.md#deferring-a-message). A listener checks it about four times a second. With `AutoCreateTable = true` it is created on first use. With `AutoCreateTable = false`, create it in your deployment step: without it, ordinary messages still work, but the listener logs an error every few seconds and deferred posts fail. The table for each database:
+
+```sql
+-- PostgreSQL
+CREATE TABLE orders_queue_deferred (
+    deferred_id    BIGSERIAL PRIMARY KEY,
+    deliver_at_utc TIMESTAMPTZ NOT NULL,
+    message_id     UUID        NOT NULL,
+    payload        BYTEA       NOT NULL);
+CREATE INDEX ix_orders_queue_deferred_due ON orders_queue_deferred (deliver_at_utc, deferred_id);
+
+-- SQL Server
+CREATE TABLE dbo.orders_queue_deferred (
+    deferred_id    BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT pk_orders_queue_deferred PRIMARY KEY CLUSTERED,
+    deliver_at_utc DATETIME2(7)     NOT NULL,
+    message_id     UNIQUEIDENTIFIER NOT NULL,
+    payload        VARBINARY(MAX)   NOT NULL);
+CREATE INDEX ix_orders_queue_deferred_due ON dbo.orders_queue_deferred (deliver_at_utc);
+
+-- MySQL
+CREATE TABLE orders_queue_deferred (
+    deferred_id    BIGINT      NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    deliver_at_utc DATETIME(6) NOT NULL,
+    message_id     BINARY(16)  NOT NULL,
+    payload        LONGBLOB    NOT NULL,
+    INDEX ix_due (deliver_at_utc, deferred_id)) ENGINE = InnoDB;
+
+-- SQLite (DeliverAtUtc is in Unix milliseconds)
+CREATE TABLE orders_queue_deferred (
+    DeferredId   INTEGER NOT NULL PRIMARY KEY,
+    DeliverAtUtc INTEGER NOT NULL,
+    MessageId    BLOB    NOT NULL,
+    Payload      BLOB    NOT NULL);
+CREATE INDEX IX_orders_queue_deferred_Due ON orders_queue_deferred (DeliverAtUtc, DeferredId);
+```
+
+Listeners need `SELECT, DELETE` on this table, and whoever posts deferred messages needs `INSERT`. During a rolling upgrade, instances on an older version ignore the table, so they never deliver a deferred message early.
