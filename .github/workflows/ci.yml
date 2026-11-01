@@ -22,6 +22,8 @@ jobs:
         run: |
           version="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' Directory.Build.props | head -1)"
           test "${GITHUB_REF_NAME#v}" = "$version"
+      # Builds the samples too; the test and pack steps below build only what they need.
+      - run: dotnet build NymBroker.slnx --configuration Release -p:ContinuousIntegrationBuild=true
       - run: dotnet test NymBroker.Tests/NymBroker.Tests.csproj --configuration Release -p:ContinuousIntegrationBuild=true
       - run: pwsh ./scripts/pack.ps1 -OutputDir artifacts/nupkg
       - run: test "$(find artifacts/nupkg -name '*.snupkg' | wc -l)" -eq 17
