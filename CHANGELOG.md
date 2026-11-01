@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- `samples/NymBroker.RabbitSqlServerSample`: workers sharing a RabbitMQ queue, with duplicate detection and a named schedule in SQL Server. Self-checking with `--demo`.
+
 ## [0.17.0] - 2026-11-01
 
 ### Added
