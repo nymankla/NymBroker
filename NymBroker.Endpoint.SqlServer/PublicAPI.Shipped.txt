@@ -34,3 +34,11 @@ static NymBroker.Endpoint.SqlServer.NymBrokerBuilderSqlServerExtensions.AddSqlSe
 static NymBroker.Endpoint.SqlServer.NymBrokerBuilderSqlServerExtensions.WithSqlServer(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
 NymBroker.Endpoint.SqlServer.SqlServerEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!
 NymBroker.Endpoint.SqlServer.SqlServerEndPoint.PostDeferredAsync(byte[]! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CleanupBatchSize.get -> int
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CleanupBatchSize.set -> void
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CleanupInterval.set -> void
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CompletedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CompletedRetention.set -> void
+NymBroker.Endpoint.SqlServer.SqlServerSettings.FailedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.SqlServer.SqlServerSettings.FailedRetention.set -> void

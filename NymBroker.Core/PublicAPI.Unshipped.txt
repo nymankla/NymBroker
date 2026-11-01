@@ -1,6 +1,1 @@
 #nullable enable
-NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.CleanupBatchSize.get -> int
-NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.CleanupInterval.get -> System.TimeSpan
-NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.CompletedRetention.get -> System.TimeSpan
-NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.FailedRetention.get -> System.TimeSpan
-virtual NymBroker.Core.Endpoint.Queue.LeasedQueueListener.DeleteFinishedAsync(NymBroker.Core.Endpoint.Queue.QueueMessageStatus status, int olderThanSeconds, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<int>!

@@ -51,3 +51,11 @@ static NymBroker.Endpoint.Sqlite.NymBrokerBuilderSqliteExtensions.AddSqliteEndPo
 static NymBroker.Endpoint.Sqlite.NymBrokerBuilderSqliteExtensions.WithSql(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
 NymBroker.Endpoint.Sqlite.SqliteEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!
 NymBroker.Endpoint.Sqlite.SqliteEndPoint.PostDeferredAsync(byte[]! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.Sqlite.SqliteSettings.CleanupBatchSize.get -> int
+NymBroker.Endpoint.Sqlite.SqliteSettings.CleanupBatchSize.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Endpoint.Sqlite.SqliteSettings.CleanupInterval.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.CompletedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.Sqlite.SqliteSettings.CompletedRetention.set -> void
+NymBroker.Endpoint.Sqlite.SqliteSettings.FailedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.Sqlite.SqliteSettings.FailedRetention.set -> void

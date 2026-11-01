@@ -34,3 +34,11 @@ static NymBroker.Endpoint.MySql.NymBrokerBuilderMySqlExtensions.AddMySqlEndPoint
 static NymBroker.Endpoint.MySql.NymBrokerBuilderMySqlExtensions.WithMySql(this NymBroker.Core.Factory.NymBrokerBuilder! builder) -> NymBroker.Core.Factory.NymBrokerBuilder!
 NymBroker.Endpoint.MySql.MySqlEndPoint.HealthCheckAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.IHealthCheckResult!>!
 NymBroker.Endpoint.MySql.MySqlEndPoint.PostDeferredAsync(byte[]! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Endpoint.MySql.MySqlSettings.CleanupBatchSize.get -> int
+NymBroker.Endpoint.MySql.MySqlSettings.CleanupBatchSize.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Endpoint.MySql.MySqlSettings.CleanupInterval.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.CompletedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.MySql.MySqlSettings.CompletedRetention.set -> void
+NymBroker.Endpoint.MySql.MySqlSettings.FailedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.MySql.MySqlSettings.FailedRetention.set -> void

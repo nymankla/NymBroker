@@ -1,9 +1,1 @@
 #nullable enable
-NymBroker.Endpoint.Sqlite.SqliteSettings.CleanupBatchSize.get -> int
-NymBroker.Endpoint.Sqlite.SqliteSettings.CleanupBatchSize.set -> void
-NymBroker.Endpoint.Sqlite.SqliteSettings.CleanupInterval.get -> System.TimeSpan
-NymBroker.Endpoint.Sqlite.SqliteSettings.CleanupInterval.set -> void
-NymBroker.Endpoint.Sqlite.SqliteSettings.CompletedRetention.get -> System.TimeSpan
-NymBroker.Endpoint.Sqlite.SqliteSettings.CompletedRetention.set -> void
-NymBroker.Endpoint.Sqlite.SqliteSettings.FailedRetention.get -> System.TimeSpan
-NymBroker.Endpoint.Sqlite.SqliteSettings.FailedRetention.set -> void

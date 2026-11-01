@@ -633,3 +633,8 @@ NymBroker.Core.Impl.INymBroker.PostDeferredAsync<T>(string! endpointName, T! mes
 NymBroker.Core.Impl.INymBroker.PostRawDeferredAsync(string! endpointName, System.IO.Stream! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.INymBroker.PostRawDeferredAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 virtual NymBroker.Core.Endpoint.Queue.LeasedQueueListener.PromoteDueAsync(System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<int>!
+NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.CleanupBatchSize.get -> int
+NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.CompletedRetention.get -> System.TimeSpan
+NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.FailedRetention.get -> System.TimeSpan
+virtual NymBroker.Core.Endpoint.Queue.LeasedQueueListener.DeleteFinishedAsync(NymBroker.Core.Endpoint.Queue.QueueMessageStatus status, int olderThanSeconds, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<int>!

@@ -1,9 +1,1 @@
 #nullable enable
-NymBroker.Endpoint.MySql.MySqlSettings.CleanupBatchSize.get -> int
-NymBroker.Endpoint.MySql.MySqlSettings.CleanupBatchSize.set -> void
-NymBroker.Endpoint.MySql.MySqlSettings.CleanupInterval.get -> System.TimeSpan
-NymBroker.Endpoint.MySql.MySqlSettings.CleanupInterval.set -> void
-NymBroker.Endpoint.MySql.MySqlSettings.CompletedRetention.get -> System.TimeSpan
-NymBroker.Endpoint.MySql.MySqlSettings.CompletedRetention.set -> void
-NymBroker.Endpoint.MySql.MySqlSettings.FailedRetention.get -> System.TimeSpan
-NymBroker.Endpoint.MySql.MySqlSettings.FailedRetention.set -> void
