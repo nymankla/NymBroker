@@ -36,6 +36,15 @@ public sealed class RabbitMqSettings
     public int BatchAckSize { get; set; } = 1;
 
     /// <summary>
+    /// How many unacknowledged messages RabbitMQ delivers to this endpoint at a time, 0–65535 (0 means no limit). Default 100.
+    /// Messages beyond the limit stay in the queue, where they use no memory here and can go to other instances. A delivered
+    /// message must be acked within the server's consumer timeout where it applies (30 minutes by default), so keep
+    /// <see cref="PrefetchCount"/> × handler time below it. Acks are sent at least every <see cref="PrefetchCount"/> messages,
+    /// even if <see cref="BatchAckSize"/> is higher.
+    /// </summary>
+    public int PrefetchCount { get; set; } = 100;
+
+    /// <summary>
     /// When true (default), a message whose handler fails after it was already redelivered is nacked
     /// with requeue=false (dead-lettered if the queue has a DLX) instead of being requeued forever.
     /// </summary>

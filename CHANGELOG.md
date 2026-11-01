@@ -4,6 +4,18 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- RabbitMQ: `PrefetchCount` limits how many unacknowledged messages are delivered at a time.
+
+### Changed
+
+- RabbitMQ: `PrefetchCount` defaults to 100, where there was no limit before. The rest of a backlog now stays in the queue, where other instances can take it. The limit lowers peak throughput with very fast handlers (22% to 40% in a local test with a handler that does nothing), so raise it, or set it to 0 for the old behaviour, if that matters more than sharing the backlog.
+
+### Fixed
+
+- RabbitMQ: a listener stopped receiving for good when the server closed its channel or cancelled its consumer (for example a handler exceeding the consumer timeout, 30 minutes by default, or the queue being deleted), while the health check stayed healthy. It now logs a warning and subscribes again. Messages not yet acknowledged are redelivered.
+
 ## [0.16.1] - 2026-11-01
 
 ### Security
