@@ -181,6 +181,17 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
         }
     }
 
+    private async Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = new MySqlCommand(status == QueueMessageStatus.Completed
+            ? MySqlQueueSql.DeleteCompleted(_table)
+            : MySqlQueueSql.DeleteFailed(_table), conn);
+        cmd.Parameters.AddWithValue("@olderThanSeconds", olderThanSeconds);
+        cmd.Parameters.AddWithValue("@batchSize", _settings.CleanupBatchSize);
+        return await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private async Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
     {
         await using var conn = await OpenConnectionAsync(ct);
@@ -234,8 +245,24 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
 
     private async Task CreateSchemaAsync(MySqlConnection conn, CancellationToken ct)
     {
-        await using var cmd = new MySqlCommand(MySqlQueueSql.CreateSchema(_table), conn);
-        await cmd.ExecuteNonQueryAsync(ct);
+        await using (var cmd = new MySqlCommand(MySqlQueueSql.CreateSchema(_table), conn))
+            await cmd.ExecuteNonQueryAsync(ct);
+
+        await using (var find = new MySqlCommand(MySqlQueueSql.FindCompletedAtIndex(_table), conn))
+        {
+            if (await find.ExecuteScalarAsync(ct) is not null)
+                return;
+        }
+
+        try
+        {
+            await using var add = new MySqlCommand(MySqlQueueSql.AddCompletedAtIndex(_table), conn);
+            await add.ExecuteNonQueryAsync(ct);
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.DuplicateKeyName)
+        {
+            _logger.LogDebug("Another instance added the completed-at index to {Table} first", _table);
+        }
     }
 
     private sealed record FinalizeItem(long Id, int Attempt, int Status, string? Error);
@@ -250,5 +277,8 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
             => owner.FinalizeAsync(outcomes, ct);
 
         protected override Task<int> PromoteDueAsync(CancellationToken ct) => owner.PromoteDueAsync(ct);
+
+        protected override Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
+            => owner.DeleteFinishedAsync(status, olderThanSeconds, ct);
     }
 }

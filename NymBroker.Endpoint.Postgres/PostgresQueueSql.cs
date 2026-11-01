@@ -36,8 +36,9 @@ internal static class PostgresQueueSql
 
     /// <summary>
     /// Creates the table and the partial index on Pending/InProgress rows (which keeps claiming O(batch) no matter
-    /// how many rows are queued or completed). Also drops the two full status indexes created by NymBroker 0.1.x —
-    /// the partial index replaces them, and every status change had to update both.
+    /// how many rows are queued or completed), and one partial index per finished status for the retention cleanup.
+    /// Also drops the two full status indexes created by NymBroker 0.1.x — the partial index replaces them, and every
+    /// status change had to update both.
     /// </summary>
     internal static string CreateSchema(string tableName)
     {
@@ -60,6 +61,12 @@ internal static class PostgresQueueSql
             CREATE INDEX IF NOT EXISTS {QuoteSimpleIdentifier($"ix_{safeName}_active")}
                 ON {table}(created_at_utc, queue_id)
                 WHERE status IN ({Pending}, {InProgress});
+            CREATE INDEX IF NOT EXISTS {QuoteSimpleIdentifier($"ix_{safeName}_completed")}
+                ON {table}(completed_at_utc)
+                WHERE status = {Completed};
+            CREATE INDEX IF NOT EXISTS {QuoteSimpleIdentifier($"ix_{safeName}_failed")}
+                ON {table}(failed_at_utc)
+                WHERE status = {Failed};
             DROP INDEX IF EXISTS {QualifiedIndexName(tableName, $"ix_{safeName}_status_created")};
             DROP INDEX IF EXISTS {QualifiedIndexName(tableName, $"ix_{safeName}_status_locked_until")};
             CREATE TABLE IF NOT EXISTS {DeferredTable(tableName)} (
@@ -70,6 +77,28 @@ internal static class PostgresQueueSql
             );
             CREATE INDEX IF NOT EXISTS {QuoteSimpleIdentifier($"ix_{safeName}_deferred_due")}
                 ON {DeferredTable(tableName)}(deliver_at_utc, deferred_id);
+            """;
+    }
+
+    internal static string DeleteCompleted(string tableName) => DeleteFinished(tableName, Completed, "completed_at_utc");
+
+    internal static string DeleteFailed(string tableName) => DeleteFinished(tableName, Failed, "failed_at_utc");
+
+    /// <summary>
+    /// One batch of old finished rows, found through the status's partial index. <c>SKIP LOCKED</c> lets several instances
+    /// do this at the same time.
+    /// </summary>
+    private static string DeleteFinished(string tableName, int status, string finishedAtColumn)
+    {
+        var table = QuoteQualifiedIdentifier(tableName);
+        return $"""
+            DELETE FROM {table}
+            WHERE queue_id IN (
+                SELECT queue_id FROM {table}
+                WHERE status = {status}
+                  AND {finishedAtColumn} < NOW() - (@olderThanSeconds * INTERVAL '1 second')
+                FOR UPDATE SKIP LOCKED
+                LIMIT @batchSize)
             """;
     }
 

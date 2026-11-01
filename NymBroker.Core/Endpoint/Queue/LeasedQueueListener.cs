@@ -14,7 +14,9 @@ namespace NymBroker.Core.Endpoint.Queue;
 /// <item>turns each <see cref="ProcessResult"/> into an outcome: Completed; DeadLetter → Failed at once; Retry (or a
 /// handler exception) → Pending, or Failed once <see cref="ILeasedQueueSettings.MaxRetryCount"/> is reached;</item>
 /// <item>on stop, writes the outcomes of messages already handled (<see cref="FinalizeAsync"/>, 10 s timeout); messages
-/// claimed but not handled stay InProgress and are redelivered after their lease expires.</item>
+/// claimed but not handled stay InProgress and are redelivered after their lease expires;</item>
+/// <item>deletes old finished rows on <see cref="ILeasedQueueSettings.CleanupInterval"/>, beside the loop rather than in it,
+/// so a slow delete doesn't hold up messages (<see cref="DeleteFinishedAsync"/>).</item>
 /// </list>
 /// Failures are logged, never swallowed: poll errors at Error (the loop continues), a dead loop at Critical,
 /// a failed shutdown write at Warning.
@@ -25,15 +27,21 @@ public abstract class LeasedQueueListener
     // Not on every claim: moving due messages must cost a busy queue nothing measurable.
     private static readonly TimeSpan PromotionInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan PromotionRetryDelay = TimeSpan.FromSeconds(5);
+    // What PeriodicTimer accepts.
+    private static readonly TimeSpan MinCleanupInterval = TimeSpan.FromMilliseconds(1);
+    private static readonly TimeSpan MaxCleanupInterval = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
     private CancellationTokenSource? _listeningCts;
     private Task? _loop;
+    private Task? _cleanup;
 
     /// <param name="endpointName">The endpoint's name, used in log messages.</param>
     /// <param name="settings">Batch size, poll interval, lease and retry limit.</param>
     /// <param name="logger">The endpoint's logger, so log categories stay the endpoint's.</param>
+    /// <exception cref="ArgumentException">The retention or cleanup settings are invalid.</exception>
     protected LeasedQueueListener(string endpointName, ILeasedQueueSettings settings, ILogger logger)
     {
+        ValidateCleanupSettings(settings);
         EndpointName = endpointName;
         Settings = settings;
         Logger = logger;
@@ -60,6 +68,10 @@ public abstract class LeasedQueueListener
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = _listeningCts.Token;
         _loop = Task.Run(() => RunAsync(handler, token), CancellationToken.None);
+
+        var keepsEverything = Settings.CompletedRetention == TimeSpan.Zero && Settings.FailedRetention == TimeSpan.Zero;
+        if (Settings.CleanupInterval > TimeSpan.Zero && !keepsEverything)
+            _cleanup = Task.Run(() => RunCleanupAsync(token), CancellationToken.None);
     }
 
     /// <summary>Stops polling and waits for the loop to finish, so no handler runs after this returns.</summary>
@@ -70,6 +82,11 @@ public abstract class LeasedQueueListener
         {
             await _loop;
             _loop = null;
+        }
+        if (_cleanup is not null)
+        {
+            await _cleanup;
+            _cleanup = null;
         }
         _listeningCts?.Dispose();
         _listeningCts = null;
@@ -98,6 +115,15 @@ public abstract class LeasedQueueListener
     /// to move.
     /// </summary>
     protected virtual Task<int> PromoteDueAsync(CancellationToken ct) => Task.FromResult(0);
+
+    /// <summary>
+    /// Deletes up to <see cref="ILeasedQueueSettings.CleanupBatchSize"/> rows with this <paramref name="status"/>
+    /// (<see cref="QueueMessageStatus.Completed"/> or <see cref="QueueMessageStatus.Failed"/>) that finished more than
+    /// <paramref name="olderThanSeconds"/> ago, and returns how many. Called on <see cref="ILeasedQueueSettings.CleanupInterval"/>,
+    /// and again at once while it returns a full batch. It runs at the same time as the listener loop and may run on several
+    /// instances against one table. A failure is logged and retried at the next interval. Default: nothing to delete.
+    /// </summary>
+    protected virtual Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct) => Task.FromResult(0);
 
     /// <summary>Called once when the loop ends, before the shutdown finalize; release resources the loop used here.</summary>
     protected virtual ValueTask OnLoopExitAsync() => ValueTask.CompletedTask;
@@ -173,6 +199,65 @@ public abstract class LeasedQueueListener
             Logger.LogError(ex, "Could not move due deferred messages to the queue on endpoint '{Name}'; ordinary messages are not affected", EndpointName);
             return Environment.TickCount64 + (long)PromotionRetryDelay.TotalMilliseconds;
         }
+    }
+
+    private async Task RunCleanupAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(Settings.CleanupInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                await DeleteAllFinishedAsync(QueueMessageStatus.Completed, Settings.CompletedRetention, token);
+                await DeleteAllFinishedAsync(QueueMessageStatus.Failed, Settings.FailedRetention, token);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Stopping.
+        }
+    }
+
+    private async Task DeleteAllFinishedAsync(QueueMessageStatus status, TimeSpan retention, CancellationToken token)
+    {
+        if (retention == TimeSpan.Zero) return;
+
+        var olderThanSeconds = (int)Math.Ceiling(retention.TotalSeconds);
+        try
+        {
+            var total = 0;
+            int deleted;
+            do
+            {
+                deleted = await DeleteFinishedAsync(status, olderThanSeconds, token);
+                total += deleted;
+            }
+            while (deleted >= Settings.CleanupBatchSize);
+
+            Logger.LogDebug("Deleted {Count} old {Status} row(s) on endpoint '{Name}'", total, status, EndpointName);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+        {
+            Logger.LogError(ex, "Deleting old {Status} rows on endpoint '{Name}' failed; retrying at the next interval. Messages are not affected", status, EndpointName);
+        }
+    }
+
+    private static void ValidateCleanupSettings(ILeasedQueueSettings settings)
+    {
+        ValidateRetention(settings.CompletedRetention, nameof(settings.CompletedRetention));
+        ValidateRetention(settings.FailedRetention, nameof(settings.FailedRetention));
+
+        if (settings.CleanupInterval != TimeSpan.Zero
+            && (settings.CleanupInterval < MinCleanupInterval || settings.CleanupInterval > MaxCleanupInterval))
+            throw new ArgumentException($"CleanupInterval must be zero (no cleanup) or between {MinCleanupInterval} and {MaxCleanupInterval}.", nameof(settings));
+        if (settings.CleanupBatchSize < 1)
+            throw new ArgumentException("CleanupBatchSize must be at least 1.", nameof(settings));
+    }
+
+    private static void ValidateRetention(TimeSpan retention, string name)
+    {
+        if (retention < TimeSpan.Zero || retention.TotalSeconds > int.MaxValue)
+            throw new ArgumentException($"{name} must be zero (keep forever) or positive, and at most {int.MaxValue} seconds.", name);
     }
 
     private QueueMessageOutcome ToOutcome(QueueMessage message, ProcessResult result)

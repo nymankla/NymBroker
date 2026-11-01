@@ -1,1 +1,9 @@
 #nullable enable
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CleanupBatchSize.get -> int
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CleanupBatchSize.set -> void
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CleanupInterval.set -> void
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CompletedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.SqlServer.SqlServerSettings.CompletedRetention.set -> void
+NymBroker.Endpoint.SqlServer.SqlServerSettings.FailedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.SqlServer.SqlServerSettings.FailedRetention.set -> void

@@ -485,6 +485,11 @@ What this sample adds beyond Sample B:
 
       // Optional: wake up early on a notification instead of waiting the whole PollInterval (see PostgresEndPoint).
       // protected override Task WaitWhenIdleAsync(CancellationToken ct) => ...;
+
+      // Optional: delete one batch of old Completed or Failed rows, and return how many. Runs beside the loop, on
+      // CleanupInterval, when your settings also implement CompletedRetention, FailedRetention, CleanupInterval and
+      // CleanupBatchSize (all off by default). See SqlServerEndPoint.
+      // protected override Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct) => ...;
   }
 
   // In the endpoint: StartListeningAsync → _listener.Start(handler, ct); StopListeningAsync → _listener.StopAsync().

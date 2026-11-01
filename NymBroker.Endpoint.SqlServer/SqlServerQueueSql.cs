@@ -35,8 +35,9 @@ internal static class SqlServerQueueSql
     private static string Literal(string value) => value.Replace("'", "''");
 
     /// <summary>
-    /// Clustered on the IDENTITY key (append-only inserts, FIFO order). A single filtered index covers only
-    /// Pending/InProgress rows, so claiming stays cheap no matter how many Completed/Failed rows accumulate.
+    /// Clustered on the IDENTITY key (append-only inserts, FIFO order). One filtered index covers only
+    /// Pending/InProgress rows, so claiming stays cheap no matter how many Completed/Failed rows accumulate; one more
+    /// per finished status finds rows for the retention cleanup.
     /// </summary>
     internal static string CreateSchema(string tableName)
     {
@@ -45,6 +46,8 @@ internal static class SqlServerQueueSql
         var safeName = tableName.Replace('.', '_');
         var primaryKey = $"pk_{safeName}";
         var activeIndex = $"ix_{safeName}_active";
+        var completedIndex = $"ix_{safeName}_completed";
+        var failedIndex = $"ix_{safeName}_failed";
         var deferred = DeferredTable(tableName);
         var dueIndex = $"ix_{safeName}_deferred_due";
 
@@ -70,6 +73,14 @@ internal static class SqlServerQueueSql
                 CREATE INDEX {QuoteSimpleIdentifier(activeIndex)}
                     ON {table}(queue_id) INCLUDE (status, locked_until_utc)
                     WHERE status IN ({Pending}, {InProgress});
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(completedIndex)}' AND object_id = OBJECT_ID(N'{tableLiteral}'))
+                CREATE INDEX {QuoteSimpleIdentifier(completedIndex)}
+                    ON {table}(completed_at_utc)
+                    WHERE status = {Completed};
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(failedIndex)}' AND object_id = OBJECT_ID(N'{tableLiteral}'))
+                CREATE INDEX {QuoteSimpleIdentifier(failedIndex)}
+                    ON {table}(failed_at_utc)
+                    WHERE status = {Failed};
             IF OBJECT_ID(N'{Literal(deferred)}', N'U') IS NULL
                 CREATE TABLE {deferred} (
                     deferred_id    BIGINT IDENTITY(1,1) NOT NULL,
@@ -82,6 +93,20 @@ internal static class SqlServerQueueSql
                 CREATE INDEX {QuoteSimpleIdentifier(dueIndex)} ON {deferred}(deliver_at_utc);
             """;
     }
+
+    internal static string DeleteCompleted(string tableName) => DeleteFinished(tableName, Completed, "completed_at_utc");
+
+    internal static string DeleteFailed(string tableName) => DeleteFinished(tableName, Failed, "failed_at_utc");
+
+    /// <summary>
+    /// One batch of old finished rows, found through the status's filtered index. <c>READPAST</c> lets several instances do
+    /// this at the same time. No <c>SET NOCOUNT ON</c>: the caller uses the row count.
+    /// </summary>
+    private static string DeleteFinished(string tableName, int status, string finishedAtColumn) => $"""
+        DELETE TOP (@batchSize) FROM {QuoteQualifiedIdentifier(tableName)} WITH (UPDLOCK, READPAST, ROWLOCK)
+        WHERE status = {status}
+          AND {finishedAtColumn} < DATEADD(SECOND, -@olderThanSeconds, SYSUTCDATETIME());
+        """;
 
     /// <summary>
     /// Deferred messages wait in their own table, not in the queue table, so any number of them leaves the claim's

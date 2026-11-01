@@ -6,6 +6,7 @@ using MySqlConnector;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
+using NymBroker.Core.Endpoint.Queue;
 using NymBroker.Endpoint.MySql;
 
 namespace NymBroker.Tests;
@@ -111,6 +112,60 @@ public sealed class MySqlEndPointTests : IAsyncLifetime
     // =====================================================================
     // Integration tests (MySQL)
     // =====================================================================
+
+    // --- Retention ---
+
+    private MySqlEndPoint CreateRetentionEndPoint(CapturingLogger<MySqlEndPoint> logger)
+    {
+        var ep = new MySqlEndPoint("MySqlTest", new MySqlSettings
+        {
+            ConnectionString = ConnectionString!,
+            TableName = _tableName,
+            PollInterval = TimeSpan.FromMilliseconds(20),
+            CompletedRetention = RetentionContract.CompletedRetention,
+            FailedRetention = RetentionContract.FailedRetention,
+            CleanupInterval = RetentionContract.CleanupInterval,
+            CleanupBatchSize = RetentionContract.CleanupBatchSize
+        }, logger);
+        _endpoints.Add(ep);
+        return ep;
+    }
+
+    [Fact]
+    public async Task Retention_DeletesOnlyOldFinishedRows()
+    {
+        RequireMySql();
+        var logger = new CapturingLogger<MySqlEndPoint>();
+        await RetentionContract.DeletesOnlyOldFinishedRows(CreateRetentionEndPoint(logger), logger,
+            (id, status, ageMinutes) =>
+            {
+                var finishedAt = $"UTC_TIMESTAMP(6) - INTERVAL {ageMinutes} MINUTE";
+                return ExecuteAsync($"""
+                    UPDATE {_tableName}
+                       SET status = {(int)status},
+                           created_at_utc = {finishedAt},
+                           completed_at_utc = {(status == QueueMessageStatus.Completed ? finishedAt : "NULL")},
+                           failed_at_utc = {(status == QueueMessageStatus.Failed ? finishedAt : "NULL")},
+                           locked_until_utc = {(status == QueueMessageStatus.InProgress ? "UTC_TIMESTAMP(6) + INTERVAL 1 HOUR" : "NULL")}
+                     WHERE queue_id = {id}
+                    """);
+            },
+            () => ScalarAsync<string>($"SELECT COALESCE(GROUP_CONCAT(queue_id ORDER BY queue_id SEPARATOR ','), '') FROM {_tableName}"),
+            () => ScalarAsync<long>($"SELECT COUNT(*) FROM {_tableName}_deferred"));
+    }
+
+    [Fact]
+    public async Task Retention_TableFromAnOlderVersion_GetsTheIndex()
+    {
+        RequireMySql();
+        await CreateEndPoint().PostAsync("{}"u8.ToArray(), Ct);
+        await ExecuteAsync($"DROP INDEX ix_completed_at ON {_tableName}");
+
+        await CreateEndPoint().PostAsync("{}"u8.ToArray(), Ct);
+
+        Assert.Equal(1L, await ScalarAsync<long>(
+            $"SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = '{_tableName}' AND index_name = 'ix_completed_at'"));
+    }
 
     // --- Deferred ---
 

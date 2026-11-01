@@ -1,1 +1,9 @@
 #nullable enable
+NymBroker.Endpoint.Postgres.PostgresSettings.CleanupBatchSize.get -> int
+NymBroker.Endpoint.Postgres.PostgresSettings.CleanupBatchSize.set -> void
+NymBroker.Endpoint.Postgres.PostgresSettings.CleanupInterval.get -> System.TimeSpan
+NymBroker.Endpoint.Postgres.PostgresSettings.CleanupInterval.set -> void
+NymBroker.Endpoint.Postgres.PostgresSettings.CompletedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.Postgres.PostgresSettings.CompletedRetention.set -> void
+NymBroker.Endpoint.Postgres.PostgresSettings.FailedRetention.get -> System.TimeSpan
+NymBroker.Endpoint.Postgres.PostgresSettings.FailedRetention.set -> void

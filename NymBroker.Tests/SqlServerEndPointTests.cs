@@ -7,6 +7,7 @@ using NymBroker.Core.Endpoint;
 using Microsoft.Extensions.DependencyInjection;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint.HealthCheck;
+using NymBroker.Core.Endpoint.Queue;
 
 namespace NymBroker.Tests;
 
@@ -41,6 +42,47 @@ public sealed class SqlServerEndPointTests : IAsyncLifetime
         Assert.False(result.IsHealthy);
         Assert.False(string.IsNullOrEmpty(result.Message));
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error);
+    }
+
+    // --- Retention ---
+
+    [Fact]
+    public async Task Retention_DeletesOnlyOldFinishedRows()
+    {
+        RequireSqlServer();
+        var logger = new CapturingLogger<SqlServerEndPoint>();
+        var ep = new SqlServerEndPoint("SqlTest", new SqlServerSettings
+        {
+            ConnectionString = ConnectionString!,
+            TableName = _tableName,
+            PollInterval = TimeSpan.FromMilliseconds(20),
+            CompletedRetention = RetentionContract.CompletedRetention,
+            FailedRetention = RetentionContract.FailedRetention,
+            CleanupInterval = RetentionContract.CleanupInterval,
+            CleanupBatchSize = RetentionContract.CleanupBatchSize
+        }, logger);
+        _endpoints.Add(ep);
+
+        await RetentionContract.DeletesOnlyOldFinishedRows(ep, logger,
+            (id, status, ageMinutes) =>
+            {
+                var finishedAt = $"DATEADD(MINUTE, -{ageMinutes}, SYSUTCDATETIME())";
+                return ExecuteAsync($"""
+                    UPDATE {_tableName}
+                       SET status = {(int)status},
+                           created_at_utc = {finishedAt},
+                           completed_at_utc = {(status == QueueMessageStatus.Completed ? finishedAt : "NULL")},
+                           failed_at_utc = {(status == QueueMessageStatus.Failed ? finishedAt : "NULL")},
+                           locked_until_utc = {(status == QueueMessageStatus.InProgress ? "DATEADD(HOUR, 1, SYSUTCDATETIME())" : "NULL")}
+                     WHERE queue_id = {id}
+                    """);
+            },
+            () => ScalarAsync<string>($"SELECT COALESCE(STRING_AGG(CAST(queue_id AS VARCHAR(20)), ',') WITHIN GROUP (ORDER BY queue_id), '') FROM {_tableName}"),
+            async () => await ScalarAsync<int>($"SELECT COUNT(*) FROM {_tableName}_deferred"));
+
+        var safeName = _tableName.Replace('.', '_');
+        Assert.Equal(2, await ScalarAsync<int>(
+            $"SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID(N'{_tableName}') AND name IN ('ix_{safeName}_completed', 'ix_{safeName}_failed') AND has_filter = 1"));
     }
 
     // --- Deferred ---

@@ -144,6 +144,18 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
         return (int)(await cmd.ExecuteScalarAsync(ct))!;
     }
 
+    private async Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = status == QueueMessageStatus.Completed
+            ? SqlServerQueueSql.DeleteCompleted(_settings.TableName)
+            : SqlServerQueueSql.DeleteFailed(_settings.TableName);
+        cmd.Parameters.Add("@olderThanSeconds", SqlDbType.Int).Value = olderThanSeconds;
+        cmd.Parameters.Add("@batchSize", SqlDbType.Int).Value = _settings.CleanupBatchSize;
+        return await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private async Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
     {
         await using var conn = await OpenConnectionAsync(ct);
@@ -203,5 +215,8 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
             => owner.FinalizeAsync(outcomes, ct);
 
         protected override Task<int> PromoteDueAsync(CancellationToken ct) => owner.PromoteDueAsync(ct);
+
+        protected override Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
+            => owner.DeleteFinishedAsync(status, olderThanSeconds, ct);
     }
 }

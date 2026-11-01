@@ -90,7 +90,7 @@ Settings per transport (only set what differs from the defaults):
 |---|---|---|
 | Memory | `AddMemoryEndPoint(name, capacity: 1000)` | — |
 | File | `FileSettings { ReadPath, PostPath }` | folders to watch / write to |
-| SQLite | `SqliteSettings { ConnectionString, TableName, AutoCreateTable, BatchSize, PollInterval, LeaseTimeout, MaxRetryCount }` | `Data Source=queue.db` |
+| SQLite | `SqliteSettings { ConnectionString, TableName, AutoCreateTable, BatchSize, PollInterval, LeaseTimeout, MaxRetryCount, CompletedRetention, FailedRetention }` | `Data Source=queue.db` |
 | PostgreSQL | `PostgresSettings { ConnectionString, TableName, AutoCreateTable, UseNotifications, … }` | same SQL options as SQLite |
 | SQL Server | `SqlServerSettings { ConnectionString, TableName = "dbo.x", AutoCreateTable, … }` | same SQL options |
 | MySQL | `MySqlSettings { ConnectionString, TableName, AutoCreateTable, … }` | same SQL options; MySQL 8.0+ / MariaDB 10.6+ |
@@ -165,7 +165,7 @@ For anything beyond local development (https://github.com/nymankla/NymBroker/blo
 - Never rely on the default connection settings — they are the local Docker containers' (`sa` / `TrustServerCertificate=True` for SQL Server, `postgres/postgres`, RabbitMQ `guest` without TLS).
 - SQL Server: `Encrypt=Mandatory` or `Strict`, `TrustServerCertificate=False`; Azure SQL with `Authentication=Active Directory Managed Identity` needs the `Microsoft.Data.SqlClient.Extensions.Azure` package. PostgreSQL: `SSL Mode=VerifyFull`. MySQL: `SslMode=VerifyFull` (the default `Preferred` doesn't verify). RabbitMQ: `UseTls = true`, `Port = 5671`. Service Bus: `FullyQualifiedNamespace` + a managed-identity `Credential`. SQS: an IAM role with only the `sqs:` actions the endpoint uses; no access keys in config.
 - Secrets from user secrets / environment variables / a secret store via `ApplyConfiguration(BrokerConfigurationReader.Read(builder.Configuration))`, never in `queuesettings.json`.
-- Create queue tables in a deployment step and run with `AutoCreateTable = false` and only `SELECT, INSERT, UPDATE` rights. Also create `<table>_deferred` and grant `SELECT, INSERT, DELETE` on it: see https://github.com/nymankla/NymBroker/blob/master/docs/endpoints-and-configuration.md#deferred-messages-table
+- Create queue tables in a deployment step and run with `AutoCreateTable = false` and only `SELECT, INSERT, UPDATE, DELETE` rights. Also create `<table>_deferred` and grant `SELECT, INSERT, DELETE` on it: see https://github.com/nymankla/NymBroker/blob/master/docs/endpoints-and-configuration.md#deferred-messages-table. Create the cleanup indexes too; listeners delete old rows by default (`CompletedRetention` 30 days, `FailedRetention` 90 days): see https://github.com/nymankla/NymBroker/blob/master/docs/endpoints-and-configuration.md#removing-old-rows
 
 ## 7. Finish
 

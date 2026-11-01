@@ -23,6 +23,22 @@ public interface ILeasedQueueSettings
     /// Failed at once); when false, the broker posts failures to its own dead-letter endpoint.
     /// </summary>
     bool UseNativeDeadLetter { get; }
+
+    /// <summary>
+    /// How long <see cref="QueueMessageStatus.Completed"/> rows are kept. <see cref="TimeSpan.Zero"/> keeps them forever.
+    /// Used with <see cref="LeasedQueueListener.DeleteFinishedAsync"/>; a transport without that override needs none of the
+    /// cleanup settings, so they all have defaults here.
+    /// </summary>
+    TimeSpan CompletedRetention => TimeSpan.Zero;
+
+    /// <summary>How long <see cref="QueueMessageStatus.Failed"/> rows are kept. <see cref="TimeSpan.Zero"/> keeps them forever.</summary>
+    TimeSpan FailedRetention => TimeSpan.Zero;
+
+    /// <summary>How often old finished rows are deleted while listening. <see cref="TimeSpan.Zero"/> disables the cleanup.</summary>
+    TimeSpan CleanupInterval => TimeSpan.Zero;
+
+    /// <summary>Rows deleted per statement during cleanup.</summary>
+    int CleanupBatchSize => 1000;
 }
 
 /// <summary>Row status in a queue table. The values are stored in the table, so they must not change.</summary>

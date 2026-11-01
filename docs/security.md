@@ -90,12 +90,14 @@ Server=tcp:sql.prod.example.com,1433;Database=orders;User ID=nymbroker_orders;Pa
 **Permissions:** create the queue table (and the idempotency and schedule tables) in a deployment step with a privileged identity, then run the application with `AutoCreateTable = false` and only these rights:
 
 ```sql
-GRANT SELECT, INSERT, UPDATE ON dbo.orders_queue TO nymbroker_orders;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.orders_queue TO nymbroker_orders;                -- DELETE: removing old rows
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.nymbroker_idempotency TO nymbroker_orders;   -- only with AddSqlServerIdempotency
 GRANT SELECT, INSERT, UPDATE ON dbo.nymbroker_schedule TO nymbroker_orders;                 -- only with AddSqlServerScheduleStore
 ```
 
 Queue listeners also need `SELECT, DELETE` on `<table>_deferred`, and whoever posts deferred messages needs `INSERT` on it ([Deferred messages table](endpoints-and-configuration.md#deferred-messages-table)).
+
+`DELETE` on the queue table is what lets a listener [remove old rows](endpoints-and-configuration.md#removing-old-rows). To run without it, set `CompletedRetention` and `FailedRetention` to `TimeSpan.Zero` and clean up some other way; otherwise an error is logged at every cleanup.
 
 Producers that only post need `INSERT`. With `AutoCreateTable = true` the identity additionally needs `CREATE TABLE` / `ALTER` rights on the schema.
 
@@ -111,7 +113,7 @@ Host=pg.prod.example.com;Database=orders;Username=nymbroker_orders;Password=<fro
 
 - `VerifyFull` requires TLS and checks both the certificate chain and the host name. If the server's CA is not in the machine's trust store, point to it with `Root Certificate=/path/ca.crt` (or the `PGSSLROOTCERT` environment variable).
 - Client certificates: `SSL Certificate`, `SSL Key` and `SSL Password`.
-- **Permissions:** as for SQL Server — create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table). `LISTEN` / `NOTIFY` (`UseNotifications`) need no extra grant. The `<table>_deferred` rights are the same as for SQL Server.
+- **Permissions:** as for SQL Server — create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE, DELETE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table). `LISTEN` / `NOTIFY` (`UseNotifications`) need no extra grant. The `<table>_deferred` rights are the same as for SQL Server.
 
 Reference: [Npgsql security and encryption](https://www.npgsql.org/doc/security.html).
 
@@ -125,10 +127,10 @@ Server=mysql.prod.example.com;Database=orders;User ID=nymbroker_orders;Password=
 
 - `VerifyFull` requires TLS and checks the certificate chain and the host name (`VerifyCA` skips the host name). If the server's CA is not in the machine's trust store, add `SslCa=/path/ca.pem`. Client certificates: `SslCert` and `SslKey`.
 - Don't add `AllowPublicKeyRetrieval=True` outside local development: it lets a man in the middle supply the key used to encrypt the password.
-- **Permissions:** create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table):
+- **Permissions:** create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE, DELETE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table):
 
   ```sql
-  GRANT SELECT, INSERT, UPDATE ON orders.nymbroker_messages TO 'nymbroker_orders'@'%';
+  GRANT SELECT, INSERT, UPDATE, DELETE ON orders.nymbroker_messages TO 'nymbroker_orders'@'%';
   GRANT SELECT, INSERT, DELETE ON orders.nymbroker_messages_deferred TO 'nymbroker_orders'@'%';
   GRANT SELECT, INSERT, UPDATE, DELETE ON orders.nymbroker_idempotency TO 'nymbroker_orders'@'%';   -- only with AddMySqlIdempotency
   GRANT SELECT, INSERT, UPDATE ON orders.nymbroker_schedule TO 'nymbroker_orders'@'%';                 -- only with AddMySqlScheduleStore
@@ -182,7 +184,7 @@ SQLite has no network or authentication: whoever can open the file can read and 
 |---|---|---|
 | `AddMessageLoggingFilter()` | Logs every message **with its payload** at `Debug` | Don't enable it in production, or make sure `Debug` logs of category `NymBroker` aren't collected |
 | File endpoints used as dead-letter or wire-tap targets | Full message envelopes, written as JSON files | Restrict the folder's permissions; clean it up on a schedule |
-| SQL queue tables | Payloads, plus exception messages in `last_error` | Database permissions; delete old `Completed` / `Failed` rows |
+| SQL queue tables | Payloads, plus exception messages in `last_error` | Database permissions; old rows are [deleted after 30 / 90 days](endpoints-and-configuration.md#removing-old-rows) by default, so set shorter times if your data rules require it |
 | Health endpoint (`AddNymBroker` health check) | Endpoint names and connection error messages | Don't expose `/health` publicly; map it on an internal port or require authorization |
 | Metrics and traces | Endpoint, topic, message-type and consumer names — never payloads | Nothing extra; they are safe to export |
 

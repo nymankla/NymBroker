@@ -7,6 +7,14 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Added
 
 - `samples/NymBroker.RabbitSqlServerSample`: workers sharing a RabbitMQ queue, with duplicate detection and a named schedule in SQL Server. Self-checking with `--demo`.
+- Retention for SQL queue tables (#95): `CompletedRetention`, `FailedRetention`, `CleanupInterval` and `CleanupBatchSize` on `SqliteSettings`, `PostgresSettings`, `SqlServerSettings` and `MySqlSettings`. A listener deletes old rows in batches, also with several instances on one table. Pending and InProgress rows and `<table>_deferred` are never touched. See [Removing old rows](docs/endpoints-and-configuration.md#removing-old-rows).
+- `LeasedQueueListener.DeleteFinishedAsync`, and the same settings with defaults on `ILeasedQueueSettings`, so a custom queue-table endpoint can use the same cleanup. Existing implementations are unaffected: without the override they have no cleanup.
+
+### Changed
+
+- **Breaking:** SQL endpoints now delete old rows by default: `Completed` rows after 30 days and `Failed` rows after 90 days, checked every 10 minutes. Failed rows can only be inspected or replayed within that time. To keep the old behaviour, set `CompletedRetention` and `FailedRetention` to `TimeSpan.Zero` (or `CleanupInterval` to `TimeSpan.Zero`).
+  - **Permissions:** a listener needs `DELETE` on the queue table. Without it, messages are still handled, but an error is logged at every cleanup. Grant `DELETE` or turn retention off.
+  - **Indexes:** with `AutoCreateTable = true`, the first start after upgrading adds indexes to the queue table: `ix_<table>_completed` and `ix_<table>_failed` (SQLite `IX_<table>_Completed` and `IX_<table>_Failed`; MySQL only `ix_completed_at`). On a large table this can take a while, and on PostgreSQL and SQL Server it blocks writes to the table until it is done. Create them yourself beforehand to avoid that. With `AutoCreateTable = false`, add them in your deployment step: cleanup works without them, but reads the whole table each time.
 
 ## [0.17.0] - 2026-11-01
 

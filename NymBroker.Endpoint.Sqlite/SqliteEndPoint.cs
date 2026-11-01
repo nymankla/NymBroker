@@ -248,6 +248,26 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
         }
     }
 
+    /// <summary>One autocommit batch of old finished rows. The lock is released between batches, so messages keep moving.</summary>
+    private async Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
+    {
+        await _dbLock.WaitAsync(ct);
+        try
+        {
+            var (_, commands) = await EnsureConnectionAsync(ct);
+            var (command, olderThan, batchSize) = status == QueueMessageStatus.Completed
+                ? (commands.DeleteCompleted, commands.DeleteCompletedOlderThan, commands.DeleteCompletedBatchSize)
+                : (commands.DeleteFailed, commands.DeleteFailedOlderThan, commands.DeleteFailedBatchSize);
+            olderThan.Value = olderThanSeconds;
+            batchSize.Value = _settings.CleanupBatchSize;
+            return await command.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _dbLock.Release();
+        }
+    }
+
     private static async Task ExecuteInsertAsync(PreparedCommands commands, byte[] message, CancellationToken ct)
     {
         commands.InsertMessageId.Value = Guid.NewGuid().ToByteArray();
@@ -426,6 +446,9 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
             => owner.FinalizeAndClaimAsync(outcomes, claim: false, ct);
 
         protected override Task<int> PromoteDueAsync(CancellationToken ct) => owner.PromoteDueAsync(ct);
+
+        protected override Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
+            => owner.DeleteFinishedAsync(status, olderThanSeconds, ct);
     }
 
     /// <summary>Every statement prepared once on the endpoint's connection; only parameter values change per call.</summary>
@@ -466,6 +489,14 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
         public required SqliteParameter PendingAttempt { get; init; }
         public required SqliteParameter PendingError { get; init; }
 
+        public required SqliteCommand DeleteCompleted { get; init; }
+        public required SqliteParameter DeleteCompletedOlderThan { get; init; }
+        public required SqliteParameter DeleteCompletedBatchSize { get; init; }
+
+        public required SqliteCommand DeleteFailed { get; init; }
+        public required SqliteParameter DeleteFailedOlderThan { get; init; }
+        public required SqliteParameter DeleteFailedBatchSize { get; init; }
+
         public static PreparedCommands Create(SqliteConnection conn, string table)
         {
             var insert = Command(conn, SqliteQueueSql.Insert(table));
@@ -476,6 +507,8 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
             var completed = Command(conn, SqliteQueueSql.MarkCompleted(table));
             var failed = Command(conn, SqliteQueueSql.MarkFailed(table));
             var pending = Command(conn, SqliteQueueSql.MarkPending(table));
+            var deleteCompleted = Command(conn, SqliteQueueSql.DeleteCompleted(table));
+            var deleteFailed = Command(conn, SqliteQueueSql.DeleteFailed(table));
 
             var commands = new PreparedCommands
             {
@@ -505,7 +538,13 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
                 MarkPending = pending,
                 PendingId = Parameter(pending, "$id", SqliteType.Integer),
                 PendingAttempt = Parameter(pending, "$attempt", SqliteType.Integer),
-                PendingError = Parameter(pending, "$error", SqliteType.Text)
+                PendingError = Parameter(pending, "$error", SqliteType.Text),
+                DeleteCompleted = deleteCompleted,
+                DeleteCompletedOlderThan = Parameter(deleteCompleted, "$olderThanSeconds", SqliteType.Integer),
+                DeleteCompletedBatchSize = Parameter(deleteCompleted, "$batchSize", SqliteType.Integer),
+                DeleteFailed = deleteFailed,
+                DeleteFailedOlderThan = Parameter(deleteFailed, "$olderThanSeconds", SqliteType.Integer),
+                DeleteFailedBatchSize = Parameter(deleteFailed, "$batchSize", SqliteType.Integer)
             };
 
             // Not the deferred statements: a table created by hand may not have <table>_deferred yet, which must only
@@ -515,7 +554,7 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
             return commands;
         }
 
-        private IEnumerable<SqliteCommand> All => [Insert, InsertDeferred, CopyDue, DeleteDue, Claim, MarkCompleted, MarkFailed, MarkPending];
+        private IEnumerable<SqliteCommand> All => [Insert, InsertDeferred, CopyDue, DeleteDue, Claim, MarkCompleted, MarkFailed, MarkPending, DeleteCompleted, DeleteFailed];
 
         public void SetTransaction(SqliteTransaction? tx)
         {
