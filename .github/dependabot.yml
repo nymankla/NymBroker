@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # .NET servicing versions ship together, so they update together.
+      dotnet-servicing:
+        patterns:
+          - Microsoft.AspNetCore.*
+          - Microsoft.Data.Sqlite
+          - Microsoft.EntityFrameworkCore.*
+          - Microsoft.Extensions.*
+          - System.Security.Cryptography.Pkcs
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

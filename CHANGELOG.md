@@ -4,6 +4,15 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Security
+
+- **Run NymBroker on .NET runtime 10.0.14 or later.** Runtimes before that have an out-of-bounds write in the Brotli decoder ([CVE-2026-111497](https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-111497)). The broker uses this decoder on incoming split messages, so anyone who can write to a queue it listens to could send crafted data to it. The fix is in the runtime: updating this package does not apply it, so update your hosts and container images. See [`docs/security.md`](docs/security.md#untrusted-producers).
+
+### Changed
+
+- Dependencies: `Microsoft.Extensions.*`, `Microsoft.Data.Sqlite` and `System.Security.Cryptography.Pkcs` 10.0.14; `AWSSDK.SQS` 4.0.100.22.
+- Dependabot now proposes NuGet and GitHub Actions updates weekly.
+
 ## [0.16.0] - 2026-10-30
 
 ### Added
