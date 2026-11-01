@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-01
+
 ### Added
 
 - **Deferred posts** (#91): `INymBroker.PostDeferredAsync<T>(endpoint, message, deliverAt, ct)` and `PostRawDeferredAsync` deliver a message no earlier than a given time, without holding up other messages or using up a retry. Supported by SQLite, PostgreSQL, SQL Server, MySQL, Azure Service Bus, Amazon SQS (standard queues, up to 15 minutes), File and Memory. RabbitMQ and HTTP throw `NotSupportedException`. A custom endpoint opts in by implementing the new `IDeferredEndPoint`; one built on `LeasedQueueListener` can override the new `PromoteDueAsync`. See [Sending messages](docs/sending-messages.md#deferring-a-message).

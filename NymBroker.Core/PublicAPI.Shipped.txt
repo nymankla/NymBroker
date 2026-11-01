@@ -625,3 +625,11 @@ NymBroker.Core.Consume.ConsumerOptions.ConsumerOptions() -> void
 NymBroker.Core.Consume.ConsumerOptions.RetryOnFailure.get -> bool
 NymBroker.Core.Consume.ConsumerOptions.RetryOnFailure.set -> void
 NymBroker.Core.Factory.NymBrokerBuilder.AddConsumer<TConsumer>(System.Action<NymBroker.Core.Consume.ConsumerOptions!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Endpoint.File.FileEndPoint.PostDeferredAsync(byte[]! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.Endpoint.IDeferredEndPoint
+NymBroker.Core.Endpoint.IDeferredEndPoint.PostDeferredAsync(byte[]! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.Endpoint.Memory.MemoryQueueEndPoint.PostDeferredAsync(byte[]! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.Impl.INymBroker.PostDeferredAsync<T>(string! endpointName, T! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.Impl.INymBroker.PostRawDeferredAsync(string! endpointName, System.IO.Stream! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.Impl.INymBroker.PostRawDeferredAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+virtual NymBroker.Core.Endpoint.Queue.LeasedQueueListener.PromoteDueAsync(System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<int>!

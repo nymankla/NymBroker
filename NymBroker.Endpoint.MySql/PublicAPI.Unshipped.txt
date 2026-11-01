@@ -1,2 +1,1 @@
 #nullable enable
-NymBroker.Endpoint.MySql.MySqlEndPoint.PostDeferredAsync(byte[]! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

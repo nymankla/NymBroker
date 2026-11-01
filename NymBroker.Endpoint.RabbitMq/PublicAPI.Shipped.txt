@@ -43,3 +43,5 @@ NymBroker.Endpoint.RabbitMq.RabbitMqSettings.TlsServerName.get -> string?
 NymBroker.Endpoint.RabbitMq.RabbitMqSettings.TlsServerName.set -> void
 NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseTls.get -> bool
 NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseTls.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.PrefetchCount.get -> int
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.PrefetchCount.set -> void

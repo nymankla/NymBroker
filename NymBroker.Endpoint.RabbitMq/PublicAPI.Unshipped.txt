@@ -1,3 +1,1 @@
 #nullable enable
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.PrefetchCount.get -> int
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.PrefetchCount.set -> void
