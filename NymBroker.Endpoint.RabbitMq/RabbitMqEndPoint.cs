@@ -35,6 +35,9 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
 
     public RabbitMqEndPoint(string name, RabbitMqSettings settings, ILogger<RabbitMqEndPoint> logger, EndpointMode mode = EndpointMode.ReadWrite)
     {
+        if (settings.PrefetchCount is < 0 or > ushort.MaxValue)
+            throw new InvalidOperationException($"RabbitMQ endpoint '{name}': PrefetchCount must be between 0 and {ushort.MaxValue}.");
+
         _name = name;
         Mode = mode;
         _settings = settings;
@@ -134,17 +137,43 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         {
             await _reconnectPolicy.ExecuteAsync(async t =>
             {
-                var channel = await EnsureConsumeChannelAsync(t);
-                _pendingAcks = 0;   // a reconnect starts a new channel; tags of the old one are void (RabbitMQ requeued them)
+                var channel = await PrepareConsumeChannelAsync(t);
                 await channel.QueueDeclareAsync(_settings.ReadQueueName, durable: true,
                     exclusive: false, autoDelete: false, cancellationToken: t);
+                await channel.BasicQosAsync(0, (ushort)_settings.PrefetchCount, global: false, t);
 
-                var consumer = new AsyncEventingBasicConsumer(channel);
-                consumer.ReceivedAsync += (_, ea) => OnDeliveryAsync(channel, ea, handler, token);
+                var lost = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task OnChannelShutdown(object sender, ShutdownEventArgs args)
+                {
+                    // A lost connection closes the channel too, but the client library recovers both, with the consumer.
+                    // Subscribing here as well would leave two consumers.
+                    if (!_stopping && _connection?.IsOpen == true)
+                        lost.TrySetResult($"the server closed the channel: {args.ReplyText}");
+                    return Task.CompletedTask;
+                }
 
-                _consumerTag = await channel.BasicConsumeAsync(_settings.ReadQueueName, autoAck: false, consumer: consumer, cancellationToken: t);
+                channel.ChannelShutdownAsync += OnChannelShutdown;
+                try
+                {
+                    var consumer = new AsyncEventingBasicConsumer(channel);
+                    consumer.ReceivedAsync += (_, ea) => OnDeliveryAsync(channel, ea, handler, token);
+                    consumer.UnregisteredAsync += (_, _) =>
+                    {
+                        if (!_stopping) lost.TrySetResult("the server cancelled the consumer");
+                        return Task.CompletedTask;
+                    };
 
-                await Task.Delay(Timeout.Infinite, t);
+                    _consumerTag = await channel.BasicConsumeAsync(_settings.ReadQueueName, autoAck: false, consumer: consumer, cancellationToken: t);
+                    if (!channel.IsOpen && !_stopping && _connection?.IsOpen == true)
+                        lost.TrySetResult("the server closed the channel");   // closed before the handler was attached
+
+                    // The policy logs this as a warning and subscribes again after its delay.
+                    throw new InvalidOperationException(await lost.Task.WaitAsync(t));
+                }
+                finally
+                {
+                    channel.ChannelShutdownAsync -= OnChannelShutdown;
+                }
             }, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -160,8 +189,9 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         await _deliveryLock.WaitAsync(CancellationToken.None);
         try
         {
-            // Already dispatched before the consumer was cancelled: leave it unacked, RabbitMQ requeues it on close.
-            if (_stopping) return;
+            // Already dispatched before the consumer was cancelled or the channel closed: leave it unacked, RabbitMQ
+            // requeues it on close (handling it now would run it twice).
+            if (_stopping || !channel.IsOpen) return;
 
             ProcessResult result;
             try
@@ -192,7 +222,9 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         if (result.Outcome == ProcessOutcome.Completed)
         {
             _lastGoodTag = ea.DeliveryTag;
-            if (++_pendingAcks >= _settings.BatchAckSize)
+            // At PrefetchCount at the latest: the server sends nothing more until something is acked, so a larger batch never fills.
+            var limit = _settings.PrefetchCount > 0 ? Math.Min(_settings.BatchAckSize, _settings.PrefetchCount) : _settings.BatchAckSize;
+            if (++_pendingAcks >= limit)
                 await FlushAcksAsync(channel);
             return;
         }
@@ -266,9 +298,45 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// A new channel to subscribe on. Waits for a delivery still being handled first, so its settle sees the old channel and
+    /// the handler never runs twice at once. The old channel is never reused: closing it requeues what was delivered on it
+    /// but not settled, which would otherwise stay unacked for as long as the channel lived.
+    /// </summary>
+    private async Task<IChannel> PrepareConsumeChannelAsync(CancellationToken ct)
+    {
+        IChannel? old;
+        await _deliveryLock.WaitAsync(ct);
+        try
+        {
+            old = _consumeChannel;
+            _consumeChannel = null;
+            if (old?.IsOpen == true)
+            {
+                try { await FlushAcksAsync(old); }
+                catch (Exception ex) { _logger.LogWarning(ex, "RabbitMQ [{Name}] could not ack {Count} handled message(s); they will be redelivered", _name, _pendingAcks); }
+            }
+            _pendingAcks = 0;
+        }
+        finally
+        {
+            _deliveryLock.Release();
+        }
+
+        // Outside the lock: closing waits for deliveries already queued on the channel, and they wait for the lock.
+        if (old is not null)
+        {
+            // CloseAsync also removes it from the client's recovery records; otherwise the next connection recovery
+            // would bring it back with its old consumer, next to the new one.
+            try { await old.CloseAsync(CancellationToken.None); }
+            catch (Exception ex) { _logger.LogDebug(ex, "RabbitMQ [{Name}] closing the old consume channel failed", _name); }
+            await old.DisposeAsync();
+        }
+        return await EnsureConsumeChannelAsync(ct);
+    }
+
     private async Task<IChannel> EnsureConsumeChannelAsync(CancellationToken ct)
     {
-        if (_consumeChannel?.IsOpen == true) return _consumeChannel;
         var conn = await EnsureConnectionAsync(ct);
         _consumeChannel = await conn.CreateChannelAsync(cancellationToken: ct);
         // Backstop: RabbitMQ.Client reports exceptions escaping a consumer callback here, not to the caller.
@@ -280,8 +348,11 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         return _consumeChannel;
     }
 
-    internal static ConnectionFactory CreateConnectionFactory(RabbitMqSettings settings) => new()
+    internal IChannel? ConsumeChannel => _consumeChannel;
+
+    internal static ConnectionFactory CreateConnectionFactory(RabbitMqSettings settings, string? connectionName = null) => new()
     {
+        ClientProvidedName = connectionName,
         HostName = settings.HostName,
         Port = settings.Port,
         UserName = settings.User,
@@ -306,7 +377,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         {
             if (_connection?.IsOpen == true) return _connection;
 
-            _connection = await CreateConnectionFactory(_settings).CreateConnectionAsync(ct);
+            _connection = await CreateConnectionFactory(_settings, $"NymBroker {_name}").CreateConnectionAsync(ct);
             _logger.LogInformation("RabbitMQ [{Name}] connected to {Host}:{Port}{Tls}", _name, _settings.HostName, _settings.Port,
                 _settings.UseTls ? " (TLS)" : "");
             return _connection;

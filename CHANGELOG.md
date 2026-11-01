@@ -7,12 +7,18 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Added
 
 - **Deferred posts** (#91): `INymBroker.PostDeferredAsync<T>(endpoint, message, deliverAt, ct)` and `PostRawDeferredAsync` deliver a message no earlier than a given time, without holding up other messages or using up a retry. Supported by SQLite, PostgreSQL, SQL Server, MySQL, Azure Service Bus, Amazon SQS (standard queues, up to 15 minutes), File and Memory. RabbitMQ and HTTP throw `NotSupportedException`. A custom endpoint opts in by implementing the new `IDeferredEndPoint`; one built on `LeasedQueueListener` can override the new `PromoteDueAsync`. See [Sending messages](docs/sending-messages.md#deferring-a-message).
+- RabbitMQ: `PrefetchCount` limits how many unacknowledged messages are delivered at a time.
 
 ### Changed
 
 - **Breaking:** `INymBroker` has three new methods, so a class implementing it must add them. Code that only calls the broker is not affected.
 - **Action for `AutoCreateTable = false`:** a listener on a SQL queue now also uses `<table>_deferred`. Create it and grant the rights ([DDL and rights](docs/endpoints-and-configuration.md#deferred-messages-table)). Without it, ordinary messages still work, but the listener logs an error every few seconds. With `AutoCreateTable = true` it is created on first use.
+- RabbitMQ: `PrefetchCount` defaults to 100, where there was no limit before. The rest of a backlog now stays in the queue, where other instances can take it. The limit lowers peak throughput with very fast handlers (22% to 40% in a local test with a handler that does nothing), so raise it, or set it to 0 for the old behaviour, if that matters more than sharing the backlog.
 - Dependencies: `Microsoft.IO.RecyclableMemoryStream` 4.0.1.
+
+### Fixed
+
+- RabbitMQ: a listener stopped receiving for good when the server closed its channel or cancelled its consumer (for example a handler exceeding the consumer timeout, 30 minutes by default, or the queue being deleted), while the health check stayed healthy. It now logs a warning and subscribes again. Messages not yet acknowledged are redelivered.
 
 ## [0.16.1] - 2026-11-01
 

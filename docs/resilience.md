@@ -100,6 +100,7 @@ The jitter formulas follow the ones Polly v8 uses (± 25 % for constant, "decorr
 |---|---|
 | Transient (locked file, lost RabbitMQ connection) | Retried with `RetryPolicy` (backoff, jitter, cancellation-aware); every retry is logged. |
 | Handler failure (SQLite/PostgreSQL) | Message returns to `Pending` until `AttemptCount >= MaxRetryCount`, then becomes `Failed` (terminal), keeping `LastError`/`FailedAtUtc`; a warning with the message id is logged. Reprocess by resetting `Status` to `0` and `AttemptCount` to `0`. |
+| RabbitMQ channel closed or consumer cancelled by the server (consumer timeout, protocol error, queue deleted) | Logged as a warning; the listener subscribes again after `ReconnectDelaySeconds`. The listener first waits for a handler still running, and unacknowledged messages are redelivered, so that message is handled twice. |
 | Handler failure (RabbitMQ) | Requeued once; failing again after redelivery is a poison message, nacked with `requeue: false` (dead-lettered if a DLX exists) and logged. |
 | Retries exhausted (File) | Warning logged; file is skipped and left in place. |
 | Cancellation | Always treated as clean shutdown, never retried or logged as an error. |

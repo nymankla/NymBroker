@@ -97,6 +97,7 @@ Each endpoint's settings type defines its available options and defaults. The mo
 | `LeaseTimeout`, `MaxRetryCount` | SQL endpoints | how long a claimed row is locked; attempts before a row becomes `Failed` |
 | `UseNotifications` | PostgreSQL | wake idle listeners with `NOTIFY` instead of waiting out `PollInterval` |
 | `ReadQueueName`, `WriteQueueName` | RabbitMQ | queue to consume from / publish to |
+| `PrefetchCount` | RabbitMQ | unacknowledged messages delivered at a time, default 100, 0 = no limit. A higher value gives more throughput with very fast handlers; a lower one shares a backlog better between instances. Where the server applies a consumer timeout (30 minutes by default; older servers and quorum queues), keep `PrefetchCount` × handler time below it |
 | `UseTls`, `TlsServerName`, `ClientCertificatePath` | RabbitMQ | TLS with verified server certificate, optional client certificate — see [Production security](security.md#rabbitmq) |
 | `MaxConcurrentCalls`, `PrefetchCount` | Azure Service Bus | parallel handlers (above 1 gives up ordering); messages fetched ahead |
 | `ReadDeadLetterQueue` | Azure Service Bus | read the entity's dead-letter queue instead (repair / replay) |
