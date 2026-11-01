@@ -14,6 +14,7 @@ Out of the box, NymBroker is set up for the local Docker containers in `scripts/
 - [ ] Only trusted producers can write to the queues the broker consumes.
 - [ ] Payload logging (`AddMessageLoggingFilter`) is off, and File dead-letter / wire-tap folders are access-controlled.
 - [ ] The health endpoint is not public.
+- [ ] The app runs on .NET runtime 10.0.14 or later (see [Untrusted producers](#untrusted-producers)).
 
 ## Secrets
 
@@ -185,3 +186,5 @@ SQLite has no network or authentication: whoever can open the file can read and 
 ## Untrusted producers
 
 The broker processes whatever arrives on the endpoints it listens to. Anyone who can write to a queue can make consumers run, and can send split-message parts that never complete — the broker keeps incomplete parts in memory for up to two hours. Restrict write access to the transport (database permissions, RabbitMQ and Service Bus rights) to trusted producers, and validate message contents in consumers like any other input.
+
+The broker decompresses incoming split messages with .NET's Brotli decoder, which is part of the .NET runtime, not of a NuGet package. Runtimes before 10.0.14 have an out-of-bounds write in that decoder ([CVE-2026-111497](https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-111497)), so anyone who can write to a queue the broker listens to could send crafted data to it. Updating NymBroker does not fix this: update the runtime on your hosts and in your container images. `dotnet list package --vulnerable` does not report runtime vulnerabilities.
