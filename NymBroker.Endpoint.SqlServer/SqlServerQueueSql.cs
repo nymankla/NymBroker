@@ -45,6 +45,8 @@ internal static class SqlServerQueueSql
         var safeName = tableName.Replace('.', '_');
         var primaryKey = $"pk_{safeName}";
         var activeIndex = $"ix_{safeName}_active";
+        var deferred = DeferredTable(tableName);
+        var dueIndex = $"ix_{safeName}_deferred_due";
 
         return $"""
             SET NOCOUNT ON;
@@ -68,8 +70,50 @@ internal static class SqlServerQueueSql
                 CREATE INDEX {QuoteSimpleIdentifier(activeIndex)}
                     ON {table}(queue_id) INCLUDE (status, locked_until_utc)
                     WHERE status IN ({Pending}, {InProgress});
+            IF OBJECT_ID(N'{Literal(deferred)}', N'U') IS NULL
+                CREATE TABLE {deferred} (
+                    deferred_id    BIGINT IDENTITY(1,1) NOT NULL,
+                    deliver_at_utc DATETIME2(7)     NOT NULL,
+                    message_id     UNIQUEIDENTIFIER NOT NULL,
+                    payload        VARBINARY(MAX)   NOT NULL,
+                    CONSTRAINT {QuoteSimpleIdentifier($"pk_{safeName}_deferred")} PRIMARY KEY CLUSTERED (deferred_id)
+                );
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(dueIndex)}' AND object_id = OBJECT_ID(N'{Literal(deferred)}'))
+                CREATE INDEX {QuoteSimpleIdentifier(dueIndex)} ON {deferred}(deliver_at_utc);
             """;
     }
+
+    /// <summary>
+    /// Deferred messages wait in their own table, not in the queue table, so any number of them leaves the claim's
+    /// index scan untouched and older versions of this package never deliver them early.
+    /// </summary>
+    private static string DeferredTable(string tableName) => QuoteQualifiedIdentifier($"{tableName}_deferred");
+
+    internal static string InsertDeferred(string tableName) => $"""
+        SET NOCOUNT ON;
+        INSERT INTO {DeferredTable(tableName)} (deliver_at_utc, message_id, payload) VALUES (@deliverAt, @messageId, @payload);
+        """;
+
+    /// <summary>
+    /// Moves up to <c>@batchSize</c> due messages to the queue in one transaction and returns how many. Through a table
+    /// variable, because <c>OUTPUT INTO</c> cannot write to a table with a CHECK constraint.
+    /// </summary>
+    internal static string PromoteDue(string tableName) => $"""
+        SET NOCOUNT ON;
+        SET XACT_ABORT ON;
+        DECLARE @due TABLE (message_id UNIQUEIDENTIFIER NOT NULL, payload VARBINARY(MAX) NOT NULL);
+        DECLARE @moved INT;
+        BEGIN TRANSACTION;
+        DELETE TOP (@batchSize) FROM {DeferredTable(tableName)} WITH (UPDLOCK, READPAST, ROWLOCK)
+        OUTPUT deleted.message_id, deleted.payload INTO @due (message_id, payload)
+        WHERE deliver_at_utc <= SYSUTCDATETIME();
+        SET @moved = @@ROWCOUNT;
+        IF @moved > 0
+            INSERT INTO {QuoteQualifiedIdentifier(tableName)} (message_id, status, created_at_utc, attempt_count, payload)
+            SELECT message_id, {Pending}, SYSUTCDATETIME(), 0, payload FROM @due;
+        COMMIT TRANSACTION;
+        SELECT @moved;
+        """;
 
     internal static string InsertMessage(string tableName)
     {

@@ -60,9 +60,10 @@ Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml` (every 
 ```
 IEndPoint                 ← every transport: Mode, PostAsync(byte[]), PostBatchAsync(IReadOnlyList<byte[]>), HealthCheck() / HealthCheckAsync(ct)
   IEndPointEventDriven    ← receiving: StartListeningAsync(handler) / StopListeningAsync; UsesNativeDeadLetter
+  IDeferredEndPoint       ← optional: PostDeferredAsync(byte[], deliverAt); without it the broker's PostDeferredAsync throws (RabbitMQ, HTTP)
 EndpointMode              ← ReadWrite (default) | ReadOnly | WriteOnly (no listener)
 ProcessResult             ← handler result the endpoint settles by: Completed | Retry(ex) | DeadLetter(reason, description)
-INymBroker                ← runtime only: PostAsync<T>, PostRawAsync (bytes as-is), PostBatchAsync<T>, PublishAsync<T>, ProcessAsync, Start/StopAsync, CheckHealthAsync
+INymBroker                ← runtime only: PostAsync<T>, PostRawAsync (bytes as-is), PostBatchAsync<T>, PostDeferredAsync<T>, PostRawDeferredAsync, PublishAsync<T>, ProcessAsync, Start/StopAsync, CheckHealthAsync
 NymBrokerBuilder          ← all configuration: endpoints, consumers, AddRoute, AddTopic, AddFilter, transformers, AddScheduledAction, dead letter, wire tap
 IConsume<T> / ISubscribe<T> ← one consumer per message type / any number of topic subscribers
 IMessageContext           ← envelope metadata: Id, CorrelationId, Address, MessageType, Created, DeadLetter

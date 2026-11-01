@@ -8,5 +8,6 @@
 - Auth: `ConnectionString`, or `FullyQualifiedNamespace` + `Credential` (`TokenCredential`, code-only, `[JsonIgnore]`). `AzureServiceBusSettings.Validate` runs at registration and in the constructor.
 - `HealthCheckAsync()` peeks the entity (or opens the sender for a send-only topic) with a 5 s timeout; unhealthy if the processor stopped unexpectedly.
 - `StopListeningAsync` → `StopProcessingAsync` (waits for in-flight handlers). A message whose handler finished is **always settled with `CancellationToken.None`** — stopping cancels the processor's token and would otherwise leave it to be redelivered as a duplicate. A handler cancelled during shutdown leaves its message unsettled (redelivered after the lock expires). If `StartProcessingAsync` fails the processor is disposed.
+- `PostDeferredAsync` sets `ScheduledEnqueueTime` on the message.
 
 Emulator quirks: `ReceiveAndDelete` from a DLQ returned nothing (peek-lock works); `DeadLetterSource` is empty. Integration tests (`NYMBROKER_SERVICEBUS_CS`, `./scripts/setup-servicebus.ps1`) share the fixed queue `nymbroker.tests` (MaxDeliveryCount 3) and drain it before each test until a peek on a fresh receiver finds nothing — a single empty receive can be a slow link or a still-locked message.

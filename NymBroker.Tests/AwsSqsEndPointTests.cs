@@ -73,6 +73,35 @@ public sealed class AwsSqsEndPointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Deferred_Over15Minutes_Throws()
+    {
+        await using var ep = new AwsSqsEndPoint("Sqs", new AwsSqsSettings { QueueUrl = "http://localhost:9/1/q", ServiceUrl = "http://localhost:9", Credentials = LocalCredentials },
+            new CapturingLogger<AwsSqsEndPoint>());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => ep.PostDeferredAsync("{}"u8.ToArray(), DateTimeOffset.UtcNow.AddMinutes(16), Ct));
+
+        Assert.Contains("900 seconds", ex.Message);
+    }
+
+    [Fact]
+    public async Task Deferred_OnAFifoQueue_Throws()
+    {
+        await using var ep = new AwsSqsEndPoint("Sqs", new AwsSqsSettings { QueueUrl = "http://localhost:9/1/q.fifo", ServiceUrl = "http://localhost:9", Credentials = LocalCredentials },
+            new CapturingLogger<AwsSqsEndPoint>());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => ep.PostDeferredAsync("{}"u8.ToArray(), DateTimeOffset.UtcNow, Ct));
+
+        Assert.Contains("FIFO", ex.Message);
+    }
+
+    [Fact]
+    public async Task Deferred_MessageWaits_OtherMessagesDoNot()
+    {
+        var queue = await CreateQueueAsync();
+        await DeferredContract.DeferredMessageWaits_OtherMessagesDoNot(CreateEndPoint(queue));
+    }
+
+    [Fact]
     public void Encode_Envelope_IsSentAsTextUnchanged()
     {
         var bytes = Encoding.UTF8.GetBytes("""{"id":"1","message":{"text":"åäö 😀"}}""");

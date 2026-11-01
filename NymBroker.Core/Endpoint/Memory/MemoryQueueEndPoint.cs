@@ -8,8 +8,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace NymBroker.Core.Endpoint.Memory;
 
 /// <summary>In-process endpoint backed by a bounded Channel. Useful for testing and inter-component routing.</summary>
-public sealed class MemoryQueueEndPoint : IEndPointEventDriven
+public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoint
 {
+    // Task.Delay rejects longer waits (about 49 days), so a longer deferral waits in steps.
+    private static readonly TimeSpan MaxDelayStep = TimeSpan.FromDays(1);
+
+    private readonly CancellationTokenSource _stopped = new();
     private readonly Channel<byte[]> _channel;
     private readonly ILogger<MemoryQueueEndPoint> _logger;
     private readonly string _name;
@@ -31,6 +35,41 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
 
     public Task PostAsync(byte[] message, CancellationToken ct = default)
         => _channel.Writer.WriteAsync(message, ct).AsTask();
+
+    /// <summary>
+    /// Holds the message in memory until it is due, then queues it. It does not count towards the capacity while it
+    /// waits, and like every message on this endpoint it does not survive a restart: one still waiting when the endpoint
+    /// stops is dropped with a warning.
+    /// </summary>
+    public Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (deliverAt <= DateTimeOffset.UtcNow) return PostAsync(message, ct);
+        if (_stopped.IsCancellationRequested)
+            throw new ChannelClosedException($"Memory endpoint '{_name}' has stopped.");
+
+        _ = DeliverWhenDueAsync(message, deliverAt);
+        return Task.CompletedTask;
+    }
+
+    private async Task DeliverWhenDueAsync(byte[] message, DateTimeOffset deliverAt)
+    {
+        try
+        {
+            for (var wait = deliverAt - DateTimeOffset.UtcNow; wait > TimeSpan.Zero; wait = deliverAt - DateTimeOffset.UtcNow)
+                await Task.Delay(wait < MaxDelayStep ? wait : MaxDelayStep, _stopped.Token);
+
+            await _channel.Writer.WriteAsync(message, _stopped.Token);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or ChannelClosedException)
+        {
+            _logger.LogWarning("A deferred message for {DeliverAt} on endpoint '{Name}' was dropped because the endpoint stopped", deliverAt, _name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "A deferred message for {DeliverAt} on endpoint '{Name}' was lost", deliverAt, _name);
+        }
+    }
 
     public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
@@ -59,6 +98,7 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven
 
     public Task StopListeningAsync()
     {
+        _stopped.Cancel();
         _channel.Writer.TryComplete();
         return Task.CompletedTask;
     }

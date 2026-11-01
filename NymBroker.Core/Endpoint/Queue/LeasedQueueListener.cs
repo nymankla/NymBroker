@@ -22,6 +22,9 @@ namespace NymBroker.Core.Endpoint.Queue;
 public abstract class LeasedQueueListener
 {
     private static readonly TimeSpan ShutdownFinalizeTimeout = TimeSpan.FromSeconds(10);
+    // Not on every claim: moving due messages must cost a busy queue nothing measurable.
+    private static readonly TimeSpan PromotionInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan PromotionRetryDelay = TimeSpan.FromSeconds(5);
 
     private CancellationTokenSource? _listeningCts;
     private Task? _loop;
@@ -88,6 +91,14 @@ public abstract class LeasedQueueListener
     /// </summary>
     protected virtual Task WaitWhenIdleAsync(CancellationToken ct) => Task.Delay(IdleDelay, ct);
 
+    /// <summary>
+    /// Moves up to <see cref="ILeasedQueueSettings.BatchSize"/> deferred messages that are due to the queue, in its own
+    /// transaction, and returns how many. Called before a claim, about four times a second, or at once while it returns a
+    /// full batch. A failure is logged and retried a few seconds later; the queue keeps working meanwhile. Default: nothing
+    /// to move.
+    /// </summary>
+    protected virtual Task<int> PromoteDueAsync(CancellationToken ct) => Task.FromResult(0);
+
     /// <summary>Called once when the loop ends, before the shutdown finalize; release resources the loop used here.</summary>
     protected virtual ValueTask OnLoopExitAsync() => ValueTask.CompletedTask;
 
@@ -95,6 +106,7 @@ public abstract class LeasedQueueListener
     {
         // Outcomes of handled messages not written yet; written together with the next claim.
         var outcomes = new List<QueueMessageOutcome>();
+        var nextPromotion = 0L;
         try
         {
             while (!token.IsCancellationRequested)
@@ -102,6 +114,9 @@ public abstract class LeasedQueueListener
                 var claimedCount = 0;
                 try
                 {
+                    if (Environment.TickCount64 >= nextPromotion)
+                        nextPromotion = await PromoteAndGetNextTimeAsync(token);
+
                     var batch = await FinalizeAndClaimAsync(outcomes, token);
                     outcomes.Clear();   // committed together with the claim
                     claimedCount = batch.Count;
@@ -144,6 +159,20 @@ public abstract class LeasedQueueListener
         }
 
         await FinalizeOnShutdownAsync(outcomes);
+    }
+
+    private async Task<long> PromoteAndGetNextTimeAsync(CancellationToken token)
+    {
+        try
+        {
+            var moved = await PromoteDueAsync(token);
+            return moved >= Settings.BatchSize ? 0 : Environment.TickCount64 + (long)PromotionInterval.TotalMilliseconds;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+        {
+            Logger.LogError(ex, "Could not move due deferred messages to the queue on endpoint '{Name}'; ordinary messages are not affected", EndpointName);
+            return Environment.TickCount64 + (long)PromotionRetryDelay.TotalMilliseconds;
+        }
     }
 
     private QueueMessageOutcome ToOutcome(QueueMessage message, ProcessResult result)

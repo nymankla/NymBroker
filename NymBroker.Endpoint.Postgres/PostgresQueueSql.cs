@@ -62,6 +62,46 @@ internal static class PostgresQueueSql
                 WHERE status IN ({Pending}, {InProgress});
             DROP INDEX IF EXISTS {QualifiedIndexName(tableName, $"ix_{safeName}_status_created")};
             DROP INDEX IF EXISTS {QualifiedIndexName(tableName, $"ix_{safeName}_status_locked_until")};
+            CREATE TABLE IF NOT EXISTS {DeferredTable(tableName)} (
+                deferred_id    BIGSERIAL PRIMARY KEY,
+                deliver_at_utc TIMESTAMPTZ NOT NULL,
+                message_id     UUID        NOT NULL,
+                payload        BYTEA       NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS {QuoteSimpleIdentifier($"ix_{safeName}_deferred_due")}
+                ON {DeferredTable(tableName)}(deliver_at_utc, deferred_id);
+            """;
+    }
+
+    /// <summary>
+    /// Deferred messages wait in their own table, not in the queue table, so any number of them leaves the claim's
+    /// index scan untouched and older versions of this package never deliver them early.
+    /// </summary>
+    private static string DeferredTable(string tableName) => QuoteQualifiedIdentifier($"{tableName}_deferred");
+
+    internal static string InsertDeferred(string tableName)
+        => $"INSERT INTO {DeferredTable(tableName)} (deliver_at_utc, message_id, payload) VALUES (@deliverAt, @messageId, @payload)";
+
+    /// <summary>
+    /// Moves up to <c>@batchSize</c> due messages to the queue in one statement. <c>SKIP LOCKED</c> lets several instances
+    /// do this at the same time.
+    /// </summary>
+    internal static string PromoteDue(string tableName)
+    {
+        var deferred = DeferredTable(tableName);
+        return $"""
+            WITH due AS (
+                DELETE FROM {deferred}
+                WHERE deferred_id IN (
+                    SELECT deferred_id FROM {deferred}
+                    WHERE deliver_at_utc <= NOW()
+                    ORDER BY deliver_at_utc, deferred_id
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT @batchSize)
+                RETURNING deferred_id, deliver_at_utc, message_id, payload
+            )
+            INSERT INTO {QuoteQualifiedIdentifier(tableName)} (message_id, status, created_at_utc, attempt_count, payload)
+            SELECT message_id, {Pending}, NOW(), 0, payload FROM due ORDER BY deliver_at_utc, deferred_id
             """;
     }
 

@@ -13,7 +13,7 @@ namespace NymBroker.Endpoint.AzureServiceBus;
 /// the entity's dead-letter queue with the reason. The client, sender and processor are long-lived and thread-safe.
 /// Transient-fault retries are left to the SDK's built-in <see cref="ServiceBusRetryOptions"/>.
 /// </summary>
-public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDisposable
+public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAsyncDisposable
 {
     private readonly string _name;
     private readonly AzureServiceBusSettings _settings;
@@ -44,6 +44,14 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IAsyncDispos
 
     public Task PostAsync(byte[] message, CancellationToken ct = default)
         => _sender.Value.SendMessageAsync(CreateMessage(message), ct);
+
+    /// <summary>Sent with <see cref="ServiceBusMessage.ScheduledEnqueueTime"/>: Service Bus stores it and enqueues it when due.</summary>
+    public Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
+    {
+        var scheduled = CreateMessage(message);
+        scheduled.ScheduledEnqueueTime = deliverAt;
+        return _sender.Value.SendMessageAsync(scheduled, ct);
+    }
 
     /// <summary>
     /// Sends the messages in as few <see cref="ServiceBusMessageBatch"/>es as their size allows, in order. Each Service Bus

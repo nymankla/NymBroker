@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text;
 using System.Threading.Channels;
 using NymBroker.Core.Endpoint.HealthCheck;
@@ -6,8 +8,15 @@ using NymBroker.Core.Resilience;
 
 namespace NymBroker.Core.Endpoint.File;
 
-public sealed class FileEndPoint : IEndPointEventDriven
+public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
 {
+    private const string DeferredFilePrefix = "deferred-";
+    private const string DeferredTimeFormat = "yyyyMMddHHmmssfffffff";   // whole ticks, so rounding can never make a file due early
+    // Task.Delay rejects longer waits (about 49 days); the reader checks a file again after each step.
+    private static readonly TimeSpan MaxDelayStep = TimeSpan.FromDays(1);
+
+    // Files waiting for their time, each with one wake-up: the poll loop sees them again and must not add more.
+    private readonly ConcurrentDictionary<string, byte> _waitingFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly FileSettings _settings;
     private readonly ILogger<FileEndPoint> _logger;
     private readonly DirectoryInfo _readDir;
@@ -62,6 +71,62 @@ public sealed class FileEndPoint : IEndPointEventDriven
         var fileName = $"{DateTime.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}.json";
         var path = Path.Combine(_postDir.FullName, fileName);
         return System.IO.File.WriteAllBytesAsync(path, message, ct);
+    }
+
+    /// <summary>
+    /// Writes the file now, with its delivery time in the name (<c>deferred-&lt;UTC time&gt;_&lt;guid&gt;.json</c>). A
+    /// <see cref="FileEndPoint"/> reading the folder leaves the file alone until then, so it survives a restart of either
+    /// side. Another program reading the folder has to do the same.
+    /// </summary>
+    public Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
+    {
+        if (deliverAt <= DateTimeOffset.UtcNow) return PostAsync(message, ct);
+
+        var time = deliverAt.UtcDateTime.ToString(DeferredTimeFormat, CultureInfo.InvariantCulture);
+        var path = Path.Combine(_postDir.FullName, $"{DeferredFilePrefix}{time}_{Guid.NewGuid():N}.json");
+        return System.IO.File.WriteAllBytesAsync(path, message, ct);
+    }
+
+    /// <summary>The time in a deferred file's name; null for any other file, which is due at once.</summary>
+    private static DateTimeOffset? GetDeliverAt(FileInfo file)
+    {
+        if (!file.Name.StartsWith(DeferredFilePrefix, StringComparison.Ordinal)) return null;
+
+        var separator = file.Name.IndexOf('_', DeferredFilePrefix.Length);
+        if (separator < 0) return null;
+
+        return DateTimeOffset.TryParseExact(file.Name.AsSpan(DeferredFilePrefix.Length, separator - DeferredFilePrefix.Length),
+            DeferredTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var deliverAt)
+            ? deliverAt
+            : null;
+    }
+
+    private static bool IsDue(FileInfo file) => GetDeliverAt(file) is not { } deliverAt || deliverAt <= DateTimeOffset.UtcNow;
+
+    // Queues the file again when it is due, also if PollInterval is off.
+    private void WakeWhenDue(FileInfo file, CancellationToken ct)
+    {
+        if (!_waitingFiles.TryAdd(file.FullName, 0)) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                try
+                {
+                    var wait = GetDeliverAt(file)!.Value - DateTimeOffset.UtcNow;
+                    if (wait > TimeSpan.Zero)
+                        await Task.Delay(wait < MaxDelayStep ? wait : MaxDelayStep, ct);
+                }
+                finally
+                {
+                    _waitingFiles.TryRemove(file.FullName, out _);   // before the write: the reader may need a new wake-up
+                }
+                _fileChannel?.Writer.TryWrite(file);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }   // read again at the next start
+            catch (Exception ex) { _logger.LogError(ex, "Error waiting for deferred file '{File}'", file.Name); }
+        }, CancellationToken.None);
     }
 
     public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
@@ -132,6 +197,7 @@ public sealed class FileEndPoint : IEndPointEventDriven
         foreach (var file in _readDir.GetFiles(_settings.SearchPattern))
         {
             if (ct.IsCancellationRequested) yield break;
+            if (!IsDue(file)) continue;
             var content = await ReadAndArchiveAsync(file, ct);
             if (content != null) yield return content;
         }
@@ -172,6 +238,11 @@ public sealed class FileEndPoint : IEndPointEventDriven
             await foreach (var file in _fileChannel!.Reader.ReadAllAsync(ct))
             {
                 if (ct.IsCancellationRequested) return;
+                if (!IsDue(file))
+                {
+                    WakeWhenDue(file, ct);
+                    continue;
+                }
                 var content = await ReadAndArchiveAsync(file, ct);
                 if (content != null && _handler != null)
                 {

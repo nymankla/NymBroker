@@ -11,4 +11,6 @@
 - **Inserts**: one autocommit `INSERT` (+ `NOTIFY`) per `PostAsync`, bound by the WAL flush. Removing `NOTIFY` was measured and gained little. `PostBatchAsync`: `INSERT … SELECT FROM unnest WITH ORDINALITY` + one `NOTIFY`, atomic and ordered.
 - `DeadLetter` → `Failed` with `"{Reason}: {Description}"` in `last_error`; `LogWarning` when a message reaches `Failed`. Shutdown writes handled outcomes with a fresh 10 s token (`LeasedQueueListener`); failure → `LogWarning`, redelivered after lease expiry.
 
+**Deferred messages** wait in `<table>_deferred` with an index on the due time, never in the queue table: the claim index and plan don't change, however many wait, and older package versions never deliver them early. `PromoteDue` (`DELETE … RETURNING` + `INSERT`, with `SKIP LOCKED`) is one statement of its own; `LeasedQueueListener` decides when.
+
 Integration tests: `PostgresEndPointTests` (`NYMBROKER_POSTGRES_CS`, `./scripts/setup-postgres.ps1`).

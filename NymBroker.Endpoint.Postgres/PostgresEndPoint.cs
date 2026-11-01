@@ -17,7 +17,7 @@ namespace NymBroker.Endpoint.Postgres;
 /// <c>NOTIFY</c> (if <see cref="PostgresSettings.UseNotifications"/>) or <see cref="PostgresSettings.PollInterval"/>.
 /// </para>
 /// </summary>
-public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
+public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAsyncDisposable
 {
     private readonly PostgresSettings _settings;
     private readonly ILogger<PostgresEndPoint> _logger;
@@ -80,6 +80,18 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>Stored in <c>&lt;table&gt;_deferred</c>; a listener moves the message to the queue when it is due.</summary>
+    public async Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = PostgresQueueSql.InsertDeferred(_settings.TableName);
+        cmd.Parameters.Add(new NpgsqlParameter<DateTimeOffset>("deliverAt", NpgsqlDbType.TimestampTz) { TypedValue = deliverAt.ToUniversalTime() });
+        cmd.Parameters.AddWithValue("messageId", Guid.NewGuid());
+        cmd.Parameters.Add(new NpgsqlParameter<byte[]>("payload", NpgsqlDbType.Bytea) { TypedValue = message });
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     /// <summary>Blocking form for callers of the synchronous API; the broker calls <see cref="HealthCheckAsync"/>.</summary>
     public IHealthCheckResult HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult();
 
@@ -136,6 +148,15 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
         while (await reader.NextResultAsync(ct));
 
         return claimed;
+    }
+
+    private async Task<int> PromoteDueAsync(CancellationToken ct)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = PostgresQueueSql.PromoteDue(_settings.TableName);
+        cmd.Parameters.Add(new NpgsqlParameter<int>("batchSize", _settings.BatchSize));
+        return await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private async Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
@@ -228,6 +249,8 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IAsyncDisposable
 
         protected override Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
             => owner.FinalizeAsync(outcomes, ct);
+
+        protected override Task<int> PromoteDueAsync(CancellationToken ct) => owner.PromoteDueAsync(ct);
 
         /// <summary>
         /// Waits for a NOTIFY (or <see cref="PostgresSettings.PollInterval"/>, whichever comes first). If the LISTEN

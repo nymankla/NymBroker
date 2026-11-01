@@ -15,4 +15,6 @@
 - **Connections**: one pooled `MySqlConnection` per operation (not thread-safe). Polls on a timer when idle (no LISTEN/NOTIFY).
 - JSON for `@items` uses reflection-based `System.Text.Json`, like the SQL Server and Postgres endpoints.
 
+**Deferred messages** wait in `<table>_deferred` with an index on the due time, never in the queue table: the claim index and plan don't change, however many wait, and older package versions never deliver them early. `LockDue` + `PromoteDue` move them in a transaction of their own (two round trips, `SKIP LOCKED`, `ROLLBACK` on failure); `LeasedQueueListener` decides when.
+
 Integration tests: `MySqlEndPointTests` (`NYMBROKER_MYSQL_CS`, `./scripts/setup-mysql.ps1`), a unique table per test. The idempotency store is a separate package (`NymBroker.Idempotency.MySql`): `INSERT … ON DUPLICATE KEY UPDATE` that takes over only an expired row and stamps it with a random `claim_token`; the result is decided by reading the token back (`<=>`, null-safe), never by the affected-rows count, which depends on the connection's `UseAffectedRows` setting.
