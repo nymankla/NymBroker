@@ -460,8 +460,10 @@ public sealed class SqlServerEndPointTests : IAsyncLifetime
             await ep.DisposeAsync();
 
         if (!string.IsNullOrWhiteSpace(ConnectionString))
+        {
             await ExecuteAsync($"DROP TABLE IF EXISTS {_tableName}_deferred");
             await ExecuteAsync($"DROP TABLE IF EXISTS {_tableName}");
+        }
     }
 }
 
