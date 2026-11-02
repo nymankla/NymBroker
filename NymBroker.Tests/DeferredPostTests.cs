@@ -68,9 +68,23 @@ public sealed class DeferredPostTests : IAsyncDisposable
 
     public sealed class Job { public int Id { get; set; } }
 
-    private sealed class PlainEndPoint : IEndPoint
+    private sealed class PlainEndPoint(EndpointMode mode = EndpointMode.ReadWrite) : IEndPoint
     {
-        public Task PostAsync(byte[] message, CancellationToken ct = default) => Task.CompletedTask;
+        private int _attempts;
+
+        public EndpointMode Mode => mode;
+        public ConcurrentQueue<(byte[] Message, DateTimeOffset At)> Posts { get; } = new();
+        public int Failures { get; set; }
+        public Func<Exception> Failure { get; init; } = () => new IOException("Send failed");
+        public int Attempts => _attempts;
+
+        public Task PostAsync(byte[] message, CancellationToken ct = default)
+        {
+            if (Interlocked.Increment(ref _attempts) <= Failures) throw Failure();
+            Posts.Enqueue((message, DateTimeOffset.UtcNow));
+            return Task.CompletedTask;
+        }
+
         public IHealthCheckResult HealthCheck() => HealthCheckResult.Healthy();
     }
 
@@ -95,6 +109,21 @@ public sealed class DeferredPostTests : IAsyncDisposable
         public IHealthCheckResult HealthCheck() => HealthCheckResult.Healthy();
     }
 
+    private sealed class RefusingEndPoint(Exception refusal) : IDeferredEndPoint
+    {
+        public ConcurrentQueue<(byte[] Message, DateTimeOffset At)> Posts { get; } = new();
+
+        public Task PostAsync(byte[] message, CancellationToken ct = default)
+        {
+            Posts.Enqueue((message, DateTimeOffset.UtcNow));
+            return Task.CompletedTask;
+        }
+
+        public Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default) => throw refusal;
+
+        public IHealthCheckResult HealthCheck() => HealthCheckResult.Healthy();
+    }
+
     private sealed class FixedTransformer(byte[]? output) : IOutputTransformer
     {
         public byte[]? Transform(RawMessageContext message, string destinationEndpoint) => output;
@@ -115,20 +144,218 @@ public sealed class DeferredPostTests : IAsyncDisposable
 
     // --- Broker ---
 
+    // --- Broker: an endpoint that cannot defer ---
+
     [Fact]
-    public async Task EndpointWithoutSupport_Throws_EvenForATimeInThePast()
+    public async Task WithoutSupport_MessageWaitsInTheBroker_OtherMessagesDoNot()
     {
-        var broker = CreateBroker("Plain", new PlainEndPoint());
+        var endpoint = new PlainEndPoint();
+        var broker = CreateBroker("Plain", endpoint);
+        var deliverAt = DateTimeOffset.UtcNow.AddSeconds(1);
 
-        var future = await Assert.ThrowsAsync<NotSupportedException>(() =>
-            broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddMinutes(1), Ct));
-        await Assert.ThrowsAsync<NotSupportedException>(() =>
-            broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddMinutes(-1), Ct));
-        await Assert.ThrowsAsync<NotSupportedException>(() =>
-            broker.PostRawDeferredAsync("Plain", "{}"u8.ToArray().AsMemory(), DateTimeOffset.UtcNow.AddMinutes(1), Ct));
+        await broker.PostDeferredAsync("Plain", new Job { Id = 1 }, deliverAt, Ct);
+        await broker.PostAsync("Plain", new Job { Id = 2 }, Ct);
 
-        Assert.Contains("'Plain'", future.Message);
+        await DeferredContract.WaitUntilAsync(() => endpoint.Posts.Count == 2, Timeout);
+        var posts = endpoint.Posts.ToArray();
+        Assert.Contains("\"id\":2", Encoding.UTF8.GetString(posts[0].Message));
+        Assert.Contains("\"id\":1", Encoding.UTF8.GetString(posts[1].Message));
+        Assert.True(posts[1].At >= deliverAt, $"Delivered at {posts[1].At:O}, due at {deliverAt:O}.");
+        using var envelope = JsonDocument.Parse(posts[1].Message);
+        Assert.Equal(deliverAt.UtcDateTime, envelope.RootElement.GetProperty("created").GetDateTime());
     }
+
+    [Fact]
+    public async Task WithoutSupport_Raw_SendsTheBytesUnchanged_FromMemoryAndStream()
+    {
+        var endpoint = new PlainEndPoint();
+        var broker = CreateBroker("Plain", endpoint);
+        var later = DateTimeOffset.UtcNow.AddMilliseconds(100);
+        byte[] bytes = [1, 2, 3];
+
+        await broker.PostRawDeferredAsync("Plain", bytes.AsMemory(), later, Ct);
+        await broker.PostRawDeferredAsync("Plain", new MemoryStream(bytes), later, Ct);
+
+        await DeferredContract.WaitUntilAsync(() => endpoint.Posts.Count == 2, Timeout);
+        Assert.All(endpoint.Posts, p => Assert.Equal(bytes, p.Message));
+    }
+
+    [Fact]
+    public async Task WithoutSupport_TimeInThePast_IsSentByTheCall_AndAFailureReachesTheCaller()
+    {
+        var endpoint = new PlainEndPoint();
+        var broker = CreateBroker("Plain", endpoint);
+
+        await broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddMinutes(-1), Ct);
+        Assert.Single(endpoint.Posts);
+
+        endpoint.Failures = int.MaxValue;
+        await Assert.ThrowsAsync<IOException>(() => broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddMinutes(-1), Ct));
+    }
+
+    [Fact]
+    public async Task WithoutSupport_OutputTransformer_RunsAtThePost()
+    {
+        var endpoint = new PlainEndPoint();
+        var broker = CreateBroker("Plain", endpoint);
+        var later = DateTimeOffset.UtcNow.AddMilliseconds(100);
+
+        broker.AddOutputTransformer(new FixedTransformer("custom"u8.ToArray()), "Plain");
+        await broker.PostDeferredAsync("Plain", new Job(), later, Ct);
+        broker.AddOutputTransformer(new FixedTransformer(null), "Plain");
+        await broker.PostDeferredAsync("Plain", new Job(), later, Ct);
+
+        await DeferredContract.WaitUntilAsync(() => !endpoint.Posts.IsEmpty, Timeout);
+        await Task.Delay(200, Ct);
+        Assert.Equal("custom"u8.ToArray(), Assert.Single(endpoint.Posts).Message);
+    }
+
+    [Fact]
+    public async Task WithoutSupport_SendFailure_IsRetried()
+    {
+        var logger = new CapturingLogger<NymBrokerImpl>();
+        var endpoint = new PlainEndPoint { Failures = 2 };
+        var broker = CreateRetryingBroker(endpoint, logger, retries: 5);
+
+        await broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddMilliseconds(50), Ct);
+
+        await DeferredContract.WaitUntilAsync(() => endpoint.Posts.Count == 1, Timeout);
+        Assert.Equal(2, logger.Entries.Count(e => e.Level == LogLevel.Warning && e.Exception is IOException));
+        Assert.DoesNotContain(logger.Entries, e => e.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task WithoutSupport_EndpointsOwnTimeout_IsRetried()
+    {
+        var endpoint = new PlainEndPoint { Failures = 1, Failure = () => new TaskCanceledException("timeout") };
+        var broker = CreateRetryingBroker(endpoint, new CapturingLogger<NymBrokerImpl>(), retries: 5);
+
+        await broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddMilliseconds(50), Ct);
+
+        await DeferredContract.WaitUntilAsync(() => endpoint.Posts.Count == 1, Timeout);
+    }
+
+    [Fact]
+    public async Task WithoutSupport_SendKeepsFailing_LogsTheLoss()
+    {
+        var logger = new CapturingLogger<NymBrokerImpl>();
+        var endpoint = new PlainEndPoint { Failures = int.MaxValue };
+        var broker = CreateRetryingBroker(endpoint, logger, retries: 2);
+
+        await broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddMilliseconds(50), Ct);
+
+        await DeferredContract.WaitUntilAsync(() => logger.Entries.Any(e => e.Level == LogLevel.Error && e.Message.Contains("lost")), Timeout);
+        Assert.Equal(3, endpoint.Attempts);
+    }
+
+    [Fact]
+    public async Task WithoutSupport_Stop_DropsWithAWarning_LaterPostsThrow_AndAStartAllowsThemAgain()
+    {
+        var logger = new CapturingLogger<NymBrokerImpl>();
+        var endpoint = new PlainEndPoint();
+        var broker = TestBroker.Create(_services, logger);
+        broker.AddEndpoint("Plain", endpoint);
+        await broker.StartAsync(Ct);
+        await broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddHours(1), Ct);
+
+        await broker.StopAsync(Ct);
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("dropped"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddHours(1), Ct));
+        Assert.Empty(endpoint.Posts);
+
+        await broker.StartAsync(Ct);
+        await broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddMilliseconds(50), Ct);
+        await DeferredContract.WaitUntilAsync(() => endpoint.Posts.Count == 1, Timeout);
+        await broker.StopAsync(Ct);
+    }
+
+    [Fact]
+    public async Task WithoutSupport_PostBeforeTheStart_SurvivesTheStart()
+    {
+        var endpoint = new PlainEndPoint();
+        var broker = CreateBroker("Plain", endpoint);
+
+        await broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddMilliseconds(300), Ct);
+        await broker.StartAsync(Ct);
+
+        await DeferredContract.WaitUntilAsync(() => endpoint.Posts.Count == 1, Timeout);
+        await broker.StopAsync(Ct);
+    }
+
+    [Fact]
+    public async Task EndpointRefusingThisMessage_MessageWaitsInTheBroker()
+    {
+        var endpoint = new RefusingEndPoint(new NotSupportedException("Too long"));
+        var broker = CreateBroker("Q", endpoint);
+        var deliverAt = DateTimeOffset.UtcNow.AddMilliseconds(300);
+
+        await broker.PostDeferredAsync("Q", new Job(), deliverAt, Ct);
+
+        await DeferredContract.WaitUntilAsync(() => endpoint.Posts.Count == 1, Timeout);
+        Assert.True(endpoint.Posts.Single().At >= deliverAt);
+    }
+
+    [Fact]
+    public async Task EndpointRefusing_TimeInThePast_IsSentByTheCall()
+    {
+        var endpoint = new RefusingEndPoint(new NotSupportedException("FIFO"));
+
+        await CreateBroker("Q", endpoint).PostDeferredAsync("Q", new Job(), DateTimeOffset.UtcNow.AddMinutes(-1), Ct);
+
+        Assert.Single(endpoint.Posts);
+    }
+
+    [Fact]
+    public async Task EndpointFailingOtherwise_ReachesTheCaller_AndNothingIsHeld()
+    {
+        var endpoint = new RefusingEndPoint(new IOException("Down"));
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            CreateBroker("Q", endpoint).PostDeferredAsync("Q", new Job(), DateTimeOffset.UtcNow.AddMilliseconds(50), Ct));
+
+        await Task.Delay(200, Ct);
+        Assert.Empty(endpoint.Posts);
+    }
+
+    [Fact]
+    public async Task WithoutSupport_NeverStartedBroker_StopDropsTheMessage()
+    {
+        var logger = new CapturingLogger<NymBrokerImpl>();
+        var broker = TestBroker.Create(_services, logger);
+        broker.AddEndpoint("Plain", new PlainEndPoint());
+        await broker.PostDeferredAsync("Plain", new Job(), DateTimeOffset.UtcNow.AddHours(1), Ct);
+
+        await broker.StopAsync(Ct);
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("dropped"));
+    }
+
+    [Fact]
+    public void AddEndpoint_WarnsOnlyAboutWritableEndpointsThatCannotDefer()
+    {
+        var logger = new CapturingLogger<NymBrokerImpl>();
+        var broker = TestBroker.Create(_services, logger);
+
+        broker.AddEndpoint("Plain", new PlainEndPoint());
+        broker.AddEndpoint("ReadOnlyPlain", new PlainEndPoint(EndpointMode.ReadOnly));
+        broker.AddEndpoint("Native", new RecordingEndPoint());
+
+        var warning = Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Contains("'Plain'", warning.Message);
+        Assert.Contains("memory", warning.Message);
+    }
+
+    private NymBrokerImpl CreateRetryingBroker(IEndPoint endpoint, ILogger<NymBrokerImpl> logger, int retries)
+    {
+        var broker = TestBroker.Create(_services, logger);
+        broker.HeldSendRetries = retries;
+        broker.HeldSendRetryDelay = TimeSpan.FromMilliseconds(1);
+        broker.AddEndpoint("Plain", endpoint);
+        return broker;
+    }
+
+    // --- Broker ---
 
     [Fact]
     public async Task ReadOnlyOrUnknownEndpoint_Throws()

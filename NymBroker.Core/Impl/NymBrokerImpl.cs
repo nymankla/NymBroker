@@ -74,7 +74,15 @@ internal sealed partial class NymBrokerImpl : INymBroker
 
     // --- Configuration (called during startup before StartAsync) ---
 
-    public void AddEndpoint(string name, IEndPoint endpoint) => _endpoints = _endpoints.SetItem(name, endpoint);
+    public void AddEndpoint(string name, IEndPoint endpoint)
+    {
+        _endpoints = _endpoints.SetItem(name, endpoint);
+
+        if (endpoint is not IDeferredEndPoint && endpoint.Mode != EndpointMode.ReadOnly)
+            _logger.LogWarning(
+                "Endpoint '{Name}' cannot defer messages itself: PostDeferredAsync to it holds them in this process's memory, and those still waiting are lost when the process stops or crashes",
+                name);
+    }
 
     public void RegisterConsumer(Type messageType, string serviceKey, bool retryOnFailure = true)
     {

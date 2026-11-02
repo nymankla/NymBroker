@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `PostDeferredAsync` and `PostRawDeferredAsync` no longer throw `NotSupportedException` for an endpoint without `IDeferredEndPoint` (RabbitMQ, HTTP, custom endpoints), or `InvalidOperationException` for SQS FIFO queues and SQS deferrals over 15 minutes. The broker now holds the message in memory until it is due, then sends it with `PostAsync`. This is not durable: a message still waiting is lost if the process stops or crashes. A warning is logged when such an endpoint is added, for every writable RabbitMQ, HTTP, custom and SQS endpoint. If you relied on the exception to avoid non-durable deferral, check the endpoint and the delay before posting. `AwsSqsEndPoint.PostDeferredAsync` called directly now throws `NotSupportedException` in those two cases. A custom `IDeferredEndPoint` can throw `NotSupportedException` to get the same fallback. See [Sending messages](docs/sending-messages.md#deferring-a-message).
+
 ## [0.18.0] - 2026-11-01
 
 ### Added

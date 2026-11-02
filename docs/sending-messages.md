@@ -92,16 +92,19 @@ public async Task ConsumeAsync(FetchPage job, IMessageContext context, Cancellat
 - **Message age.** The envelope's `created` is set to `deliverAt` if that is later than now, so `WithMaxMessageAge`, age routes and the `nymbroker.message.age` metric count from the time the message becomes due. `PostRawDeferredAsync` leaves the bytes unchanged, so an envelope posted that way keeps its `created`.
 - **Replay.** A dead letter you post again with `PostRawAsync` is delivered at once.
 - **Size.** Deferred messages cannot be split. On a transport with a size limit, keep them under it.
-- **Not supported means an exception.** An endpoint that cannot defer throws `NotSupportedException` when you post, whatever the time. A message is never delivered early without saying so.
+- **Endpoints that cannot defer.** On RabbitMQ, HTTP, any custom endpoint without `IDeferredEndPoint`, SQS FIFO queues and SQS deferrals over 15 minutes, the broker holds the message in memory and sends it when it is due; a time in the past sends it at once. **The message is not durable:** it is lost if the process stops or crashes first. A consumer that re-defers its message and returns has settled the original, so nothing redelivers it. Use an endpoint with durable deferral if that matters. A warning is logged for each such endpoint when it is added, also if you never post a deferred message to it, except a read-only one. On SQS, that includes every standard queue, because of deferrals over 15 minutes.
+  - On a graceful stop, messages still waiting are dropped, each with a logged warning. While the broker is stopped, a post that would have to wait throws `InvalidOperationException`, so a consumer deferring during shutdown fails and its message is redelivered.
+  - A failed send when the message is due is logged and retried for about 5 minutes. After that the message is lost, with a logged error.
+  - Each waiting message stays in this process's memory, with no limit on how many.
 
 | Endpoint | How it waits | Limits |
 |---|---|---|
 | SQLite, PostgreSQL, SQL Server, MySQL | In a table of its own, `<table>_deferred`; a polling listener moves due messages to the queue | Durable. Needs a listener on the table. PostgreSQL, SQL Server and MySQL compare the time with the database's clock, SQLite with the listener's. With `AutoCreateTable = false`, create the table yourself: see [Deferred messages table](endpoints-and-configuration.md#deferred-messages-table) |
 | Azure Service Bus | `ScheduledEnqueueTime` | Durable |
-| Amazon SQS | `DelaySeconds`, rounded up to a whole second | At most 15 minutes; longer throws `InvalidOperationException`. FIFO queues have no per-message delay and throw too |
+| Amazon SQS | `DelaySeconds`, rounded up to a whole second | Durable for up to 15 minutes. Longer deferrals, and all on FIFO queues (no per-message delay), wait in the broker's memory and are not durable: see above |
 | File | The time is in the file name (`deferred-<UTC time>_<guid>.json`); a `FileEndPoint` reading the folder leaves the file until then | Durable. Another program reading the folder has to do the same |
 | Memory | In memory, not counted against `capacity` | Not durable: dropped with a warning when the endpoint stops |
-| RabbitMQ, HTTP | Not supported | Throws `NotSupportedException` |
+| RabbitMQ, HTTP, custom endpoints without `IDeferredEndPoint` | In the broker's memory | Not durable: see above |
 
 ## Large messages: split and compress
 

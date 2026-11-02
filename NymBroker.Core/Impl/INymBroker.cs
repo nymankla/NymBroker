@@ -42,9 +42,11 @@ public interface INymBroker
     /// past means now. Other messages on the endpoint are not held up, and delivery is otherwise unchanged: at least once,
     /// with the retry count starting when the message is first delivered. The envelope's <c>created</c> is set to the
     /// later of now and <paramref name="deliverAt"/>, so <c>WithMaxMessageAge</c>, age routes and the age metric count from
-    /// the time the message becomes due. Deferred messages cannot be split.
+    /// the time the message becomes due. Deferred messages cannot be split. For an endpoint that does not implement
+    /// <see cref="IDeferredEndPoint"/>, the broker holds the message in memory until it is due: it is not durable, and is
+    /// lost if the process stops or crashes first.
     /// </summary>
-    /// <exception cref="NotSupportedException">The endpoint does not implement <see cref="IDeferredEndPoint"/>.</exception>
+    /// <exception cref="InvalidOperationException">The broker holds the message itself and has stopped.</exception>
     Task PostDeferredAsync<T>(string endpointName, T message, DateTimeOffset deliverAt, CancellationToken ct = default) where T : class;
 
     /// <summary>
@@ -52,7 +54,7 @@ public interface INymBroker
     /// <see cref="PostDeferredAsync{T}"/>. The bytes are not changed, so an envelope's <c>created</c> keeps its value and
     /// <c>WithMaxMessageAge</c> counts from it. The stream is read from its current position to the end.
     /// </summary>
-    /// <exception cref="NotSupportedException">The endpoint does not implement <see cref="IDeferredEndPoint"/>.</exception>
+    /// <exception cref="InvalidOperationException">The broker holds the message itself and has stopped.</exception>
     // RS0026: the two overloads differ in a required parameter (Stream / ReadOnlyMemory<byte>), so calls are never ambiguous.
 #pragma warning disable RS0026
     Task PostRawDeferredAsync(string endpointName, Stream message, DateTimeOffset deliverAt, CancellationToken ct = default);

@@ -45,6 +45,8 @@ internal sealed partial class NymBrokerImpl
                         $"Endpoint '{outName}' has an output transformer and the broker also listens on it. Make it WriteOnly, or add an input transformer that reads the transformed format.");
             }
 
+            StartHoldingMessages();
+
             try
             {
                 StartScheduledActions(ct);
@@ -96,6 +98,9 @@ internal sealed partial class NymBrokerImpl
         List<Exception>? failures = null;
         try
         {
+            // Also for a broker that never started: posting works before the start.
+            await StopHoldingMessagesAsync();
+
             if (!_started)
                 return;
 

@@ -72,26 +72,81 @@ public sealed class AwsSqsEndPointTests : IAsyncLifetime
         Assert.Equal(fifo, settings.IsFifo);
     }
 
+    [Theory]
+    [InlineData("http://localhost:9/1/q", EndpointMode.ReadWrite, "15 minutes")]
+    [InlineData("http://localhost:9/1/q.fifo", EndpointMode.WriteOnly, "FIFO")]
+    [InlineData("http://localhost:9/1/q.fifo", EndpointMode.ReadOnly, null)]
+    public async Task Created_WarnsAboutDeferralsHeldInMemory_UnlessReadOnly(string url, EndpointMode mode, string? expected)
+    {
+        var logger = new CapturingLogger<AwsSqsEndPoint>();
+
+        await using var ep = new AwsSqsEndPoint("Sqs", new AwsSqsSettings { QueueUrl = url, ServiceUrl = "http://localhost:9", Credentials = LocalCredentials }, logger, mode);
+
+        var warnings = logger.Entries.Where(e => e.Level == LogLevel.Warning).ToList();
+        if (expected is null)
+            Assert.Empty(warnings);
+        else
+            Assert.Contains(expected, Assert.Single(warnings).Message);
+    }
+
     [Fact]
-    public async Task Deferred_Over15Minutes_Throws()
+    public async Task Deferred_Over15Minutes_ThrowsNotSupported()
     {
         await using var ep = new AwsSqsEndPoint("Sqs", new AwsSqsSettings { QueueUrl = "http://localhost:9/1/q", ServiceUrl = "http://localhost:9", Credentials = LocalCredentials },
             new CapturingLogger<AwsSqsEndPoint>());
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => ep.PostDeferredAsync("{}"u8.ToArray(), DateTimeOffset.UtcNow.AddMinutes(16), Ct));
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => ep.PostDeferredAsync("{}"u8.ToArray(), DateTimeOffset.UtcNow.AddMinutes(16), Ct));
 
         Assert.Contains("900 seconds", ex.Message);
     }
 
     [Fact]
-    public async Task Deferred_OnAFifoQueue_Throws()
+    public async Task Deferred_OnAFifoQueue_ThrowsNotSupported()
     {
         await using var ep = new AwsSqsEndPoint("Sqs", new AwsSqsSettings { QueueUrl = "http://localhost:9/1/q.fifo", ServiceUrl = "http://localhost:9", Credentials = LocalCredentials },
             new CapturingLogger<AwsSqsEndPoint>());
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => ep.PostDeferredAsync("{}"u8.ToArray(), DateTimeOffset.UtcNow, Ct));
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => ep.PostDeferredAsync("{}"u8.ToArray(), DateTimeOffset.UtcNow, Ct));
 
         Assert.Contains("FIFO", ex.Message);
+    }
+
+    [Fact]
+    public async Task Deferred_Over15Minutes_ThroughTheBroker_WaitsInTheBroker()
+    {
+        // No server here: the post only succeeds if nothing is sent until the message is due.
+        await using var ep = new AwsSqsEndPoint("Sqs", new AwsSqsSettings { QueueUrl = "http://localhost:9/1/q", ServiceUrl = "http://localhost:9", Credentials = LocalCredentials },
+            new CapturingLogger<AwsSqsEndPoint>());
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        var logger = new CapturingLogger<NymBrokerImpl>();
+        var broker = TestBroker.Create(services, logger);
+        broker.AddEndpoint("Sqs", ep);
+
+        await broker.PostRawDeferredAsync("Sqs", "{}"u8.ToArray().AsMemory(), DateTimeOffset.UtcNow.AddMinutes(16), Ct);
+        await broker.StopAsync(Ct);
+
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("dropped"));
+    }
+
+    [Fact]
+    public async Task Deferred_OnAFifoQueue_ThroughTheBroker_WaitsInTheBroker()
+    {
+        var queue = await CreateQueueAsync(fifo: true);
+        var ep = CreateEndPoint(queue, messageGroupId: "one-group");
+        await using var services = new ServiceCollection().BuildServiceProvider();
+        var broker = TestBroker.Create(services);
+        broker.AddEndpoint("Sqs", ep);
+        var delivered = new TaskCompletionSource<DateTimeOffset>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await ep.StartListeningAsync((_, _) =>
+        {
+            delivered.TrySetResult(DateTimeOffset.UtcNow);
+            return Task.FromResult(ProcessResult.Completed);
+        }, Ct);
+        var deliverAt = DateTimeOffset.UtcNow.AddSeconds(2);
+
+        await broker.PostRawDeferredAsync("Sqs", Encoding.UTF8.GetBytes($$"""{"id":"{{Guid.NewGuid()}}"}""").AsMemory(), deliverAt, Ct);
+
+        Assert.True(await delivered.Task.WaitAsync(Timeout, Ct) >= deliverAt);
     }
 
     [Fact]
