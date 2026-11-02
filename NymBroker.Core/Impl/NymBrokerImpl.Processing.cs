@@ -617,15 +617,31 @@ internal sealed partial class NymBrokerImpl
         return output == null ? Task.CompletedTask : endpoint.PostAsync(output, ct);
     }
 
-    // Also throws for a time in the past: whether a post works must not depend on the clock.
     private async Task SendDeferredAsync(string name, byte[] envelope, DateTimeOffset deliverAt, CancellationToken ct)
     {
-        if (ResolvePostTarget(name) is not IDeferredEndPoint endpoint)
-            throw new NotSupportedException($"Endpoint '{name}' cannot defer messages. Use an endpoint that implements {nameof(IDeferredEndPoint)}.");
-
+        var endpoint = ResolvePostTarget(name);
+        // Transformed now, also for a message the broker holds, so a failure reaches the caller.
         var output = _outputTransformers.TryGetValue(name, out var transformer) ? Transform(transformer, name, envelope) : envelope;
-        if (output != null)
-            await endpoint.PostDeferredAsync(output, deliverAt, ct);
+        if (output == null) return;
+
+        if (endpoint is IDeferredEndPoint deferred)
+        {
+            try
+            {
+                await deferred.PostDeferredAsync(output, deliverAt, ct);
+                return;
+            }
+            catch (NotSupportedException ex)
+            {
+                _logger.LogDebug("Endpoint '{Name}' cannot defer this message, so the broker holds it: {Reason}", name, ex.Message);
+            }
+        }
+
+        ct.ThrowIfCancellationRequested();
+        if (deliverAt <= DateTimeOffset.UtcNow)
+            await endpoint.PostAsync(output, ct);
+        else
+            HoldUntilDue(name, endpoint, output, deliverAt);
     }
 
     private Task SendBatchAsync(string name, IEndPoint endpoint, IReadOnlyList<byte[]> envelopes, CancellationToken ct)

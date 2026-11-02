@@ -58,7 +58,7 @@ public sealed class CheckoutService(INymBroker broker)
 | Need | Call |
 |---|---|
 | send to one endpoint | `PostAsync("Orders", message, ct)` |
-| not before a given time (SQL endpoints, Service Bus, File, Memory, standard SQS queues up to 15 min; others throw `NotSupportedException`) | `PostDeferredAsync("Orders", message, deliverAt, ct)` |
+| not before a given time (SQL endpoints, Service Bus, File, Memory, standard SQS queues up to 15 min; RabbitMQ, HTTP, custom endpoints, SQS FIFO and longer SQS delays hold it in the broker's memory, so it is lost on a stop or crash) | `PostDeferredAsync("Orders", message, deliverAt, ct)` |
 | many messages, one round trip (SQL endpoints, Service Bus) | `PostBatchAsync("Orders", messages, ct)` |
 | large message, split and compressed transparently | `PostAsync("Orders", message, ct, splitThresholdBytes: 200_000)` |
 | deliver to topic subscribers in this process | `PublishAsync(message, ct)` or `PublishAsync("orders.events", message, ct)` |

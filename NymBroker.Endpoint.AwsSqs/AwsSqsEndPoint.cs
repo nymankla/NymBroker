@@ -49,6 +49,13 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
         Mode = mode;
         _queueUrl = settings.QueueUrl;
 
+        if (mode != EndpointMode.ReadOnly)
+            _logger.LogWarning(
+                settings.IsFifo
+                    ? "AWS SQS endpoint '{Name}' is a FIFO queue, which has no per-message delay: PostDeferredAsync to it holds messages in this process's memory, and those still waiting are lost when the process stops or crashes"
+                    : "AWS SQS endpoint '{Name}' delays a message at most 15 minutes: PostDeferredAsync to it holds a longer deferral in this process's memory, and those still waiting are lost when the process stops or crashes",
+                name);
+
         _receivePolicy = new RetryPolicy(new RetryOptions
         {
             MaxRetryAttempts = int.MaxValue,
@@ -74,17 +81,17 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
 
     /// <summary>
     /// Sent with <c>DelaySeconds</c>, rounded up to a whole second so the message is never early. Throws
-    /// <see cref="InvalidOperationException"/> for a deferral over 15 minutes, the SQS limit, and for a FIFO queue, where
-    /// SQS has no per-message delay.
+    /// <see cref="NotSupportedException"/> for a deferral over 15 minutes, the SQS limit, and for a FIFO queue, where
+    /// SQS has no per-message delay; the broker then holds the message in memory.
     /// </summary>
     public Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
     {
         if (_settings.IsFifo)
-            throw new InvalidOperationException($"AWS SQS endpoint '{_name}' is a FIFO queue, which has no per-message delay, so it cannot defer a message.");
+            throw new NotSupportedException($"AWS SQS endpoint '{_name}' is a FIFO queue, which has no per-message delay, so it cannot defer a message.");
 
         var delay = Math.Ceiling((deliverAt - DateTimeOffset.UtcNow).TotalSeconds);
         if (delay > MaxDelaySeconds)
-            throw new InvalidOperationException(
+            throw new NotSupportedException(
                 $"AWS SQS endpoint '{_name}' cannot defer a message to {deliverAt:O}: SQS allows at most {MaxDelaySeconds} seconds.");
 
         return SendAsync(message, Math.Max(0, (int)delay), ct);
