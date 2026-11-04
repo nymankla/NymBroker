@@ -1,4 +1,5 @@
 using NymBroker.Core.Endpoint.Queue;
+using NymBroker.Shared;
 
 namespace NymBroker.Endpoint.SqlServer;
 
@@ -14,25 +15,11 @@ internal static class SqlServerQueueSql
     internal const int Completed = (int)QueueMessageStatus.Completed;
     internal const int Failed = (int)QueueMessageStatus.Failed;
 
-    internal static string QuoteQualifiedIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("SQL Server identifier cannot be empty.");
+    internal static string QuoteQualifiedIdentifier(string identifier) => SqlServerIdentifier.QuoteQualified(identifier);
 
-        return string.Join('.', identifier.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(QuoteSimpleIdentifier));
-    }
+    internal static string QuoteSimpleIdentifier(string identifier) => SqlServerIdentifier.QuoteSimple(identifier);
 
-    internal static string QuoteSimpleIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("SQL Server identifier cannot be empty.");
-
-        return $"[{identifier.Replace("]", "]]")}]";
-    }
-
-    /// <summary>Escapes a value for use inside an <c>N'...'</c> string literal.</summary>
-    private static string Literal(string value) => value.Replace("'", "''");
+    private static string Literal(string value) => SqlServerIdentifier.Literal(value);
 
     /// <summary>
     /// Clustered on the IDENTITY key (append-only inserts, FIFO order). One filtered index covers only

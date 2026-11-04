@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.File;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Endpoint.Sqlite;
 using NymBroker.MediatRSample.Orders;
 

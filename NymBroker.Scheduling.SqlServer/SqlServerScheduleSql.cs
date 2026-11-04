@@ -1,19 +1,15 @@
+using NymBroker.Shared;
+
 namespace NymBroker.Scheduling.SqlServer;
 
 /// <summary>T-SQL for the schedule table: one row per named scheduled action with the last claimed occurrence (UTC).</summary>
 internal static class SqlServerScheduleSql
 {
-    internal static string QuoteQualifiedIdentifier(string identifier)
-        => string.Join('.', identifier.Split('.', StringSplitOptions.TrimEntries).Select(QuoteSimpleIdentifier));
+    internal static string QuoteQualifiedIdentifier(string identifier) => SqlServerIdentifier.QuoteQualified(identifier);
 
-    internal static string QuoteSimpleIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("SQL Server identifier cannot be empty.");
-        return $"[{identifier.Replace("]", "]]")}]";
-    }
+    internal static string QuoteSimpleIdentifier(string identifier) => SqlServerIdentifier.QuoteSimple(identifier);
 
-    private static string Literal(string value) => value.Replace("'", "''");
+    private static string Literal(string value) => SqlServerIdentifier.Literal(value);
 
     /// <summary>
     /// Idempotent, also when several instances start at once: the loser of a concurrent CREATE gets error 2714

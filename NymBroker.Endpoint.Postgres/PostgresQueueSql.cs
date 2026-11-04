@@ -1,4 +1,5 @@
 using NymBroker.Core.Endpoint.Queue;
+using NymBroker.Shared;
 
 namespace NymBroker.Endpoint.Postgres;
 
@@ -15,21 +16,9 @@ internal static class PostgresQueueSql
     internal const int Completed = (int)QueueMessageStatus.Completed;
     internal const int Failed = (int)QueueMessageStatus.Failed;
 
-    internal static string QuoteQualifiedIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("PostgreSQL identifier cannot be empty.");
+    internal static string QuoteQualifiedIdentifier(string identifier) => PostgresIdentifier.QuoteQualified(identifier);
 
-        return string.Join('.', SplitIdentifier(identifier).Select(QuoteSimpleIdentifier));
-    }
-
-    internal static string QuoteSimpleIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("PostgreSQL identifier cannot be empty.");
-
-        return $"\"{identifier.Replace("\"", "\"\"")}\"";
-    }
+    internal static string QuoteSimpleIdentifier(string identifier) => PostgresIdentifier.QuoteSimple(identifier);
 
     internal static string GetNotificationChannel(string tableName)
         => $"nymbroker_{string.Concat(tableName.Select(ch => char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : '_'))}_changed";
@@ -224,13 +213,10 @@ internal static class PostgresQueueSql
     internal static string Listen(string tableName)
         => $"LISTEN {QuoteSimpleIdentifier(GetNotificationChannel(tableName))};";
 
-    private static string[] SplitIdentifier(string identifier)
-        => identifier.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
     /// <summary>Indexes live in their table's schema, so DROP INDEX needs the same schema prefix.</summary>
     private static string QualifiedIndexName(string tableName, string indexName)
     {
-        var parts = SplitIdentifier(tableName);
+        var parts = PostgresIdentifier.Split(tableName);
         return parts.Length > 1
             ? $"{QuoteSimpleIdentifier(parts[0])}.{QuoteSimpleIdentifier(indexName)}"
             : QuoteSimpleIdentifier(indexName);

@@ -1,8 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
 using System.Collections.Immutable;
-using System.Linq.Expressions;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Message;
@@ -71,20 +69,5 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogge
     }
 
     private static Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task> BuildDispatcher(Type messageType)
-    {
-        var consumerParam = Expression.Parameter(typeof(IMessageConsumer), "consumer");
-        var messageParam = Expression.Parameter(typeof(object), "message");
-        var contextParam = Expression.Parameter(typeof(IMessageContext), "context");
-        var ctParam = Expression.Parameter(typeof(CancellationToken), "ct");
-
-        var consumeInterface = typeof(IConsume<>).MakeGenericType(messageType);
-        var castConsumer = Expression.Convert(consumerParam, consumeInterface);
-        var castMessage = Expression.Convert(messageParam, messageType);
-        var method = consumeInterface.GetMethod(nameof(IConsume<object>.ConsumeAsync))!;
-        var call = Expression.Call(castConsumer, method, castMessage, contextParam, ctParam);
-
-        return Expression.Lambda<Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>>(
-            call, consumerParam, messageParam, contextParam, ctParam
-        ).Compile();
-    }
+        => DispatchDelegate.Compile<IMessageConsumer>(typeof(IConsume<>).MakeGenericType(messageType), nameof(IConsume<object>.ConsumeAsync));
 }

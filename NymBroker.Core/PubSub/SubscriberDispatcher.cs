@@ -1,9 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
-using System.Linq.Expressions;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Diagnostics;
+using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -65,23 +64,7 @@ public sealed class SubscriberDispatcher(IServiceScopeFactory scopeFactory, ILog
     }
 
     private static Func<IMessageSubscriber, object, IMessageContext, CancellationToken, Task> BuildDispatcher(Type subscriberType)
-    {
-        var subscribeInterface = subscriberType.GetInterfaces()
-            .First(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ISubscribe<>));
-        var messageType = subscribeInterface.GetGenericArguments()[0];
-
-        var subscriberParam = Expression.Parameter(typeof(IMessageSubscriber), "subscriber");
-        var messageParam = Expression.Parameter(typeof(object), "message");
-        var contextParam = Expression.Parameter(typeof(IMessageContext), "context");
-        var ctParam = Expression.Parameter(typeof(CancellationToken), "ct");
-
-        var castSubscriber = Expression.Convert(subscriberParam, subscribeInterface);
-        var castMessage = Expression.Convert(messageParam, messageType);
-        var method = subscribeInterface.GetMethod(nameof(ISubscribe<object>.ReceiveAsync))!;
-        var call = Expression.Call(castSubscriber, method, castMessage, contextParam, ctParam);
-
-        return Expression.Lambda<Func<IMessageSubscriber, object, IMessageContext, CancellationToken, Task>>(
-            call, subscriberParam, messageParam, contextParam, ctParam
-        ).Compile();
-    }
+        => DispatchDelegate.Compile<IMessageSubscriber>(
+            subscriberType.GetInterfaces().First(static i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ISubscribe<>)),
+            nameof(ISubscribe<object>.ReceiveAsync));
 }

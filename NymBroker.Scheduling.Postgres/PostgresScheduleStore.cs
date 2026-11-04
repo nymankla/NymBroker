@@ -3,6 +3,7 @@ using Npgsql;
 using NpgsqlTypes;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Scheduling;
+using NymBroker.Shared;
 
 namespace NymBroker.Scheduling.Postgres;
 
@@ -62,21 +63,9 @@ public sealed class PostgresScheduleStore : IScheduleStore, IAsyncDisposable
     private Task EnsureSchemaAsync(CancellationToken ct)
         => _settings.AutoCreateTable ? _schema.RunAsync(this, static (self, ct) => self.CreateSchemaAsync(ct), ct) : Task.CompletedTask;
 
-    /// <remarks>
-    /// <c>CREATE TABLE IF NOT EXISTS</c> is not safe against a concurrent CREATE (instances starting at the same time): the
-    /// loser fails on a catalog unique index. A transaction-scoped advisory lock on the table name makes concurrent
-    /// creators wait for each other, so the later ones find the table and skip it.
-    /// </remarks>
     private async Task CreateSchemaAsync(CancellationToken ct)
     {
-        await using var connection = await _dataSource.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
-        await using (var command = new NpgsqlCommand(PostgresScheduleSql.CreateSchema(_settings.TableName), connection, transaction))
-        {
-            command.Parameters.AddWithValue("lockKey", $"nymbroker:{_settings.TableName}");
-            await command.ExecuteNonQueryAsync(ct);
-        }
-        await transaction.CommitAsync(ct);
+        await PostgresStoreSchema.CreateAsync(_dataSource, PostgresScheduleSql.CreateSchema(_settings.TableName), _settings.TableName, ct);
         _logger.LogDebug("Schedule table {Table} is ready", _settings.TableName);
     }
 }

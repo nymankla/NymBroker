@@ -1,15 +1,10 @@
-using System.Collections.Concurrent;
-using System.Reflection;
 using System.Text.Json;
-using Microsoft.IO;
 using NymBroker.Core.Message;
 
 namespace NymBroker.Core.Serialize;
 
 public sealed class MessageSerializerJson : IMessageSerializer
 {
-    private static readonly RecyclableMemoryStreamManager StreamManager = new();
-
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -17,83 +12,36 @@ public sealed class MessageSerializerJson : IMessageSerializer
         DefaultBufferSize = 4096
     };
 
-    // Cache PropertyInfo lookups by context type to avoid repeated reflection on hot path.
-    private static readonly ConcurrentDictionary<Type, (PropertyInfo? Prop, Type? MsgType)> PropCache = new();
+    public Stream Serialize(IMessageContext context) => new MemoryStream(SerializeToBytes(context));
 
-    public Stream Serialize(IMessageContext context)
+    /// <summary>The envelope as UTF-8. A typed message is written in one pass; a parsed one reuses its payload.</summary>
+    internal static byte[] SerializeToBytes(IMessageContext context) => context switch
     {
-        // RawMessageContext already carries the parsed payload — reuse it directly.
-        var messageElement = context is RawMessageContext raw
-            ? raw.RawMessage
-            : ExtractMessageElement(context);
+        RawMessageContext raw => Write(raw, raw.RawMessage),
+        ITypedMessageContext typed when typed.HasMessage => typed.SerializeEnvelope(),
+        _ => Write(context, default(JsonElement))
+    };
 
-        var dto = new MessageContextDto
+    internal static byte[] Write<TMessage>(IMessageContext context, TMessage? message)
+        => JsonSerializer.SerializeToUtf8Bytes(new MessageContextDto<TMessage>
         {
             Id = context.Id,
             CorrelationId = context.CorrelationId,
             Address = context.Address,
             MessageType = context.MessageType,
             Created = context.Created,
-            Message = messageElement,
+            Message = message,
             DeadLetter = context.DeadLetter
-        };
-
-        var ms = StreamManager.GetStream("MessageSerializerJson.Serialize");
-        JsonSerializer.Serialize(ms, dto, JsonOptions);
-        ms.Position = 0;
-        return ms;
-    }
+        }, JsonOptions);
 
     public IMessageContext Deserialize(string json)
-    {
-        var dto = JsonSerializer.Deserialize<MessageContextDto>(json, JsonOptions)
-            ?? throw new InvalidOperationException("Failed to deserialize message context.");
-
-        return new RawMessageContext
-        {
-            Id = dto.Id,
-            CorrelationId = dto.CorrelationId,
-            Address = dto.Address,
-            MessageType = dto.MessageType,
-            Created = dto.Created,
-            DeadLetter = dto.DeadLetter,
-            RawMessage = dto.Message
-        };
-    }
+        => ToRawContext(JsonSerializer.Deserialize<MessageContextDto<JsonElement>>(json, JsonOptions));
 
     public IMessageContext Deserialize(Stream stream)
-    {
-        var dto = JsonSerializer.Deserialize<MessageContextDto>(stream, JsonOptions)
-            ?? throw new InvalidOperationException("Failed to deserialize message context.");
-
-        return new RawMessageContext
-        {
-            Id = dto.Id,
-            CorrelationId = dto.CorrelationId,
-            Address = dto.Address,
-            MessageType = dto.MessageType,
-            Created = dto.Created,
-            DeadLetter = dto.DeadLetter,
-            RawMessage = dto.Message
-        };
-    }
+        => ToRawContext(JsonSerializer.Deserialize<MessageContextDto<JsonElement>>(stream, JsonOptions));
 
     public IMessageContext Deserialize(ReadOnlySpan<byte> utf8Json)
-    {
-        var dto = JsonSerializer.Deserialize<MessageContextDto>(utf8Json, JsonOptions)
-            ?? throw new InvalidOperationException("Failed to deserialize message context.");
-
-        return new RawMessageContext
-        {
-            Id = dto.Id,
-            CorrelationId = dto.CorrelationId,
-            Address = dto.Address,
-            MessageType = dto.MessageType,
-            Created = dto.Created,
-            DeadLetter = dto.DeadLetter,
-            RawMessage = dto.Message
-        };
-    }
+        => ToRawContext(JsonSerializer.Deserialize<MessageContextDto<JsonElement>>(utf8Json, JsonOptions));
 
     /// <summary>Typed deserialization of the message payload from an already-deserialized context.</summary>
     public static T? DeserializeMessage<T>(RawMessageContext ctx) where T : class
@@ -102,22 +50,19 @@ public sealed class MessageSerializerJson : IMessageSerializer
     public static object? DeserializeMessageObject(RawMessageContext ctx, Type messageType)
         => ctx.RawMessage.Deserialize(messageType, JsonOptions);
 
-    // --- helpers ---
-
-    private static JsonElement ExtractMessageElement(IMessageContext context)
+    private static RawMessageContext ToRawContext(MessageContextDto<JsonElement>? dto)
     {
-        var contextType = context.GetType();
-        var (prop, msgType) = PropCache.GetOrAdd(contextType, t =>
-        {
-            if (!t.IsGenericType || t.GetGenericTypeDefinition() != typeof(MessageContext<>))
-                return (null, null);
-            var p = t.GetProperty("Message");
-            var m = t.GetGenericArguments()[0];
-            return (p, m);
-        });
+        if (dto is null) throw new InvalidOperationException("Failed to deserialize message context.");
 
-        if (prop == null || msgType == null) return default;
-        var value = prop.GetValue(context);
-        return value == null ? default : JsonSerializer.SerializeToElement(value, msgType, JsonOptions);
+        return new RawMessageContext
+        {
+            Id = dto.Id,
+            CorrelationId = dto.CorrelationId,
+            Address = dto.Address,
+            MessageType = dto.MessageType,
+            Created = dto.Created,
+            DeadLetter = dto.DeadLetter,
+            RawMessage = dto.Message
+        };
     }
 }

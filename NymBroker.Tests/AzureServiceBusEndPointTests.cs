@@ -8,7 +8,7 @@ using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.Memory;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Core.Message;
 using NymBroker.Core.Serialize;
 using NymBroker.Core.Endpoint.HealthCheck;

@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Factory;
-using NymBroker.Core.Message;
 using NymBroker.Core.Route;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -33,7 +32,7 @@ internal sealed class TopicBuilder<T> : ITopicBuilder<T> where T : class
     public ITopicBuilder<T> SubscribeWith<TSub>() where TSub : class, ISubscribe<T>
     {
         _subscriberDispatchers = _subscriberDispatchers.Add((typeof(TSub), typeof(TSub).Name));
-        _parent.Services.AddKeyedTransient(typeof(IMessageSubscriber), typeof(TSub).Name, typeof(TSub));
+        _parent.Services.AddKeyedTransient<IMessageSubscriber, TSub>(typeof(TSub).Name);
         return this;
     }
 

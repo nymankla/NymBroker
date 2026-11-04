@@ -10,7 +10,10 @@ public sealed class AggregatorImpl : IAggregator
     private readonly ICompletionCondition _completionCondition;
     private readonly ILogger<AggregatorImpl> _logger;
 
+    private long _nextPurge;
+
     private static readonly TimeSpan ExpiryWindow = TimeSpan.FromHours(2);
+    private static readonly TimeSpan PurgeInterval = TimeSpan.FromMinutes(1);
 
     public AggregatorImpl(ILogger<AggregatorImpl> logger, ICompletionCondition? completionCondition = null)
     {
@@ -25,7 +28,13 @@ public sealed class AggregatorImpl : IAggregator
 
         lock (aggregate)
         {
-            if (!aggregate.IsCompleted)
+            if (aggregate.Kept is not null)
+            {
+                aggregate.IsCompleted = true;
+                _aggregates.TryRemove(part.CorrelationId, out _);
+                result = aggregate.Kept;
+            }
+            else if (!aggregate.IsCompleted)
             {
                 aggregate.Add(part);
                 if (_completionCondition.IsComplete(part, aggregate))
@@ -37,14 +46,22 @@ public sealed class AggregatorImpl : IAggregator
             }
         }
 
-        if (result != null)
-            PurgeExpired();
+        PurgeExpiredIfDue();
 
         return Task.FromResult(result);
     }
 
-    private void PurgeExpired()
+    public void KeepForRetry(Guid correlationId, byte[] reassembled)
+        => _aggregates[correlationId] = new Aggregate(correlationId) { Kept = reassembled };
+
+    // On every Add, not only on completion: otherwise groups that never complete stay until another group completes.
+    private void PurgeExpiredIfDue()
     {
+        var now = Environment.TickCount64;
+        var next = Interlocked.Read(ref _nextPurge);
+        if (now < next || Interlocked.CompareExchange(ref _nextPurge, now + (long)PurgeInterval.TotalMilliseconds, next) != next)
+            return;
+
         var cutoff = DateTime.UtcNow - ExpiryWindow;
         var purged = 0;
         foreach (var key in _aggregates.Keys.ToList())
@@ -56,6 +73,6 @@ public sealed class AggregatorImpl : IAggregator
             }
         }
         if (purged > 0)
-            _logger.LogDebug("Purged {Count} expired aggregate(s)", purged);
+            _logger.LogWarning("Discarded {Count} split message(s) after {Window}: the missing parts never arrived, or a kept message was not redelivered", purged, ExpiryWindow);
     }
 }

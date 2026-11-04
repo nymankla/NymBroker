@@ -1,3 +1,5 @@
+using NymBroker.Shared;
+
 namespace NymBroker.Scheduling.Sqlite;
 
 /// <summary>
@@ -6,13 +8,7 @@ namespace NymBroker.Scheduling.Sqlite;
 /// </summary>
 internal static class SqliteScheduleSql
 {
-    internal static string QuoteIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("SQLite identifier cannot be empty.");
-
-        return $"\"{identifier.Replace("\"", "\"\"")}\"";
-    }
+    internal static string QuoteIdentifier(string identifier) => SqliteStoreTable.Quote(identifier);
 
     internal static string CreateSchema(string tableName) => $"""
         CREATE TABLE IF NOT EXISTS {QuoteIdentifier(tableName)} (

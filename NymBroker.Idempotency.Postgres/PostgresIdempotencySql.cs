@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using NymBroker.Shared;
 
 namespace NymBroker.Idempotency.Postgres;
 
@@ -8,21 +9,9 @@ internal static class PostgresIdempotencySql
     internal const short InProgress = 1;
     internal const short Completed = 2;
 
-    internal static string QuoteQualifiedIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("PostgreSQL identifier cannot be empty.");
+    internal static string QuoteQualifiedIdentifier(string identifier) => PostgresIdentifier.QuoteQualified(identifier);
 
-        return string.Join('.', identifier.Split('.', StringSplitOptions.TrimEntries).Select(QuoteSimpleIdentifier));
-    }
-
-    internal static string QuoteSimpleIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("PostgreSQL identifier cannot be empty.");
-
-        return $"\"{identifier.Replace("\"", "\"\"")}\"";
-    }
+    internal static string QuoteSimpleIdentifier(string identifier) => PostgresIdentifier.QuoteSimple(identifier);
 
     internal static string CreateSchema(string tableName)
     {

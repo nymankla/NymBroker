@@ -131,7 +131,7 @@ public sealed class NymBrokerBuilder
         foreach (var messageType in messageTypes)
             _consumers.Add((typeof(TConsumer), messageType, options.RetryOnFailure));
 
-        _services.AddKeyedTransient(typeof(IMessageConsumer), typeof(TConsumer).Name, typeof(TConsumer));
+        _services.AddKeyedTransient<IMessageConsumer, TConsumer>(typeof(TConsumer).Name);
         return this;
     }
 
@@ -149,7 +149,7 @@ public sealed class NymBrokerBuilder
     /// <summary>Registers an <see cref="ISubscribe{T}"/> implementation as a keyed DI service.</summary>
     public NymBrokerBuilder AddSubscriber<TSubscriber>() where TSubscriber : class, IMessageSubscriber
     {
-        _services.AddKeyedTransient(typeof(IMessageSubscriber), typeof(TSubscriber).Name, typeof(TSubscriber));
+        _services.AddKeyedTransient<IMessageSubscriber, TSubscriber>(typeof(TSubscriber).Name);
         return this;
     }
 

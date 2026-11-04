@@ -1,7 +1,7 @@
 using NymBroker.ConfigSample.Consumers;
 using NymBroker.ConfigSample.Messages;
 using NymBroker.Core.DI;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 

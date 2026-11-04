@@ -45,6 +45,13 @@ public sealed class RabbitMqSettings
     public int PrefetchCount { get; set; } = 100;
 
     /// <summary>
+    /// When true (default), messages are published as persistent and <c>PostAsync</c> returns once RabbitMQ has confirmed
+    /// them, so a message that was posted survives a broker restart and a failed publish throws. False publishes without
+    /// either: much faster, but a message can be lost without the caller knowing.
+    /// </summary>
+    public bool DurablePublish { get; set; } = true;
+
+    /// <summary>
     /// When true (default), a message whose handler fails after it was already redelivered is nacked
     /// with requeue=false (dead-lettered if the queue has a DLX) instead of being requeued forever.
     /// </summary>

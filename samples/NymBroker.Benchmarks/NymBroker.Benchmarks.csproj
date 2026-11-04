@@ -16,6 +16,9 @@
     <ProjectReference Include="..\..\NymBroker.Endpoint.RabbitMq\NymBroker.Endpoint.RabbitMq.csproj" />
     <ProjectReference Include="..\..\NymBroker.Endpoint.AwsSqs\NymBroker.Endpoint.AwsSqs.csproj" />
     <ProjectReference Include="..\..\NymBroker.Endpoint.MySql\NymBroker.Endpoint.MySql.csproj" />
+    <ProjectReference Include="..\..\NymBroker.Endpoint.Http\NymBroker.Endpoint.Http.csproj" />
+    <ProjectReference Include="..\..\NymBroker.Idempotency.Postgres\NymBroker.Idempotency.Postgres.csproj" />
+    <ProjectReference Include="..\..\NymBroker.Idempotency.Sqlite\NymBroker.Idempotency.Sqlite.csproj" />
   </ItemGroup>
 
   <ItemGroup>

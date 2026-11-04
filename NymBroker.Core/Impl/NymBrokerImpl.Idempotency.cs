@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Idempotency;
+using NymBroker.Core.Serialize;
 
 namespace NymBroker.Core.Impl;
 
@@ -21,7 +22,7 @@ internal sealed partial class NymBrokerImpl
     }
 
     /// <summary>
-    /// Runs <paramref name="process"/> under an idempotency claim on <paramref name="messageId"/>:
+    /// Routes and dispatches the message under an idempotency claim on its id:
     /// <list type="bullet">
     /// <item><c>Claimed</c> → process; a <c>Retry</c> result (or an exception) releases the claim so the redelivery is
     /// processed, any other result completes it.</item>
@@ -30,18 +31,16 @@ internal sealed partial class NymBrokerImpl
     /// <item>The store fails to claim → <c>Retry</c> (fail closed: never process without the duplicate check).</item>
     /// </list>
     /// </summary>
-    private async Task<ProcessResult> ProcessIdempotentlyAsync(Guid messageId, string? sourceEndpoint,
-        Action<Exception?> recordFailure, Func<Task<ProcessResult>> process, CancellationToken ct)
+    private async Task<ProcessResult> ProcessIdempotentlyAsync(IIdempotencyStore store, byte[] raw, RawMessageContext context, Type? messageType,
+        ProcessingRun run, CancellationToken ct)
     {
-        var store = _idempotencyStore;
-        if (store is null)
-            return await process();
-
+        var messageId = context.Id;
+        var sourceEndpoint = run.Source;
         if (messageId == Guid.Empty)
         {
             // No ID to deduplicate on (e.g. an input transformer that does not set one).
-            _logger.LogDebug("Message has no ID; idempotency check skipped");
-            return await process();
+            LogNoMessageId();
+            return await RouteAndDispatchAsync(raw, context, messageType, run, ct);
         }
 
         IdempotencyClaimResult claim;
@@ -51,7 +50,7 @@ internal sealed partial class NymBrokerImpl
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            recordFailure(ex);
+            run.RecordFailure(ex);
             _logger.LogError(ex, "Idempotency store failed to claim message {MessageId}; returning Retry so it is not processed without the duplicate check", messageId);
             return ProcessResult.Retry(ex);
         }
@@ -59,7 +58,7 @@ internal sealed partial class NymBrokerImpl
         switch (claim)
         {
             case IdempotencyClaimResult.Duplicate:
-                _logger.LogDebug("Dropping duplicate message {MessageId} from {Source}", messageId, sourceEndpoint);
+                LogDuplicate(messageId, sourceEndpoint);
                 NymBrokerDiagnostics.MessagesDuplicate.Add(1, new TagList { { "source", sourceEndpoint ?? "unknown" } });
                 return ProcessResult.Completed;
 
@@ -71,7 +70,7 @@ internal sealed partial class NymBrokerImpl
         ProcessResult result;
         try
         {
-            result = await process();
+            result = await RouteAndDispatchAsync(raw, context, messageType, run, ct);
         }
         catch
         {
@@ -82,6 +81,12 @@ internal sealed partial class NymBrokerImpl
         await SettleClaimAsync(store, messageId, complete: result.Outcome != ProcessOutcome.Retry);
         return result;
     }
+
+    [LoggerMessage(LogLevel.Debug, "Message has no ID; idempotency check skipped")]
+    private partial void LogNoMessageId();
+
+    [LoggerMessage(LogLevel.Debug, "Dropping duplicate message {MessageId} from {Source}")]
+    private partial void LogDuplicate(Guid messageId, string? source);
 
     /// <summary>
     /// Completes or releases a claim. Uses no cancellation token: the message has been handled, so its outcome is

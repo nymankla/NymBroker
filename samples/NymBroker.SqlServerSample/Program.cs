@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NymBroker.Core.DI;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Endpoint.SqlServer;
 using NymBroker.SqlServerSample.Consumers;
 using NymBroker.SqlServerSample.Messages;

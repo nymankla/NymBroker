@@ -45,7 +45,7 @@ Rules:
 
 ## 3. Send it
 
-Inject `INymBroker` (namespace `NymBroker.Core.Impl`):
+Inject `INymBroker` (namespace `NymBroker.Core`):
 
 ```csharp
 public sealed class CheckoutService(INymBroker broker)

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using NymBroker.Core.Aggregator;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
+using NymBroker.Core;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Serialize;
 

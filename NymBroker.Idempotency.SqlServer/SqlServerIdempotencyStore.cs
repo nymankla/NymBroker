@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Idempotency;
+using NymBroker.Shared;
 
 namespace NymBroker.Idempotency.SqlServer;
 
@@ -69,17 +71,15 @@ public sealed class SqlServerIdempotencyStore : IExpiringIdempotencyStore
     public async Task<int> DeleteExpiredAsync(CancellationToken ct = default)
     {
         await EnsureSchemaAsync(ct);
-        var total = 0;
-        while (true)
-        {
-            await using var connection = await OpenAsync(ct);
-            await using var command = new SqlCommand(_deleteExpiredSql, connection);
-            command.Parameters.Add("@batchSize", SqlDbType.Int).Value = _settings.CleanupBatchSize;
-            var deleted = Convert.ToInt32(await command.ExecuteScalarAsync(ct));
-            total += deleted;
-            if (deleted < _settings.CleanupBatchSize)
-                return total;
-        }
+        return await ExpiringStore.DeleteAllAsync(DeleteBatchAsync, _settings.CleanupBatchSize, ct);
+    }
+
+    private async Task<int> DeleteBatchAsync(CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct);
+        await using var command = new SqlCommand(_deleteExpiredSql, connection);
+        command.Parameters.Add("@batchSize", SqlDbType.Int).Value = _settings.CleanupBatchSize;
+        return Convert.ToInt32(await command.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture);
     }
 
     private Task EnsureSchemaAsync(CancellationToken ct)
@@ -93,20 +93,8 @@ public sealed class SqlServerIdempotencyStore : IExpiringIdempotencyStore
         _logger.LogDebug("Idempotency table {Table} is ready", _settings.TableName);
     }
 
-    private async Task<SqlConnection> OpenAsync(CancellationToken ct)
-    {
-        var connection = new SqlConnection(_settings.ConnectionString);
-        try
-        {
-            await connection.OpenAsync(ct);
-            return connection;
-        }
-        catch
-        {
-            await connection.DisposeAsync();
-            throw;
-        }
-    }
+    private Task<SqlConnection> OpenAsync(CancellationToken ct)
+        => PooledConnection.OpenAsync(new SqlConnection(_settings.ConnectionString), ct);
 
     private static SqlCommand Command(SqlConnection connection, string sql, Guid messageId)
     {

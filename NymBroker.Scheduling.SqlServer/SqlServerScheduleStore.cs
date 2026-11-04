@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Scheduling;
+using NymBroker.Shared;
 
 namespace NymBroker.Scheduling.SqlServer;
 
@@ -47,7 +49,7 @@ public sealed class SqlServerScheduleStore : IScheduleStore
         await using var connection = await OpenAsync(ct);
         await using var command = Command(connection, _claimSql, name);
         command.Parameters.Add("@occurrence", SqlDbType.DateTime2).Value = occurrence.UtcDateTime;
-        return Convert.ToInt32(await command.ExecuteScalarAsync(ct)) == 1;
+        return Convert.ToInt32(await command.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture) == 1;
     }
 
     private Task EnsureSchemaAsync(CancellationToken ct)
@@ -61,20 +63,8 @@ public sealed class SqlServerScheduleStore : IScheduleStore
         _logger.LogDebug("Schedule table {Table} is ready", _settings.TableName);
     }
 
-    private async Task<SqlConnection> OpenAsync(CancellationToken ct)
-    {
-        var connection = new SqlConnection(_settings.ConnectionString);
-        try
-        {
-            await connection.OpenAsync(ct);
-            return connection;
-        }
-        catch
-        {
-            await connection.DisposeAsync();
-            throw;
-        }
-    }
+    private Task<SqlConnection> OpenAsync(CancellationToken ct)
+        => PooledConnection.OpenAsync(new SqlConnection(_settings.ConnectionString), ct);
 
     private static SqlCommand Command(SqlConnection connection, string sql, string name)
     {

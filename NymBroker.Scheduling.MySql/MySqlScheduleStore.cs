@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using MySqlConnector;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Scheduling;
+using NymBroker.Shared;
 
 namespace NymBroker.Scheduling.MySql;
 
@@ -73,18 +74,6 @@ public sealed class MySqlScheduleStore : IScheduleStore
         _logger.LogDebug("Schedule table {Table} is ready", _settings.TableName);
     }
 
-    private async Task<MySqlConnection> OpenAsync(CancellationToken ct)
-    {
-        var connection = new MySqlConnection(_settings.ConnectionString);
-        try
-        {
-            await connection.OpenAsync(ct);
-            return connection;
-        }
-        catch
-        {
-            await connection.DisposeAsync();
-            throw;
-        }
-    }
+    private Task<MySqlConnection> OpenAsync(CancellationToken ct)
+        => PooledConnection.OpenAsync(new MySqlConnection(_settings.ConnectionString), ct);
 }

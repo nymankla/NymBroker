@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
+using NymBroker.Core;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
 using NymBroker.Core.Serialize;

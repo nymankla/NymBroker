@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.Data.Sqlite;
@@ -344,10 +345,10 @@ public sealed class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
         var pragmas = new StringBuilder();
         if (!IsInMemory(_settings.ConnectionString))
         {
-            pragmas.Append($"PRAGMA journal_mode = {_settings.JournalMode.ToString().ToUpperInvariant()};");
-            pragmas.Append($"PRAGMA synchronous = {_settings.Synchronous.ToString().ToUpperInvariant()};");
+            pragmas.Append(CultureInfo.InvariantCulture, $"PRAGMA journal_mode = {_settings.JournalMode.ToString().ToUpperInvariant()};");
+            pragmas.Append(CultureInfo.InvariantCulture, $"PRAGMA synchronous = {_settings.Synchronous.ToString().ToUpperInvariant()};");
         }
-        pragmas.Append($"PRAGMA busy_timeout = {(long)Math.Max(0, _settings.BusyTimeout.TotalMilliseconds)};");
+        pragmas.Append(CultureInfo.InvariantCulture, $"PRAGMA busy_timeout = {(long)Math.Max(0, _settings.BusyTimeout.TotalMilliseconds)};");
         pragmas.Append("PRAGMA temp_store = MEMORY;");
 
         await using var command = conn.CreateCommand();

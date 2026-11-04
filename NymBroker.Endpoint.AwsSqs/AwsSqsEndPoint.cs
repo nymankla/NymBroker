@@ -1,3 +1,4 @@
+using System.Globalization;
 using Amazon;
 using Amazon.SQS;
 using Amazon.SQS.Model;
@@ -51,10 +52,8 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
 
         if (mode != EndpointMode.ReadOnly)
             _logger.LogWarning(
-                settings.IsFifo
-                    ? "AWS SQS endpoint '{Name}' is a FIFO queue, which has no per-message delay: PostDeferredAsync to it holds messages in this process's memory, and those still waiting are lost when the process stops or crashes"
-                    : "AWS SQS endpoint '{Name}' delays a message at most 15 minutes: PostDeferredAsync to it holds a longer deferral in this process's memory, and those still waiting are lost when the process stops or crashes",
-                name);
+                "AWS SQS endpoint '{Name}': PostDeferredAsync holds {Which} in this process's memory, and those still waiting are lost when the process stops or crashes",
+                name, settings.IsFifo ? "every message, because a FIFO queue has no per-message delay," : "a message deferred over 15 minutes, the SQS limit,");
 
         _receivePolicy = new RetryPolicy(new RetryOptions
         {
@@ -130,7 +129,7 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
             for (var i = 0; i < chunk.Count; i++)
             {
                 var (original, body, isBase64) = chunk[i];
-                var entry = new SendMessageBatchRequestEntry(i.ToString(), body) { MessageAttributes = SqsWireFormat.Attributes(isBase64) };
+                var entry = new SendMessageBatchRequestEntry(i.ToString(CultureInfo.InvariantCulture), body) { MessageAttributes = SqsWireFormat.Attributes(isBase64) };
                 if (_settings.IsFifo)
                     (entry.MessageGroupId, entry.MessageDeduplicationId) = SqsWireFormat.FifoIds(original, _settings.MessageGroupId);
                 entries.Add(entry);
@@ -139,7 +138,7 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
             var response = await _client.SendMessageBatchAsync(new SendMessageBatchRequest(queueUrl, entries), ct);
             if (response.Failed is { Count: > 0 } failed)
             {
-                var details = string.Join("; ", failed.Select(f => $"message {sent + int.Parse(f.Id)}: {f.Code} {f.Message}"));
+                var details = string.Join("; ", failed.Select(f => $"message {sent + int.Parse(f.Id, CultureInfo.InvariantCulture)}: {f.Code} {f.Message}"));
                 throw new InvalidOperationException(
                     $"AWS SQS endpoint '{_name}' could not send {failed.Count} of {messages.Count} message(s); later messages were not sent. {details}");
             }
@@ -284,7 +283,7 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
 
         for (var i = 0; i < messages.Count; i++)
         {
-            var id = i.ToString();
+            var id = i.ToString(CultureInfo.InvariantCulture);
             var receipt = messages[i].ReceiptHandle;
             switch (outcomes[i])
             {
@@ -311,7 +310,7 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
         {
             foreach (var failure in await call() ?? [])
                 _logger.LogError("AWS SQS endpoint '{Name}' could not {Action} message {MessageId}: {Code} {Error}; it is redelivered when its visibility timeout expires",
-                    _name, action, messages[int.Parse(failure.Id)].MessageId, failure.Code, failure.Message);
+                    _name, action, messages[int.Parse(failure.Id, CultureInfo.InvariantCulture)].MessageId, failure.Code, failure.Message);
         }
         catch (Exception ex)
         {

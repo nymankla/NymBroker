@@ -1,5 +1,5 @@
-using System.Text.RegularExpressions;
 using NymBroker.Core.Endpoint.Queue;
+using NymBroker.Shared;
 
 namespace NymBroker.Endpoint.MySql;
 
@@ -8,7 +8,7 @@ namespace NymBroker.Endpoint.MySql;
 /// 3 Failed) so the predicates match the <c>(status, queue_id)</c> index exactly. All times are the server's
 /// <c>UTC_TIMESTAMP(6)</c>, so application clocks don't matter.
 /// </summary>
-internal static partial class MySqlQueueSql
+internal static class MySqlQueueSql
 {
     internal const int Pending = (int)QueueMessageStatus.Pending;
     internal const int InProgress = (int)QueueMessageStatus.InProgress;
@@ -17,18 +17,8 @@ internal static partial class MySqlQueueSql
 
     private const string CompletedAtIndexName = "ix_completed_at";
 
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_$]*$")]
-    private static partial Regex IdentifierPart();
-
-    /// <summary>Validates and backtick-quotes <c>table</c> or <c>db.table</c>; throws <see cref="ArgumentException"/> otherwise.</summary>
-    internal static string QuoteTableName(string tableName)
-    {
-        var parts = (tableName ?? "").Split('.');
-        if (parts.Length > 2 || !parts.All(p => IdentifierPart().IsMatch(p)))
-            throw new ArgumentException(
-                $"TableName '{tableName}' is not valid: use 'table' or 'database.table' with letters, digits, '_' and '$'.", nameof(tableName));
-        return string.Join('.', parts.Select(p => $"`{p}`"));
-    }
+    /// <inheritdoc cref="MySqlIdentifier.QuoteTableName"/>
+    internal static string QuoteTableName(string tableName) => MySqlIdentifier.QuoteTableName(tableName);
 
     /// <summary>
     /// InnoDB, clustered on the AUTO_INCREMENT key (append-only inserts, FIFO order). MySQL has no partial index and a

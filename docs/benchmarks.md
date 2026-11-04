@@ -2,9 +2,9 @@
 
 [← Samples](samples.md) · [User guide](user-guide.md)
 
-[`samples/NymBroker.Benchmarks`](../samples/NymBroker.Benchmarks) is a console app that measures end-to-end throughput and allocations for each endpoint and for the main broker features (routing, filters, publish/subscribe, batching, splitting and compression). Use it to compare transports, to see what a feature costs, and to check a change for performance regressions.
+[`samples/NymBroker.Benchmarks`](../samples/NymBroker.Benchmarks) is a console app that measures end-to-end throughput and allocations for each endpoint and for the broker features that cost something per message (routing, wire tap, transformers, publish/subscribe, idempotency, dead-lettering, deferred posts, batching, splitting and compression). Use it to compare transports, to see what a feature costs, and to check a change for performance regressions.
 
-It is a throughput harness, not a BenchmarkDotNet micro-benchmark: scenarios use a fixed message count, so expect some variation between runs. The in-process scenarios (Memory and PubSub) are measured five times and report the median run; the others run once.
+It is a throughput harness, not a BenchmarkDotNet micro-benchmark: scenarios use a fixed message count, so expect some variation between runs. The fast in-process scenarios are measured five times and report the median run; the others run once.
 
 ## Running it
 
@@ -12,9 +12,10 @@ From the repository root, in Release:
 
 ```bash
 dotnet run -c Release --project samples/NymBroker.Benchmarks
+dotnet run -c Release --project samples/NymBroker.Benchmarks -- --filter idempotent   # only scenarios containing this text
 ```
 
-The Memory, File, SQLite and split scenarios always run. The Postgres, SQL Server, MySQL, Azure Service Bus, RabbitMQ and SQS scenarios run only when that service is reachable on localhost, and are reported as `skipped` otherwise. Start the ones you want first (Docker Desktop required, see [Local infrastructure](samples.md#local-infrastructure)):
+The scenarios that need no service always run. The Postgres, SQL Server, MySQL, Azure Service Bus, RabbitMQ and SQS scenarios run only when that service is reachable on localhost, and are reported as `skipped` otherwise. Start the ones you want first (Docker Desktop required, see [Local infrastructure](samples.md#local-infrastructure)):
 
 ```powershell
 ./scripts/setup-postgres.ps1
@@ -31,40 +32,52 @@ The benchmark drops and recreates its own tables (`nymbroker_bench` in PostgreSQ
 
 For every scenario the runner:
 
-1. Builds a fresh broker from [`benchmarksettings.json`](../samples/NymBroker.Benchmarks/benchmarksettings.json) (the Memory and File endpoints) plus the scenario's own endpoints, routes, topics or filter, and starts it. Logging is set to `Error`, so log output does not skew the result.
+1. Builds a fresh broker from [`benchmarksettings.json`](../samples/NymBroker.Benchmarks/benchmarksettings.json) (the Memory and File endpoints) plus the scenario's own endpoints, routes or topics, and starts it. Logging is set to `Error`, so log output does not skew the result.
 2. Forces a full garbage collection and records the GC counts and the total allocated bytes.
 3. Starts a stopwatch, posts (or publishes) all messages, and waits until a consumer or subscriber has signalled each one (`CompletionTracker`), with a 30 s limit — a scenario that misses it prints `[TIMEOUT]` and how many messages arrived.
 4. Stops the stopwatch, reads the GC counters again and stops the broker.
 
-So the time covers the whole round trip: serialize, send to the transport, receive, deserialize, route and dispatch to the consumer. The consumer itself does nothing but count, so the numbers show the broker's and the transport's overhead.
+So the time covers the whole round trip: serialize, send to the transport, receive, deserialize, route and dispatch to the consumer. The consumer itself does nothing but count, so the numbers show the broker's and the transport's overhead. A `drain backlog` scenario is the exception: it posts first, and the time covers only starting the broker and handling the messages.
 
-The in-process scenarios finish in a few hundred milliseconds, so warm-up matters:
+The fast in-process scenarios finish in a few hundred milliseconds, so warm-up matters:
 
 - Before any scenario, a full Memory scenario runs unmeasured. With only a short warm-up, the first scenarios measured ran up to twice as slow as the same scenario later in the process: GC budgets, the thread pool and the JIT-compiled broker code were still settling. The order of the Memory rows then decided which looked fastest.
-- Each Memory and PubSub scenario first sends 10 000 unmeasured messages through its own broker (so its filter, route or topic code is compiled), waits half a second for the optimized code, then does steps 2–4 five times and reports the median run (`InProcessWarmup` and `InProcessRuns` at the top of `Program.cs`).
-
-Before the scenarios it also runs a short `FileSystemWatcher` check (`OK (5/5)`): if the file system does not raise events, the File scenario cannot complete.
+- Each of them first sends unmeasured messages through its own broker (so its route, topic or transformer code is compiled), waits half a second for the optimized code, then does steps 2–4 five times and reports the median run (`InProcessWarmup` and `InProcessRuns` at the top of `Program.cs`).
 
 ## Scenarios
 
 | Scenario | Messages | What it measures |
 |---|---|---|
-| Memory – direct | 50 000 | `PostAsync` to a Memory endpoint → consumer: the broker's own pipeline cost |
-| Memory – routed | 50 000 | Same, plus a route that forwards every message to a second Memory endpoint |
-| Memory – filtered | 50 000 | Same as direct, with a pass-through `IMessageFilter` |
-| PubSub – 1 sub | 50 000 | `PublishAsync` to a topic with one `ISubscribe<T>` subscriber |
-| PubSub – 3 subs | 50 000 | A topic with three subscribers (every message is handled three times) |
+| Memory – direct | 50 000 | `PostAsync` to a Memory endpoint → consumer: the broker's own pipeline cost, and the row to compare the others with |
+| Memory – 8 producers | 50 000 | The same, posted from eight tasks at once: contention |
+| Memory – batch/100 | 50 000 | `PostBatchAsync` in batches of 100, without a transport that gains from it: the batch code path |
+| Memory – 64 KB | 5 000 | A 64 KB message instead of a small one: how serialization scales with size |
+| Memory – routed | 50 000 | A route that forwards every message to a second Memory endpoint |
+| Memory – 20 routes | 50 000 | 19 routes that read the message and do not match, then one that does: the cost of evaluating conditions |
+| Memory – wire tap | 50 000 | A copy of every message to a send-only endpoint with no transport |
+| Input transformer | 50 000 | `PostRawAsync` of bare JSON turned into a message by an `IInputTransformer`. It skips serializing an envelope, so it can beat direct |
+| Output transformer | 50 000 | A route to a send-only endpoint with an `IOutputTransformer` |
+| PubSub – 3 subs | 50 000 | `PublishAsync` to a topic with three subscribers (every message is handled three times) |
 | PubSub – endpoint | 50 000 | A topic that forwards to an endpoint, consumed there |
-| File – direct | 100 | File endpoint: one file written and picked up per message |
-| SQLite – direct | 1 000 | SQLite queue table (in-memory database, `BatchSize = 100`) |
-| Split+Compress – direct | 200 | ~270 KB messages split at 16 KB, Brotli-compressed first |
+| Idempotent – memory | 50 000 | The default in-memory duplicate check on each message |
+| Idempotent – SQLite / Postgres | 1 000 | A durable duplicate check on a Memory endpoint: all the time above direct is the store |
+| Consumer fails → DLQ | 10 000 | Every consumer call throws and the message goes to the dead-letter endpoint: what a run of poison messages costs |
+| Deferred – in broker | 20 000 | Deferred one second on an endpoint that cannot defer. Msg/sec mostly shows that wait; read Alloc/msg, the cost of holding a message |
+| Split+Compress – direct | 200 | ~270 KB compressible messages split at 16 KB, Brotli-compressed first |
 | Split – no compress | 200 | The same messages split without compression |
+| Split+Compress – random | 200 | ~270 KB of Base64 random data, compressed first: what `compress` costs when it gains little |
+| File – direct | 100 | File endpoint: one file written and picked up per message |
+| HTTP – no network | 10 000 | HTTP endpoint with a handler that answers at once: what the endpoint and `HttpClient` add per request, without a server |
+| SQLite – direct / batch/100 | 1 000 | SQLite queue table (in-memory database, `BatchSize = 100`), single posts and batches of 100 |
+| SQLite – deferred, Postgres – deferred | 1 000 | `PostDeferredAsync` with a time in the past: each message goes through the deferred table and is moved to the queue. The move runs about four times a second, so short SQLite runs show that interval |
 | Postgres – direct / batch/100 | 1 000 | PostgreSQL queue table with single `PostAsync`, then `PostBatchAsync` in batches of 100 |
 | SqlServer – direct / batch/100 | 1 000 | SQL Server queue table, single posts and batches of 100 |
 | MySQL – direct / batch/100 | 1 000 | MySQL queue table (`BatchSize = 50`), single posts and batches of 100 |
-| ServiceBus – direct / batch/100 | 1 000 | Azure Service Bus emulator queue (`PrefetchCount = 100`), single posts and batches of 100 |
 | SQS – direct / batch/100 | 1 000 | Amazon SQS API on ElasticMQ (queue `nymbroker-bench`), single posts and batches of 100 |
-| RabbitMQ – direct / batch/100 | 1 000 | RabbitMQ queue, acking every message (`BatchAckSize = 1`) and then every 100 (`BatchAckSize = 100`) |
+| RabbitMQ – direct / batch/100 | 1 000 | RabbitMQ queue with the default durable publish, single posts, then `PostBatchAsync` in batches of 100 with `BatchAckSize = 100` |
+| RabbitMQ – not durable | 1 000 | Single posts with `DurablePublish = false`: what durability costs |
+| \<transport\> – drain backlog | 5 000 | SQLite, Postgres, SQL Server, MySQL, RabbitMQ and SQS: the backlog is posted first, then only handling it is measured. This is the receive side, without the send side limiting it |
+| ServiceBus – direct | 200 | Azure Service Bus emulator queue (`PrefetchCount = 100`). The emulator limits throughput, so this only shows that the endpoint works and what it allocates |
 
 The database scenarios use `PollInterval = TimeSpan.Zero`, so they show drain speed rather than polling delay. The message counts are constants at the top of `Program.cs`; raise them for steadier numbers on fast transports.
 
@@ -88,9 +101,9 @@ Memory – direct                 ...         ... ms    ...    ...    ...      .
 
 Things to keep in mind when comparing:
 
-- **Memory scenarios** show the broker's ceiling. Differences between direct, routed, filtered and pub/sub are the cost of that feature: a pass-through filter costs almost nothing (direct ≈ filtered), and a route roughly halves throughput, because every message goes through two Memory endpoints and is deserialized twice. If a feature looks *faster* than direct, the run was noisy — run it again with fewer background processes.
-- **Database and broker scenarios** are bound by the transport — durable commits and network round trips — not by NymBroker. Docker Desktop adds latency, so a native or production server is usually faster. The `batch/100` rows show what `PostBatchAsync` (one round trip per batch) gains over one `PostAsync` per message; see [Sending messages](sending-messages.md).
-- **Split scenarios** compare compression on and off for a compressible payload: compression usually means fewer parts and fewer bytes on the wire, at some CPU cost.
+- **In-process scenarios** show the broker's ceiling. The difference from `Memory – direct` is the cost of that feature. A route costs more than most, because every message goes through two Memory endpoints and is deserialized twice. Apart from `Input transformer`, if a feature looks *faster* than direct, the run was noisy, so run it again with fewer background processes.
+- **Database and broker scenarios** are bound by the transport — durable commits and network round trips — not by NymBroker. Docker Desktop adds latency, so a native or production server is usually faster. The `batch/100` rows show what `PostBatchAsync` gains over one `PostAsync` per message; see [Sending messages](sending-messages.md). A `direct` row is usually limited by sending: compare it with `drain backlog` to see how fast the transport can be read.
+- **Split scenarios** compare compression on and off. On a compressible payload, compression usually means fewer parts and fewer bytes on the wire, at some CPU cost. On random data it costs far more time and gains little, so pass `compress: false` for data that is already compressed or encrypted.
 - Compare runs on the same machine, in Release, with the same services running. Close other heavy processes.
 
 ### Latency and failures (`--latency`)
@@ -111,4 +124,4 @@ The listener runs a callback for every measurement, so `Msg/sec` is lower with `
 
 ## Adding a scenario
 
-Add a call to `RunAsync` in `Program.cs`. Its optional parameters cover most cases: `configureBuilder` to register endpoints, topics or routes (`b => b.AddRoute<T>(r => r.To("X"))`), `addFilter`, `usePubSub` with `signalsPerMessage`, `messageFactory` for a different payload, `splitThresholdBytes` / `compress`, `postBatchSize` to post with `PostBatchAsync`, and `runs` / `warmup` for a median of several runs after a warm-up (use them for fast in-process scenarios). Messages are handled by `BenchmarkConsumer` (or the `BenchmarkSubscriber*` classes for topics), which signal the tracker. For an external service, add an availability check and a cleanup step like the existing Postgres, SQL Server, Service Bus and RabbitMQ helpers, so the scenario is skipped when the service is not running.
+Add a call to `RunAsync` in `Program.cs`. Its optional parameters cover most cases: `configureBuilder` to register endpoints, topics or routes (`b => b.AddRoute<T>(r => r.To("X"))`), `usePubSub` with `signalsPerMessage`, `messageFactory` for a different payload, `splitThresholdBytes` / `compress`, `postBatchSize` to post with `PostBatchAsync`, `producers` for several posting tasks, `bareInput` to post raw JSON, `consumerFails` to make the consumer throw, `deferBy` to post deferred, `drainBacklog` to measure only the receive side, and `runs` / `warmup` for a median of several runs after a warm-up (use them for fast in-process scenarios). `AddSink` adds a send-only endpoint with no transport, which can signal the tracker. Messages are handled by `BenchmarkConsumer` (or the `BenchmarkSubscriber*` classes for topics), which signal the tracker. For an external service, add an availability check and a cleanup step like the existing Postgres, SQL Server, Service Bus and RabbitMQ helpers, so the scenario is skipped when the service is not running.

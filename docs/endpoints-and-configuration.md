@@ -14,7 +14,7 @@ An **endpoint** is a named connection to a transport. You post to endpoints by n
 | **PostgreSQL** | `NymBroker.Endpoint.Postgres` | yes | polling + `LISTEN/NOTIFY` | retried, then `Failed` row | one statement | multi-instance apps already on Postgres |
 | **SQL Server** | `NymBroker.Endpoint.SqlServer` | yes | polling a table | retried, then `Failed` row | one statement | multi-instance apps already on SQL Server |
 | **MySQL** | `NymBroker.Endpoint.MySql` | yes | polling a table | retried, then `Failed` row | one statement | multi-instance apps already on MySQL 8.0+ / MariaDB 10.6+ |
-| **RabbitMQ** | `NymBroker.Endpoint.RabbitMq` | yes | push (consumer) | requeued, then the queue's dead-letter exchange | one by one | a message broker you already run |
+| **RabbitMQ** | `NymBroker.Endpoint.RabbitMq` | yes | push (consumer) | requeued, then the queue's dead-letter exchange | published together, then all confirms awaited (not atomic) | a message broker you already run |
 | **Azure Service Bus** | `NymBroker.Endpoint.AzureServiceBus` | yes | push (processor) | abandoned, then the queue's dead-letter queue | Service Bus batches | Azure, managed queues and topics |
 | **HTTP** | `NymBroker.Endpoint.Http` | — (send only) | — (receive in your web app, see below) | the source retries; see [HTTP notes](#http-notes) | one request per message | REST APIs and webhooks of other systems |
 | **Amazon SQS** | `NymBroker.Endpoint.AwsSqs` | yes | long polling | retried, then the queue's redrive dead-letter queue; messages that can never succeed go to the broker dead-letter endpoint | batches of 10 (not atomic) | AWS, managed queues (standard and FIFO) |
@@ -99,6 +99,7 @@ Each endpoint's settings type defines its available options and defaults. The mo
 | `UseNotifications` | PostgreSQL | wake idle listeners with `NOTIFY` instead of waiting out `PollInterval` |
 | `ReadQueueName`, `WriteQueueName` | RabbitMQ | queue to consume from / publish to |
 | `PrefetchCount` | RabbitMQ | unacknowledged messages delivered at a time, default 100, 0 = no limit. A higher value gives more throughput with very fast handlers; a lower one shares a backlog better between instances. Where the server applies a consumer timeout (30 minutes by default; older servers and quorum queues), keep `PrefetchCount` × handler time below it |
+| `DurablePublish` | RabbitMQ | persistent messages and publisher confirms, default `true`. Each `PostAsync` waits for a confirm, so post in batches if volume matters. `false` is much faster, but a posted message can be lost without the caller knowing |
 | `UseTls`, `TlsServerName`, `ClientCertificatePath` | RabbitMQ | TLS with verified server certificate, optional client certificate — see [Production security](security.md#rabbitmq) |
 | `MaxConcurrentCalls`, `PrefetchCount` | Azure Service Bus | parallel handlers (above 1 gives up ordering); messages fetched ahead |
 | `ReadDeadLetterQueue` | Azure Service Bus | read the entity's dead-letter queue instead (repair / replay) |

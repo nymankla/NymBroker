@@ -1,11 +1,7 @@
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
-using NymBroker.Core.Filter;
-using NymBroker.Core.Message;
-using NymBroker.Core.Route;
-using NymBroker.Core.Transform;
 
-namespace NymBroker.Core.Impl;
+namespace NymBroker.Core;
 
 public interface INymBroker
 {
@@ -84,6 +80,8 @@ public interface INymBroker
     Task PostBatchAsync<T>(string endpointName, IEnumerable<T> messages, CancellationToken ct = default,
         int? splitThresholdBytes = null, bool compress = true, Guid? correlationId = null) where T : class;
 
+    // RS0026: shipped overloads that only moved namespace; the analyzer sees them as new until they are in PublicAPI.Shipped.
+#pragma warning disable RS0026
     /// <summary>Publish a message to all topics matching its CLR type.</summary>
     Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class;
 
@@ -111,4 +109,5 @@ public interface INymBroker
 
     /// <summary>Convenience overload for tests and external callers; converts the string to UTF-8 bytes.</summary>
     Task<ProcessResult> ProcessAsync(string raw, string? sourceEndpoint = null, CancellationToken ct = default);
+#pragma warning restore RS0026
 }

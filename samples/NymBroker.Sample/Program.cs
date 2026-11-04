@@ -1,5 +1,5 @@
 using NymBroker.Core.DI;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Sample.Consumers;
 using NymBroker.Sample.Messages;
 using Microsoft.Extensions.DependencyInjection;

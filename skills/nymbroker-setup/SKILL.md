@@ -67,7 +67,7 @@ dotnet add package Microsoft.Extensions.Hosting          # only for a console ap
 
 ## 4. Register the broker
 
-Core namespaces: `NymBroker.Core.DI` (`AddNymBroker`), `NymBroker.Core.Endpoint` (`EndpointMode`), `NymBroker.Core.Endpoint.File` (`FileSettings`), `NymBroker.Core.Impl` (`INymBroker`).
+Core namespaces: `NymBroker.Core.DI` (`AddNymBroker`), `NymBroker.Core.Endpoint` (`EndpointMode`), `NymBroker.Core.Endpoint.File` (`FileSettings`), `NymBroker.Core` (`INymBroker`).
 
 `AddNymBroker()` returns a builder; finish with **`.Build()`**, which registers `INymBroker` as a singleton plus a hosted service that starts and stops the broker with the host.
 

@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+using NymBroker.Shared;
 
 namespace NymBroker.Idempotency.MySql;
 
@@ -8,23 +8,13 @@ namespace NymBroker.Idempotency.MySql;
 /// cleanup is one range delete. Status values are inlined literals (1 InProgress, 2 Completed). All times are the
 /// server's <c>UTC_TIMESTAMP(6)</c>, which is constant within a statement.
 /// </summary>
-internal static partial class MySqlIdempotencySql
+internal static class MySqlIdempotencySql
 {
     internal const int InProgress = 1;
     internal const int Completed = 2;
 
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_$]*$")]
-    private static partial Regex IdentifierPart();
-
-    /// <summary>Validates and backtick-quotes <c>table</c> or <c>db.table</c>; throws <see cref="ArgumentException"/> otherwise.</summary>
-    internal static string QuoteTableName(string tableName)
-    {
-        var parts = (tableName ?? "").Split('.');
-        if (parts.Length > 2 || !parts.All(p => IdentifierPart().IsMatch(p)))
-            throw new ArgumentException(
-                $"TableName '{tableName}' is not valid: use 'table' or 'database.table' with letters, digits, '_' and '$'.", nameof(tableName));
-        return string.Join('.', parts.Select(p => $"`{p}`"));
-    }
+    /// <inheritdoc cref="MySqlIdentifier.QuoteTableName"/>
+    internal static string QuoteTableName(string tableName) => MySqlIdentifier.QuoteTableName(tableName);
 
     /// <summary>
     /// Clustered on <c>message_id</c> (every operation is a primary-key lookup); <c>claim_token</c> identifies the

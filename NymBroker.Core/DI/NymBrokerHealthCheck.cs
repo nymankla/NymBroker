@@ -1,5 +1,4 @@
 using NymBroker.Core.Endpoint.HealthCheck;
-using NymBroker.Core.Impl;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using MsHealthCheckResult = Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult;

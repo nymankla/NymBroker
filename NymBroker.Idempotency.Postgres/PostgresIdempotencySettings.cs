@@ -1,4 +1,4 @@
-using System.Text;
+using NymBroker.Shared;
 
 namespace NymBroker.Idempotency.Postgres;
 
@@ -28,22 +28,8 @@ public sealed class PostgresIdempotencySettings
         if (string.IsNullOrWhiteSpace(ConnectionString))
             throw new ArgumentException("ConnectionString is required.", nameof(ConnectionString));
 
-        if (string.IsNullOrWhiteSpace(TableName))
-            throw new ArgumentException("TableName is required.", nameof(TableName));
-
-        var parts = TableName.Split('.');
-        if (parts.Any(string.IsNullOrWhiteSpace) ||
-            parts.Any(part => Encoding.UTF8.GetByteCount(part.Trim()) > 63))
-            throw new ArgumentException($"TableName '{TableName}' is not a valid PostgreSQL (optionally schema-qualified) table name.", nameof(TableName));
-
-        if (Ttl < TimeSpan.FromSeconds(1) || Ttl.TotalSeconds > int.MaxValue)
-            throw new ArgumentException("Ttl must be at least 1 second.", nameof(Ttl));
-        if (LeaseTimeout < TimeSpan.FromSeconds(1) || LeaseTimeout.TotalSeconds > int.MaxValue)
-            throw new ArgumentException("LeaseTimeout must be at least 1 second.", nameof(LeaseTimeout));
-        if (CleanupInterval < TimeSpan.Zero)
-            throw new ArgumentException("CleanupInterval cannot be negative.", nameof(CleanupInterval));
-        if (CleanupBatchSize < 1)
-            throw new ArgumentException("CleanupBatchSize must be at least 1.", nameof(CleanupBatchSize));
+        PostgresStoreSchema.ValidateTableName(TableName);
+        ExpiringStore.ValidateTimes(Ttl, LeaseTimeout, CleanupInterval, CleanupBatchSize);
     }
 
     internal int TtlSeconds => (int)Math.Ceiling(Ttl.TotalSeconds);

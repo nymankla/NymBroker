@@ -14,6 +14,8 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
     private const string DeferredTimeFormat = "yyyyMMddHHmmssfffffff";   // whole ticks, so rounding can never make a file due early
     // Task.Delay rejects longer waits (about 49 days); the reader checks a file again after each step.
     private static readonly TimeSpan MaxDelayStep = TimeSpan.FromDays(1);
+    // A handler that never returns must not keep the broker from stopping.
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(30);
 
     // Files waiting for their time, each with one wake-up: the poll loop sees them again and must not add more.
     private readonly ConcurrentDictionary<string, byte> _waitingFiles = new(StringComparer.OrdinalIgnoreCase);
@@ -22,8 +24,13 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
     private readonly DirectoryInfo _readDir;
     private readonly DirectoryInfo _postDir;
     private readonly RetryPolicy _fileReadyPolicy;
+    private readonly string _name;
     private FileSystemWatcher? _watcher;
-    private Func<byte[], CancellationToken, Task<ProcessResult>>? _handler;
+    // _stopping ends the reading, polling and waiting at once; _handlerCts only a handler that outlasts StopTimeout.
+    private CancellationTokenSource? _stopping;
+    private CancellationTokenSource? _handlerCts;
+    private Task? _loop;
+    private Task? _poll;
 
     // All file events (watcher + poll + startup scan) feed into this channel.
     // Single reader ensures only one Task processes a given file at a time,
@@ -34,6 +41,7 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
 
     public FileEndPoint(string name, FileSettings settings, ILogger<FileEndPoint> logger, EndpointMode mode = EndpointMode.ReadWrite)
     {
+        _name = name;
         Mode = mode;
         _settings = settings;
         _logger = logger;
@@ -104,7 +112,7 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
     private static bool IsDue(FileInfo file) => GetDeliverAt(file) is not { } deliverAt || deliverAt <= DateTimeOffset.UtcNow;
 
     // Queues the file again when it is due, also if PollInterval is off.
-    private void WakeWhenDue(FileInfo file, CancellationToken ct)
+    private void WakeWhenDue(FileInfo file, CancellationToken stopping)
     {
         if (!_waitingFiles.TryAdd(file.FullName, 0)) return;
 
@@ -116,7 +124,7 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
                 {
                     var wait = GetDeliverAt(file)!.Value - DateTimeOffset.UtcNow;
                     if (wait > TimeSpan.Zero)
-                        await Task.Delay(wait < MaxDelayStep ? wait : MaxDelayStep, ct);
+                        await Task.Delay(wait < MaxDelayStep ? wait : MaxDelayStep, stopping);
                 }
                 finally
                 {
@@ -124,22 +132,32 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
                 }
                 _fileChannel?.Writer.TryWrite(file);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }   // read again at the next start
+            catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }   // read again at the next start
             catch (Exception ex) { _logger.LogError(ex, "Error waiting for deferred file '{File}'", file.Name); }
         }, CancellationToken.None);
     }
 
+    /// <summary>Starts reading on the thread pool and returns.</summary>
+    /// <exception cref="InvalidOperationException">The endpoint is already listening.</exception>
     public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
-        _handler = handler;
+        if (_loop is not null)
+            throw new InvalidOperationException($"File endpoint '{_name}' is already listening.");
 
-        _fileChannel = Channel.CreateUnbounded<FileInfo>(
+        // Linked, because the token passed in is the broker's startup token, which stopping does not cancel.
+        _stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _handlerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var stopping = _stopping.Token;
+        var handlerToken = _handlerCts.Token;
+
+        var channel = Channel.CreateUnbounded<FileInfo>(
             new UnboundedChannelOptions { SingleReader = true, AllowSynchronousContinuations = false });
+        _fileChannel = channel;
 
         // Single reader loop — only this task reads from the channel, so files are processed one at
         // a time. Duplicate entries (from watcher + poll scan racing for the same file) are harmless:
         // ReadAndArchiveAsync returns null on the second attempt and no handler call is made.
-        _ = Task.Run(() => ProcessChannelAsync(ct), ct);
+        _loop = Task.Run(() => ProcessChannelAsync(channel.Reader, handler, stopping, handlerToken), CancellationToken.None);
 
         _watcher = new FileSystemWatcher(_readDir.FullName, _settings.SearchPattern)
         {
@@ -151,36 +169,38 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
         _watcher.Error   += OnWatcherError;
 
         // Queue any files already present when listening starts.
-        foreach (var file in _readDir.GetFiles(_settings.SearchPattern))
-            _fileChannel.Writer.TryWrite(file);
+        QueueExistingFiles();
 
         // Periodic poll — catches files whose watcher events were dropped under burst load.
         if (_settings.PollInterval > TimeSpan.Zero)
-        {
-            _ = Task.Run(async () =>
-            {
-                using var timer = new PeriodicTimer(_settings.PollInterval);
-                try
-                {
-                    while (await timer.WaitForNextTickAsync(ct))
-                        foreach (var file in _readDir.GetFiles(_settings.SearchPattern))
-                            _fileChannel.Writer.TryWrite(file);
-                }
-                catch (OperationCanceledException) { }
-                catch (Exception ex) { _logger.LogError(ex, "Error in poll loop for '{Dir}'", _readDir.FullName); }
-            }, ct);
-        }
-
-        ct.Register(() =>
-        {
-            if (_watcher != null) _watcher.EnableRaisingEvents = false;
-            _fileChannel.Writer.TryComplete();
-        });
+            _poll = Task.Run(() => PollAsync(stopping), CancellationToken.None);
 
         return Task.CompletedTask;
     }
 
-    public Task StopListeningAsync()
+    private async Task PollAsync(CancellationToken stopping)
+    {
+        using var timer = new PeriodicTimer(_settings.PollInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(stopping))
+                QueueExistingFiles();
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
+        catch (Exception ex) { _logger.LogError(ex, "Error in poll loop for '{Dir}'", _readDir.FullName); }
+    }
+
+    private void QueueExistingFiles()
+    {
+        foreach (var file in _readDir.GetFiles(_settings.SearchPattern))
+            _fileChannel?.Writer.TryWrite(file);
+    }
+
+    /// <summary>
+    /// Waits for the file being handled, so no handler runs after this returns. Files not read yet stay in the folder for
+    /// the next start. After 30 seconds the running handler is cancelled.
+    /// </summary>
+    public async Task StopListeningAsync()
     {
         if (_watcher != null)
         {
@@ -189,7 +209,27 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
             _watcher = null;
         }
         _fileChannel?.Writer.TryComplete();
-        return Task.CompletedTask;
+        if (_loop is null) return;
+
+        await _stopping!.CancelAsync();
+        try
+        {
+            await _loop.WaitAsync(StopTimeout);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("File endpoint '{Name}' was still handling a file after {Timeout}; cancelling its handler", _name, StopTimeout);
+            await _handlerCts!.CancelAsync();
+            await _loop;
+        }
+        if (_poll is not null) await _poll;
+
+        _loop = null;
+        _poll = null;
+        _stopping.Dispose();
+        _stopping = null;
+        _handlerCts!.Dispose();
+        _handlerCts = null;
     }
 
     public async IAsyncEnumerable<string> ReadAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
@@ -220,10 +260,10 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
     private void OnWatcherError(object sender, ErrorEventArgs e)
     {
         _logger.LogError(e.GetException(), "FileSystemWatcher error on '{Dir}' — some file events may have been lost", _readDir.FullName);
-        // Re-scan so any files whose events were dropped are still queued.
-        if (_fileChannel != null)
-            foreach (var file in _readDir.GetFiles(_settings.SearchPattern))
-                _fileChannel.Writer.TryWrite(file);
+        // Re-scan so any files whose events were dropped are still queued. This runs on a thread pool callback, where an
+        // exception (the folder itself may be gone, which is why the watcher failed) would end the process.
+        try { QueueExistingFiles(); }
+        catch (Exception ex) { _logger.LogError(ex, "Could not re-scan '{Dir}' after the watcher error", _readDir.FullName); }
     }
 
     private void OnFileCreated(object sender, FileSystemEventArgs e)
@@ -231,36 +271,30 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
         _fileChannel?.Writer.TryWrite(new FileInfo(e.FullPath));
     }
 
-    private async Task ProcessChannelAsync(CancellationToken ct)
+    private async Task ProcessChannelAsync(ChannelReader<FileInfo> reader, Func<byte[], CancellationToken, Task<ProcessResult>> handler,
+        CancellationToken stopping, CancellationToken handlerToken)
     {
         try
         {
-            await foreach (var file in _fileChannel!.Reader.ReadAllAsync(ct))
+            await foreach (var file in reader.ReadAllAsync(stopping))
             {
-                if (ct.IsCancellationRequested) return;
                 if (!IsDue(file))
                 {
-                    WakeWhenDue(file, ct);
+                    WakeWhenDue(file, stopping);
                     continue;
                 }
-                var content = await ReadAndArchiveAsync(file, ct);
-                if (content != null && _handler != null)
-                {
-                    try
-                    {
-                        var result = await _handler(Encoding.UTF8.GetBytes(content), ct);
-                        // The file was already renamed to .processed, so it cannot be redelivered; the broker never
-                        // asks this endpoint to dead-letter (UsesNativeDeadLetter is false).
-                        if (result.Outcome != ProcessOutcome.Completed)
-                            _logger.LogError(result.Exception, "File '{File}' was not processed ({Outcome}: {Failure}) and will not be retried",
-                                file.Name, result.Outcome, result.FailureText);
-                    }
-                    catch (OperationCanceledException) { return; }
-                    catch (Exception ex) { _logger.LogError(ex, "Unhandled error processing file '{File}'", file.Name); }
-                }
+                var content = await ReadAndArchiveAsync(file, stopping);
+                if (content == null) continue;
+
+                var result = await EndpointHandler.InvokeAsync(handler, Encoding.UTF8.GetBytes(content), _logger, _name, handlerToken, file.Name);
+                // The file was already renamed to .processed, so it cannot be redelivered; the broker never
+                // asks this endpoint to dead-letter (UsesNativeDeadLetter is false).
+                if (result.Outcome != ProcessOutcome.Completed)
+                    _logger.LogError(result.Exception, "File '{File}' was not processed ({Outcome}: {Failure}) and will not be retried",
+                        file.Name, result.Outcome, result.FailureText);
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested || handlerToken.IsCancellationRequested) { }
         catch (Exception ex) { _logger.LogCritical(ex, "File processing loop terminated unexpectedly for '{Dir}'", _readDir.FullName); }
     }
 
@@ -271,7 +305,7 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
             return await _fileReadyPolicy.ExecuteAsync(async token =>
             {
                 using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read,
-                    FileShare.ReadWrite | FileShare.Delete, bufferSize: 65536, useAsync: false);
+                    FileShare.ReadWrite | FileShare.Delete, bufferSize: 4096, useAsync: false);
                 using var reader = new StreamReader(fs);
                 var content = await reader.ReadToEndAsync(token);
                 // Guard: writer may not have flushed yet when the Created event fires early.
@@ -284,7 +318,7 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
                 return content;
             }, ct);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogWarning("Could not read '{File}' after retries: {Error}", file.Name, ex.Message);
             return null;

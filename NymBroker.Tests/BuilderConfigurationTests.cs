@@ -6,7 +6,7 @@ using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Endpoint.Memory;
 using NymBroker.Core.Factory;
 using NymBroker.Core.Factory.Configuration;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Core.Message;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
