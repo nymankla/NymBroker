@@ -59,11 +59,11 @@ public sealed class CheckoutService(INymBroker broker)
 |---|---|
 | send to one endpoint | `PostAsync("Orders", message, ct)` |
 | not before a given time (SQL endpoints, Service Bus, File, Memory, standard SQS queues up to 15 min; RabbitMQ, HTTP, custom endpoints, SQS FIFO and longer SQS delays hold it in the broker's memory, so it is lost on a stop or crash) | `PostDeferredAsync("Orders", message, deliverAt, ct)` |
-| many messages, one round trip (SQL endpoints, Service Bus) | `PostBatchAsync("Orders", messages, ct)` |
-| large message, split and compressed transparently | `PostAsync("Orders", message, ct, splitThresholdBytes: 200_000)` |
+| many messages, one round trip (SQL endpoints, Service Bus, SQS; RabbitMQ waits for all its confirms together, much faster than one post at a time) | `PostBatchAsync("Orders", messages, ct)` |
+| large message, split and compressed transparently; add `compress: false` for data already compressed or encrypted, where compressing costs far more time and gains little | `PostAsync("Orders", message, ct, splitThresholdBytes: 200_000)` |
 | deliver to topic subscribers in this process | `PublishAsync(message, ct)` or `PublishAsync("orders.events", message, ct)` |
 
-The endpoint name must be one registered with `Add…EndPoint` (or in config). Posting to an unknown name throws "No endpoint registered".
+The endpoint name must be one registered with `Add…EndPoint` (or in config). Posting to an unknown name throws "No endpoint registered", and publishing to an unknown topic name throws "No topic registered".
 
 ## 4. Handle it
 

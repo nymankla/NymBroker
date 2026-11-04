@@ -75,7 +75,7 @@ builder.Services.AddNymBroker()
     .Build();
 ```
 
-- Triggered implicitly by every matching message received on any endpoint or `PublishAsync(message)`; explicitly by `PublishAsync("orders.created", message)` (skips routes and consumers).
+- Triggered implicitly by every matching message received on any endpoint or `PublishAsync(message)`; explicitly by `PublishAsync("orders.created", message)` (skips routes and consumers; an unknown topic name throws).
 - Subscribers implement `ISubscribe<T>.ReceiveAsync(message, context, ct)` (namespace `NymBroker.Core.Consume`); see the nymbroker-consumer skill. They run in sequence in one DI scope; if one throws, the delivery is retried, so all must be idempotent.
 - Topics with endpoint subscribers can also come from config (`"Topics": [{ "TopicName", "MessageType", "SubscriberEndpoints": [...] }]`); subscribers and conditions stay in code.
 

@@ -95,7 +95,7 @@ public async Task Order_reaches_consumer()
 }
 ```
 
-- Call `broker.StartAsync()` / `StopAsync()` yourself (no host is running in the test), or build a real `Host` and start it.
+- Call `broker.StartAsync()` / `StopAsync()` yourself (no host is running in the test), or build a real `Host` and start it. `StopAsync` waits for messages already queued on a Memory endpoint, so release a blocked test handler first, or the stop takes 30 s before it cancels the handler.
 - To test the **real** consumer, register it as normal and replace its dependencies with fakes that signal a probe.
 - To count N messages, use a counter with `Interlocked.Decrement` that completes the probe at zero.
 - To prove something did **not** happen (filtered, routed away), post a second "sentinel" message that must arrive, wait for it, then assert the first didn't — no fixed delays.

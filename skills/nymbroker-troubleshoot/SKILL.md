@@ -24,6 +24,7 @@ Docs: https://github.com/nymankla/NymBroker/blob/master/docs/user-guide.md
 | Symptom / message | Likely cause | Fix |
 |---|---|---|
 | `No endpoint registered with name 'X'` | Typo, endpoint not registered, or a config entry whose `With…()` is missing (`WithSql`, `WithPostgres`, `WithSqlServer`, `WithRabbitMq`, `WithAzureServiceBus`) — unknown config entries are silently ignored | Register it / add the `With…()` call |
+| `No topic registered with name 'X'` | `PublishAsync` or `PublishBatchAsync` with a misspelled or unregistered topic name (before NymBroker 0.20 this only logged a warning and dropped the message) | Register the topic with `AddTopic`, or fix the name |
 | `Endpoint 'X' is read-only and cannot receive posted messages` | Posting to a `ReadOnly` endpoint | Use `ReadWrite` or `WriteOnly` |
 | Startup fails: `Route target 'X' is read-only` / `Topic '…' target 'X' is read-only` / `Dead letter endpoint 'X' is read-only` / `Wire tap endpoint 'X' is read-only` | A destination is registered `ReadOnly` | Make destinations `WriteOnly` (or `ReadWrite`) |
 | Startup fails: `… 'X' is not a registered endpoint.` | A route, topic, `WithDeadLetterEndpoint` or wire tap names an endpoint that does not exist (typo, or its `With…()` / `Add…EndPoint` call is missing) | Fix the name or register the endpoint |
@@ -38,9 +39,15 @@ Docs: https://github.com/nymankla/NymBroker/blob/master/docs/user-guide.md
 | SQL rows `Failed` (status 3) | Consumer threw `MaxRetryCount` times (default 5), or dead-lettered (undecodable, expired) — reason in `last_error` / `LastError` | Fix the cause, then replay (nymbroker-dead-letters) |
 | Backlog grows | Consumer too slow or failing; one instance only; `PollInterval`/`BatchSize` too small; Service Bus `MaxConcurrentCalls = 1` | Check `nymbroker.message.age`, `nymbroker.message.processing.duration` and failures; scale out (PostgreSQL/SQL Server/RabbitMQ/Service Bus), raise `BatchSize` / `MaxConcurrentCalls` (gives up ordering) |
 | Messages lost after restart (Memory / File) | Memory is in-process; Memory/File never redeliver once taken | Use a durable transport; add `WithDeadLetterEndpoint` for failures |
-| Failures disappear (Memory / File) | No dead-letter endpoint → failures are only logged | `WithDeadLetterEndpoint("DeadLetters")` with a `WriteOnly` endpoint |
+| Failures disappear (Memory / File / SQS) | No dead-letter endpoint → a failing consumer's message is only logged | `WithDeadLetterEndpoint("DeadLetters")` with a `WriteOnly` endpoint |
+| Consumer runs again although a dead-letter endpoint is set; `Failed to post message to dead letter endpoint` in the log | The dead-letter endpoint is down, so the broker returns Retry and keeps the message (Memory and File cannot redeliver, so they log the loss) | Fix the dead-letter endpoint; make the consumer idempotent |
+| Posting to RabbitMQ is slow | `DurablePublish` (default) waits for a confirm on each `PostAsync` | Use `PostBatchAsync`; only if losing a message is acceptable, `DurablePublish = false` |
+| Warning `cannot defer messages itself`, or `PostDeferredAsync holds` … `in this process's memory` | The transport cannot hold this message back (RabbitMQ, HTTP, custom endpoints, SQS FIFO, SQS over 15 minutes), so the broker does. Logged for each such endpoint when it is added, also if you never defer | Harmless if you don't defer to it. If you do, a waiting message is lost on a stop or crash: use a SQL endpoint or Service Bus when that matters |
+| Warning `A deferred message for … was dropped` | The broker or Memory endpoint stopped while the message waited | As above |
+| `InvalidOperationException`: `The broker has stopped, so it cannot hold a deferred message` | `PostDeferredAsync` during shutdown on an endpoint that cannot defer | Expected for a consumer: it fails and its message is redelivered |
+| `StopAsync` takes up to 30 s more than before | Memory handles what is queued and File finishes the running file before stop returns; after 30 s the handler is cancelled | Make handlers honour their `CancellationToken` |
 | RabbitMQ failures vanish | Rejected messages are dropped unless the queue has a dead-letter exchange | Configure a DLX on the queue |
-| Split (large) messages never processed | Parts went to different instances (reassembly is in memory, per instance) or are incomplete (discarded after 2 h) | Don't split with competing consumers; keep messages under the transport limit |
+| Split (large) messages never processed | Parts went to different instances (reassembly is in memory, per instance) or are incomplete (discarded after 2 h, with the warning `Discarded … split message(s)`) | Don't split with competing consumers; keep messages under the transport limit |
 | Health check `Unhealthy` | Broker not started, or an endpoint can't reach its server (`report.Endpoints[*].Message`) | Fix connectivity; mark optional endpoints `ConfigureHealthCheck(o => o.NonCritical("X"))` |
 | SQLite `database is locked` / slow with several machines | SQLite is for one host | PostgreSQL, SQL Server or MySQL for multi-instance |
 

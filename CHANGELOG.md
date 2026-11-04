@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Fixed
+
+- Agent skills: brought in line with 0.20.0 (RabbitMQ durability, unknown topics, dead-letter retry, deferred warnings, stop behaviour). `nymbroker-skills.zip` on the 0.20.0 release was replaced with these versions, so it is newer than the `v0.20.0` tag.
+
 ## [0.20.0] - 2026-11-04
 
 ### Added
