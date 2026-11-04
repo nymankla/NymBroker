@@ -1,4 +1,1 @@
 #nullable enable
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.DurablePublish.get -> bool
-NymBroker.Endpoint.RabbitMq.RabbitMqSettings.DurablePublish.set -> void
-NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.PostBatchAsync(System.Collections.Generic.IReadOnlyList<byte[]!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

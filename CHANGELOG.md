@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-04
+
 ### Added
 
 - RabbitMQ: `RabbitMqSettings.DurablePublish` (see Changed).

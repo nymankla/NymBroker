@@ -45,3 +45,6 @@ NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseTls.get -> bool
 NymBroker.Endpoint.RabbitMq.RabbitMqSettings.UseTls.set -> void
 NymBroker.Endpoint.RabbitMq.RabbitMqSettings.PrefetchCount.get -> int
 NymBroker.Endpoint.RabbitMq.RabbitMqSettings.PrefetchCount.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.DurablePublish.get -> bool
+NymBroker.Endpoint.RabbitMq.RabbitMqSettings.DurablePublish.set -> void
+NymBroker.Endpoint.RabbitMq.RabbitMqEndPoint.PostBatchAsync(System.Collections.Generic.IReadOnlyList<byte[]!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

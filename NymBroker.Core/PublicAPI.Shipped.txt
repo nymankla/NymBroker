@@ -36,7 +36,6 @@ NymBroker.Core.Consume.ISubscribe<T>
 NymBroker.Core.Consume.ISubscribe<T>.ReceiveAsync(T! message, NymBroker.Core.Message.IMessageContext! context, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Core.DI.NymBrokerHealthCheck
 NymBroker.Core.DI.NymBrokerHealthCheck.CheckHealthAsync(Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult>!
-NymBroker.Core.DI.NymBrokerHealthCheck.NymBrokerHealthCheck(NymBroker.Core.Impl.INymBroker! broker) -> void
 NymBroker.Core.DI.NymBrokerHealthChecksBuilderExtensions
 NymBroker.Core.DI.ServiceCollectionExtensions
 NymBroker.Core.Diagnostics.NymBrokerActivitySource
@@ -229,18 +228,6 @@ NymBroker.Core.Impl.ConsumerDispatcher
 NymBroker.Core.Impl.ConsumerDispatcher.ConsumerDispatcher(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory! scopeFactory, Microsoft.Extensions.Logging.ILogger<NymBroker.Core.Impl.ConsumerDispatcher!>! logger) -> void
 NymBroker.Core.Impl.ConsumerDispatcher.DispatchAsync(System.Type! messageType, object! message, NymBroker.Core.Message.IMessageContext! context, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.ConsumerDispatcher.RegisterConsumer(System.Type! messageType, string! serviceKey) -> void
-NymBroker.Core.Impl.INymBroker
-NymBroker.Core.Impl.INymBroker.CheckHealthAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.BrokerHealthReport!>!
-NymBroker.Core.Impl.INymBroker.PostAsync<T>(string! endpointName, T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.PostBatchAsync<T>(string! endpointName, System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true, System.Guid? correlationId = null) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.ProcessAsync(byte[]! raw, string? sourceEndpoint = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!
-NymBroker.Core.Impl.INymBroker.ProcessAsync(string! raw, string? sourceEndpoint = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!
-NymBroker.Core.Impl.INymBroker.PublishAsync<T>(T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.PublishAsync<T>(string! topicName, T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.PublishBatchAsync<T>(System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.PublishBatchAsync<T>(string! topicName, System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.StartAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.StopAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Core.Impl.MessageTypeRegistry
 NymBroker.Core.Impl.MessageTypeRegistry.MessageTypeRegistry() -> void
 NymBroker.Core.Impl.MessageTypeRegistry.Register(System.Type! messageType) -> void
@@ -587,8 +574,6 @@ virtual NymBroker.Core.Endpoint.Queue.LeasedQueueListener.OnLoopExitAsync() -> S
 virtual NymBroker.Core.Endpoint.Queue.LeasedQueueListener.WaitWhenIdleAsync(System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task!
 ~override NymBroker.Core.Endpoint.Queue.QueueMessageOutcome.Equals(object obj) -> bool
 ~override NymBroker.Core.Endpoint.Queue.QueueMessageOutcome.ToString() -> string
-NymBroker.Core.Impl.INymBroker.PostRawAsync(string! endpointName, System.IO.Stream! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.PostRawAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
 NymBroker.Core.Factory.NymBrokerBuilder.AddOutputTransformer<TTransformer>(string! endpoint) -> NymBroker.Core.Factory.NymBrokerBuilder!
 NymBroker.Core.Transform.IOutputTransformer
 NymBroker.Core.Transform.IOutputTransformer.Transform(NymBroker.Core.Serialize.RawMessageContext! message, string! destinationEndpoint) -> byte[]?
@@ -629,12 +614,29 @@ NymBroker.Core.Endpoint.File.FileEndPoint.PostDeferredAsync(byte[]! message, Sys
 NymBroker.Core.Endpoint.IDeferredEndPoint
 NymBroker.Core.Endpoint.IDeferredEndPoint.PostDeferredAsync(byte[]! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Core.Endpoint.Memory.MemoryQueueEndPoint.PostDeferredAsync(byte[]! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.PostDeferredAsync<T>(string! endpointName, T! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.PostRawDeferredAsync(string! endpointName, System.IO.Stream! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-NymBroker.Core.Impl.INymBroker.PostRawDeferredAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 virtual NymBroker.Core.Endpoint.Queue.LeasedQueueListener.PromoteDueAsync(System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<int>!
 NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.CleanupBatchSize.get -> int
 NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.CleanupInterval.get -> System.TimeSpan
 NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.CompletedRetention.get -> System.TimeSpan
 NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.FailedRetention.get -> System.TimeSpan
 virtual NymBroker.Core.Endpoint.Queue.LeasedQueueListener.DeleteFinishedAsync(NymBroker.Core.Endpoint.Queue.QueueMessageStatus status, int olderThanSeconds, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<int>!
+NymBroker.Core.Aggregator.AggregatorImpl.KeepForRetry(System.Guid correlationId, byte[]! reassembled) -> void
+NymBroker.Core.Aggregator.IAggregator.KeepForRetry(System.Guid correlationId, byte[]! reassembled) -> void
+NymBroker.Core.DI.NymBrokerHealthCheck.NymBrokerHealthCheck(NymBroker.Core.INymBroker! broker) -> void
+NymBroker.Core.INymBroker
+NymBroker.Core.INymBroker.CheckHealthAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.HealthCheck.BrokerHealthReport!>!
+NymBroker.Core.INymBroker.PostAsync<T>(string! endpointName, T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.PostBatchAsync<T>(string! endpointName, System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true, System.Guid? correlationId = null) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.ProcessAsync(byte[]! raw, string? sourceEndpoint = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!
+NymBroker.Core.INymBroker.ProcessAsync(string! raw, string? sourceEndpoint = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.ProcessResult>!
+NymBroker.Core.INymBroker.PublishAsync<T>(T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.PublishAsync<T>(string! topicName, T! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.PublishBatchAsync<T>(System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.PublishBatchAsync<T>(string! topicName, System.Collections.Generic.IEnumerable<T!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.StartAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.StopAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.PostRawAsync(string! endpointName, System.IO.Stream! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.PostRawAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), int? splitThresholdBytes = null, bool compress = true) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.PostDeferredAsync<T>(string! endpointName, T! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.PostRawDeferredAsync(string! endpointName, System.IO.Stream! message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Core.INymBroker.PostRawDeferredAsync(string! endpointName, System.ReadOnlyMemory<byte> message, System.DateTimeOffset deliverAt, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
