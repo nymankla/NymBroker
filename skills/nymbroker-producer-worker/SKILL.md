@@ -46,7 +46,7 @@ app.MapPost("/orders", async (PlaceOrder request, INymBroker broker, Cancellatio
 ```
 
 - `WriteOnly` means no poll loop or subscription in the producer, and a short-lived process (CLI, function) exits as soon as it has posted.
-- `PostAsync` returns once the transport has accepted the message: the row is committed (SQL endpoints) or the send completed (Service Bus). RabbitMQ publishes without publisher confirms, so a broker crash right after can lose it — prefer a SQL transport or Service Bus when every message counts. Return `202 Accepted`, not the result of the work.
+- `PostAsync` returns once the transport has accepted the message: the row is committed (SQL endpoints), the send completed (Service Bus, SQS), or RabbitMQ confirmed the persistent message. On RabbitMQ that wait makes single posts slow, so use `PostBatchAsync` for volume; `DurablePublish = false` is much faster, but a posted message can then be lost without the caller knowing. Return `202 Accepted`, not the result of the work.
 - For many messages at once use `PostBatchAsync` (one round trip on the SQL endpoints and Service Bus).
 - Posting and your own database write are not one transaction. If both must happen together, write to your database first and post after commit, and make the consumer tolerate a missing or duplicate message — or store an outbox row in the same transaction and post it from a background job.
 

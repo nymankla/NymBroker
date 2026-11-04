@@ -12,7 +12,9 @@ A message is dead-lettered when it can never succeed (undecodable, expired, unkn
 | SQLite / PostgreSQL / SQL Server / MySQL | `MaxRetryCount` (default 5) | same table, `status = 3` (Failed) | `last_error` / `LastError` |
 | Azure Service Bus | entity `MaxDeliveryCount` | the queue's / subscription's dead-letter queue | Service Bus reason + description |
 | RabbitMQ | one redelivery | the queue's dead-letter exchange — **dropped if none is configured** | `x-death` header (reason `rejected`); NymBroker's reason only in logs |
-| Memory / File, or `UseNativeDeadLetter = false` | none | the broker's `WithDeadLetterEndpoint` endpoint — **only logged if none is set** | `deadLetter` block in the envelope |
+| Memory / File / Amazon SQS, or `UseNativeDeadLetter = false` | none for a failing consumer (SQS retries a failed route, then uses the queue's redrive policy) | the broker's `WithDeadLetterEndpoint` endpoint — **only logged if none is set** | `deadLetter` block in the envelope |
+
+If the post to the dead-letter endpoint itself fails, the broker returns Retry instead of completing the message: a transport that can redeliver keeps it, so its consumer may run again, while Memory and File log the loss.
 
 Every dead-lettering is logged at `Warning` with its reason and counted in `nymbroker.messages.dead_lettered` (tags `reason`, `source`, `mode`).
 

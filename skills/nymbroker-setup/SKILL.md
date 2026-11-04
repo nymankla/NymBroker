@@ -1,6 +1,6 @@
 ---
 name: nymbroker-setup
-description: Add NymBroker (a .NET 10 message-processing framework) to an application — install the NuGet packages, choose transports (Memory, File, SQLite, PostgreSQL, SQL Server, RabbitMQ, Azure Service Bus), register endpoints, dead-lettering, duplicate detection, health checks and telemetry in DI. Asks the user which options they want before changing anything. Use when the user wants to set up, install, add, configure or wire up NymBroker, a message broker, a message queue or messaging in their .NET app.
+description: Add NymBroker (a .NET 10 message-processing framework) to an application — install the NuGet packages, choose transports (Memory, File, SQLite, PostgreSQL, SQL Server, MySQL, RabbitMQ, Azure Service Bus, Amazon SQS, HTTP), register endpoints, dead-lettering, duplicate detection, health checks and telemetry in DI. Asks the user which options they want before changing anything. Use when the user wants to set up, install, add, configure or wire up NymBroker, a message broker, a message queue or messaging in their .NET app.
 ---
 
 # Set up NymBroker in an application
@@ -94,7 +94,7 @@ Settings per transport (only set what differs from the defaults):
 | PostgreSQL | `PostgresSettings { ConnectionString, TableName, AutoCreateTable, UseNotifications, … }` | same SQL options as SQLite |
 | SQL Server | `SqlServerSettings { ConnectionString, TableName = "dbo.x", AutoCreateTable, … }` | same SQL options |
 | MySQL | `MySqlSettings { ConnectionString, TableName, AutoCreateTable, … }` | same SQL options; MySQL 8.0+ / MariaDB 10.6+ |
-| RabbitMQ | `RabbitMqSettings { HostName, ReadQueueName, WriteQueueName, UseTls, Port }` | omit `ReadQueueName` for a producer; production: `UseTls = true`, `Port = 5671` |
+| RabbitMQ | `RabbitMqSettings { HostName, ReadQueueName, WriteQueueName, UseTls, Port, DurablePublish }` | omit `ReadQueueName` for a producer; production: `UseTls = true`, `Port = 5671`. `DurablePublish` (default true) makes messages persistent and waits for confirms; prefer `PostBatchAsync` for volume |
 | Service Bus | `AzureServiceBusSettings { ConnectionString or FullyQualifiedNamespace + Credential, QueueName or TopicName (+ SubscriptionName), MaxConcurrentCalls, PrefetchCount }` | `Credential` (e.g. `DefaultAzureCredential`) needs code, not JSON |
 | Amazon SQS | `AwsSqsSettings { QueueName or QueueUrl, Region, VisibilityTimeout, RetryDelay, MessageGroupId (FIFO) }` | credentials from the AWS default chain (IAM role); needs a dead-letter endpoint and a redrive policy on the queue; local: `ServiceUrl = "http://localhost:9324"` (ElasticMQ) |
 
@@ -143,7 +143,7 @@ builder.Services.AddNymBroker()
 .DiscardMessagesOlderThan(TimeSpan.FromMinutes(15))
 ```
 
-- Dead-letter endpoint: transports with their own dead-letter handling (SQL tables, RabbitMQ, Service Bus) retry and dead-letter natively; the dead-letter endpoint catches Memory/File failures. Without it those failures are only logged.
+- Dead-letter endpoint: transports with their own dead-letter handling (SQL tables, RabbitMQ, Service Bus) retry and dead-letter natively; the dead-letter endpoint catches Memory, File and SQS consumer failures. Without it those failures are only logged. If it is down, the broker returns Retry, so a transport that can redeliver keeps the message.
 - Health check (ASP.NET Core): `builder.Services.AddHealthChecks().AddNymBroker(name: "nymbroker", tags: ["ready"]);` then `app.MapHealthChecks("/health");`. Mark optional endpoints with `.ConfigureHealthCheck(o => o.NonCritical("Audit"))`.
 - OpenTelemetry: `.WithMetrics(m => m.AddMeter("NymBroker", "NymBroker.Resilience"))` and `.WithTracing(t => t.AddSource("NymBroker"))`.
 
