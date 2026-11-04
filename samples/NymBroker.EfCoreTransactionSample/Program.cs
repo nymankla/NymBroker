@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.DI;
+using NymBroker.Core;
 using NymBroker.Core.Impl;
 using NymBroker.EfCoreTransactionSample;
 using NymBroker.Endpoint.SqlServer;

@@ -1,4 +1,4 @@
-using System.Text;
+using NymBroker.Shared;
 
 namespace NymBroker.Scheduling.Postgres;
 
@@ -18,13 +18,6 @@ public sealed class PostgresScheduleStoreSettings
         if (string.IsNullOrWhiteSpace(ConnectionString))
             throw new ArgumentException("ConnectionString is required.", nameof(ConnectionString));
 
-        if (string.IsNullOrWhiteSpace(TableName))
-            throw new ArgumentException("TableName is required.", nameof(TableName));
-
-        var parts = TableName.Split('.');
-        if (parts.Length > 2 ||
-            parts.Any(string.IsNullOrWhiteSpace) ||
-            parts.Any(part => Encoding.UTF8.GetByteCount(part.Trim()) > 63))
-            throw new ArgumentException($"TableName '{TableName}' is not a valid PostgreSQL (optionally schema-qualified) table name.", nameof(TableName));
+        PostgresStoreSchema.ValidateTableName(TableName, maxParts: 2);
     }
 }

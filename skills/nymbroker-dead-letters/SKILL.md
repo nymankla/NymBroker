@@ -80,7 +80,7 @@ Check the queue has `x-dead-letter-exchange` set; dead letters are in the queue 
 ```csharp
 using NymBroker.Core.Consume;
 using NymBroker.Core.Endpoint;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Core.Message;
 
 public sealed class OrderCreatedReplay(INymBroker broker, ILogger<OrderCreatedReplay> logger) : IConsume<OrderCreated>

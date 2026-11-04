@@ -128,7 +128,7 @@ flowchart LR
 
 - Compression is on by default (`compress: true`) and only used when it actually shrinks the payload, so already-compressed or binary data isn't compressed twice.
 - Only the part that completes the message triggers processing; consumers see the original message once.
-- **Reassembly happens in memory in the receiving broker.** All parts of one message must reach the same broker instance; incomplete messages are discarded after 2 hours. If several instances compete for the same queue, avoid splitting (or keep messages under the transport's limit).
+- **Reassembly happens in memory in the receiving broker.** All parts of one message must reach the same broker instance; incomplete messages are discarded after 2 hours, with a logged warning. If processing a reassembled message ends in Retry, the broker keeps it in memory, also for up to 2 hours, so the redelivered last part brings it back without the other parts. A crash or restart in that time loses it, as it loses parts already received. If several instances compete for the same queue, avoid splitting (or keep messages under the transport's limit).
 
 ## Publishing
 
@@ -144,7 +144,7 @@ await broker.PublishAsync("orders.events", new OrderCreated("ORD-1", "Alice", 49
 ```
 
 - A type-based publish runs **in your process, right now** — there is no queue in between. If a consumer throws, the message goes to the broker's dead-letter endpoint (if configured); if a route's destination can't be reached, `PublishAsync` throws.
-- A named publish to an unknown topic logs a warning and does nothing.
+- A named publish to an unknown topic throws `InvalidOperationException`, like a post to an unknown endpoint.
 - `PublishBatchAsync(messages)` publishes each message in turn by type. `PublishBatchAsync(topicName, messages)` sends one batch to each of the topic's subscriber endpoints, and calls `ISubscribe<T>` subscribers one message at a time.
 
 Topics are set up when you configure the broker — see [Routing and publish/subscribe](routing-and-pubsub.md#topics-and-subscribers).

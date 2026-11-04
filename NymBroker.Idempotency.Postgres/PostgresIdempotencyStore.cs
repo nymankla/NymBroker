@@ -1,8 +1,10 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Idempotency;
+using NymBroker.Shared;
 
 namespace NymBroker.Idempotency.Postgres;
 
@@ -49,7 +51,7 @@ public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, IAsync
 
         await using var statusCommand = new NpgsqlCommand(_existingStatusSql, connection);
         AddGuid(statusCommand, messageId);
-        return Convert.ToInt16(await statusCommand.ExecuteScalarAsync(ct)) == PostgresIdempotencySql.Completed
+        return Convert.ToInt16(await statusCommand.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture) == PostgresIdempotencySql.Completed
             ? IdempotencyClaimResult.Duplicate
             : IdempotencyClaimResult.InProgress;
     }
@@ -77,17 +79,15 @@ public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, IAsync
     public async Task<int> DeleteExpiredAsync(CancellationToken ct = default)
     {
         await EnsureSchemaAsync(ct);
-        var total = 0;
-        while (true)
-        {
-            await using var connection = await _dataSource.OpenConnectionAsync(ct);
-            await using var command = new NpgsqlCommand(_deleteExpiredSql, connection);
-            command.Parameters.AddWithValue("batchSize", _settings.CleanupBatchSize);
-            var deleted = await command.ExecuteNonQueryAsync(ct);
-            total += deleted;
-            if (deleted < _settings.CleanupBatchSize)
-                return total;
-        }
+        return await ExpiringStore.DeleteAllAsync(DeleteBatchAsync, _settings.CleanupBatchSize, ct);
+    }
+
+    private async Task<int> DeleteBatchAsync(CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var command = new NpgsqlCommand(_deleteExpiredSql, connection);
+        command.Parameters.AddWithValue("batchSize", _settings.CleanupBatchSize);
+        return await command.ExecuteNonQueryAsync(ct);
     }
 
     public async ValueTask DisposeAsync()
@@ -98,21 +98,9 @@ public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, IAsync
     private Task EnsureSchemaAsync(CancellationToken ct)
         => _settings.AutoCreateTable ? _schema.RunAsync(this, static (self, ct) => self.CreateSchemaAsync(ct), ct) : Task.CompletedTask;
 
-    /// <remarks>
-    /// <c>CREATE … IF NOT EXISTS</c> is not safe against a concurrent CREATE (instances starting at the same time): the
-    /// loser fails on a catalog unique index. A transaction-scoped advisory lock on the table name makes concurrent
-    /// creators wait for each other, so the later ones find the table and skip it.
-    /// </remarks>
     private async Task CreateSchemaAsync(CancellationToken ct)
     {
-        await using var connection = await _dataSource.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
-        await using (var command = new NpgsqlCommand(PostgresIdempotencySql.CreateSchema(_settings.TableName), connection, transaction))
-        {
-            command.Parameters.AddWithValue("lockKey", $"nymbroker:{_settings.TableName}");
-            await command.ExecuteNonQueryAsync(ct);
-        }
-        await transaction.CommitAsync(ct);
+        await PostgresStoreSchema.CreateAsync(_dataSource, PostgresIdempotencySql.CreateSchema(_settings.TableName), _settings.TableName, ct);
         _logger.LogDebug("Idempotency table {Table} is ready", _settings.TableName);
     }
 

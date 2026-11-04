@@ -1,22 +1,12 @@
-using System.Text.RegularExpressions;
+using NymBroker.Shared;
 
 namespace NymBroker.Scheduling.MySql;
 
 /// <summary>SQL for the schedule table: one row per named scheduled action with the last claimed occurrence (UTC).</summary>
-internal static partial class MySqlScheduleSql
+internal static class MySqlScheduleSql
 {
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_$]*$")]
-    private static partial Regex IdentifierPart();
-
-    /// <summary>Validates and backtick-quotes <c>table</c> or <c>db.table</c>; throws <see cref="ArgumentException"/> otherwise.</summary>
-    internal static string QuoteTableName(string tableName)
-    {
-        var parts = (tableName ?? "").Split('.');
-        if (parts.Length > 2 || !parts.All(p => IdentifierPart().IsMatch(p)))
-            throw new ArgumentException(
-                $"TableName '{tableName}' is not valid: use 'table' or 'database.table' with letters, digits, '_' and '$'.", nameof(tableName));
-        return string.Join('.', parts.Select(p => $"`{p}`"));
-    }
+    /// <inheritdoc cref="MySqlIdentifier.QuoteTableName"/>
+    internal static string QuoteTableName(string tableName) => MySqlIdentifier.QuoteTableName(tableName);
 
     /// <summary><c>claim_token</c> identifies the winner of the latest claim.</summary>
     internal static string CreateSchema(string table) => $"""

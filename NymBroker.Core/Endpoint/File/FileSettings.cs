@@ -13,5 +13,5 @@ public sealed class FileSettings
     /// <summary>How long to wait between polls (used when FileSystemWatcher misses events).</summary>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 
-    public bool IsAbsolutePath { get; set; } = false;
+    public bool IsAbsolutePath { get; set; }
 }

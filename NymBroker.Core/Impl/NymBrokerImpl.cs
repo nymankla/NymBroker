@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.Immutable;
 using NymBroker.Core.Aggregator;
 using NymBroker.Core.Endpoint;
@@ -32,23 +33,21 @@ internal sealed partial class NymBrokerImpl : INymBroker
     private volatile bool _startInitiated;
     private bool _started;
 
-    // Thread-safe via immutable replacement — writes are infrequent (config-time only).
-    private ImmutableList<RouteContext> _routes = ImmutableList<RouteContext>.Empty;
-    private ImmutableList<IMessageFilter> _filters = ImmutableList<IMessageFilter>.Empty;
-    private ImmutableList<TopicContext> _topics = ImmutableList<TopicContext>.Empty;
+    // Thread-safe via replacement: writes happen at configuration time, reads for every message, so these are the
+    // collections that are fastest to read.
+    private ImmutableArray<RouteContext> _routes = [];
+    private ImmutableArray<IMessageFilter> _filters = [];
+    private ImmutableArray<TopicContext> _topics = [];
     // Message types whose consumer was registered with RetryOnFailure = false.
     private ImmutableHashSet<Type> _noRetryMessageTypes = ImmutableHashSet<Type>.Empty;
-    private ImmutableDictionary<string, IInputTransformer> _endpointTransformers =
-        ImmutableDictionary.Create<string, IInputTransformer>(StringComparer.OrdinalIgnoreCase);
+    private FrozenDictionary<string, IInputTransformer> _endpointTransformers = EmptyRegistry<IInputTransformer>();
     private IInputTransformer? _globalInputTransformer;
-    private ImmutableDictionary<string, IOutputTransformer> _outputTransformers =
-        ImmutableDictionary.Create<string, IOutputTransformer>(StringComparer.OrdinalIgnoreCase);
-    private ImmutableList<string> _wireTapEndpoints = ImmutableList<string>.Empty;
+    private FrozenDictionary<string, IOutputTransformer> _outputTransformers = EmptyRegistry<IOutputTransformer>();
+    private ImmutableArray<string> _wireTapEndpoints = [];
     private string? _deadLetterEndpoint;
     private TimeSpan? _maxMessageAge;
 
-    // Endpoint registry — replaced immutably during configuration, then read-only during runtime.
-    private ImmutableDictionary<string, IEndPoint> _endpoints = ImmutableDictionary.Create<string, IEndPoint>(StringComparer.OrdinalIgnoreCase);
+    private FrozenDictionary<string, IEndPoint> _endpoints = EmptyRegistry<IEndPoint>();
 
     public NymBrokerImpl(
         MessageSerializerJson serializer,
@@ -72,11 +71,17 @@ internal sealed partial class NymBrokerImpl : INymBroker
         _compressor = compressor ?? new BrotliCompressor();
     }
 
+    private static FrozenDictionary<string, T> EmptyRegistry<T>()
+        => new Dictionary<string, T>().ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    private static FrozenDictionary<string, T> WithItem<T>(FrozenDictionary<string, T> registry, string key, T value)
+        => new Dictionary<string, T>(registry, registry.Comparer) { [key] = value }.ToFrozenDictionary(registry.Comparer);
+
     // --- Configuration (called during startup before StartAsync) ---
 
     public void AddEndpoint(string name, IEndPoint endpoint)
     {
-        _endpoints = _endpoints.SetItem(name, endpoint);
+        _endpoints = WithItem(_endpoints, name, endpoint);
 
         if (endpoint is not IDeferredEndPoint && endpoint.Mode != EndpointMode.ReadOnly)
             _logger.LogWarning(
@@ -109,7 +114,7 @@ internal sealed partial class NymBrokerImpl : INymBroker
         if (endpoint == null)
             _globalInputTransformer = transformer;
         else
-            _endpointTransformers = _endpointTransformers.SetItem(endpoint, transformer);
+            _endpointTransformers = WithItem(_endpointTransformers, endpoint, transformer);
         return this;
     }
 
@@ -118,7 +123,7 @@ internal sealed partial class NymBrokerImpl : INymBroker
     {
         ArgumentNullException.ThrowIfNull(transformer);
         ArgumentException.ThrowIfNullOrEmpty(endpoint);
-        _outputTransformers = _outputTransformers.SetItem(endpoint, transformer);
+        _outputTransformers = WithItem(_outputTransformers, endpoint, transformer);
         return this;
     }
 

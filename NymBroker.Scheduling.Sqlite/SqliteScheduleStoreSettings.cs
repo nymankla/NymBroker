@@ -1,3 +1,5 @@
+using NymBroker.Shared;
+
 namespace NymBroker.Scheduling.Sqlite;
 
 public sealed class SqliteScheduleStoreSettings
@@ -18,7 +20,6 @@ public sealed class SqliteScheduleStoreSettings
     {
         if (string.IsNullOrWhiteSpace(ConnectionString))
             throw new ArgumentException("ConnectionString is required.", nameof(ConnectionString));
-        if (string.IsNullOrWhiteSpace(TableName) || TableName.Any(char.IsControl))
-            throw new ArgumentException($"TableName '{TableName}' is not a valid SQLite table name.", nameof(TableName));
+        SqliteStoreTable.Validate(TableName);
     }
 }

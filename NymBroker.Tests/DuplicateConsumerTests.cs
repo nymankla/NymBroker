@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
+using NymBroker.Core;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
 

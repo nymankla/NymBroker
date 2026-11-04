@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Core.Message;
 using NymBroker.Core.Route;
 using NymBroker.Endpoint.AwsSqs;

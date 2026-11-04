@@ -28,7 +28,14 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
     private readonly AsyncOnce _schema = new();
     private readonly string _name;
     private readonly Listener _listener;
-
+    private readonly string _insertSql;
+    private readonly string _insertBatchSql;
+    private readonly string _insertDeferredSql;
+    private readonly string _finalizeAndClaimSql;
+    private readonly string _finalizeSql;
+    private readonly string _promoteDueSql;
+    private readonly string _deleteCompletedSql;
+    private readonly string _deleteFailedSql;
 
     public EndpointMode Mode { get; }
 
@@ -38,6 +45,14 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
         Mode = mode;
         _settings = settings;
         _logger = logger;
+        _insertSql = SqlServerQueueSql.InsertMessage(settings.TableName);
+        _insertBatchSql = SqlServerQueueSql.InsertMessages(settings.TableName);
+        _insertDeferredSql = SqlServerQueueSql.InsertDeferred(settings.TableName);
+        _finalizeAndClaimSql = SqlServerQueueSql.FinalizeAndClaim(settings.TableName);
+        _finalizeSql = SqlServerQueueSql.Finalize(settings.TableName);
+        _promoteDueSql = SqlServerQueueSql.PromoteDue(settings.TableName);
+        _deleteCompletedSql = SqlServerQueueSql.DeleteCompleted(settings.TableName);
+        _deleteFailedSql = SqlServerQueueSql.DeleteFailed(settings.TableName);
         _listener = new Listener(this);
     }
 
@@ -57,7 +72,7 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
     {
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = SqlServerQueueSql.InsertMessage(_settings.TableName);
+        cmd.CommandText = _insertSql;
         cmd.Parameters.Add("@messageId", SqlDbType.UniqueIdentifier).Value = Guid.NewGuid();
         // Explicit VARBINARY(MAX) — an inferred size would create one cached plan per payload length.
         cmd.Parameters.Add("@payload", SqlDbType.VarBinary, -1).Value = message;
@@ -74,7 +89,7 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
 
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = SqlServerQueueSql.InsertMessages(_settings.TableName);
+        cmd.CommandText = _insertBatchSql;
         cmd.Parameters.Add("@items", SqlDbType.NVarChar, -1).Value = items;
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -84,7 +99,7 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
     {
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = SqlServerQueueSql.InsertDeferred(_settings.TableName);
+        cmd.CommandText = _insertDeferredSql;
         cmd.Parameters.Add("@deliverAt", SqlDbType.DateTime2).Value = deliverAt.UtcDateTime;
         cmd.Parameters.Add("@messageId", SqlDbType.UniqueIdentifier).Value = Guid.NewGuid();
         cmd.Parameters.Add("@payload", SqlDbType.VarBinary, -1).Value = message;
@@ -111,7 +126,7 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
         // is a single round trip instead of three (BeginTransaction, execute, Commit).
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = SqlServerQueueSql.FinalizeAndClaim(_settings.TableName);
+        cmd.CommandText = _finalizeAndClaimSql;
         AddItemsParameter(cmd, outcomes);
         cmd.Parameters.Add("@batchSize", SqlDbType.Int).Value = _settings.BatchSize;
         cmd.Parameters.Add("@leaseTimeout", SqlDbType.Int).Value = LeasedQueueListener.GetLeaseTimeoutSeconds(_settings);
@@ -139,7 +154,7 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
     {
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = SqlServerQueueSql.PromoteDue(_settings.TableName);
+        cmd.CommandText = _promoteDueSql;
         cmd.Parameters.Add("@batchSize", SqlDbType.Int).Value = _settings.BatchSize;
         return (int)(await cmd.ExecuteScalarAsync(ct))!;
     }
@@ -149,8 +164,8 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = status == QueueMessageStatus.Completed
-            ? SqlServerQueueSql.DeleteCompleted(_settings.TableName)
-            : SqlServerQueueSql.DeleteFailed(_settings.TableName);
+            ? _deleteCompletedSql
+            : _deleteFailedSql;
         cmd.Parameters.Add("@olderThanSeconds", SqlDbType.Int).Value = olderThanSeconds;
         cmd.Parameters.Add("@batchSize", SqlDbType.Int).Value = _settings.CleanupBatchSize;
         return await cmd.ExecuteNonQueryAsync(ct);
@@ -160,7 +175,7 @@ public sealed class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint,
     {
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = SqlServerQueueSql.Finalize(_settings.TableName);
+        cmd.CommandText = _finalizeSql;
         AddItemsParameter(cmd, outcomes);
         await cmd.ExecuteNonQueryAsync(ct);
     }

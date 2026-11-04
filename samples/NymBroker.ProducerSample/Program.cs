@@ -3,7 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Endpoint.Postgres;
 using NymBroker.ProducerSample.Messages;
 using NymBroker.Endpoint.RabbitMq;

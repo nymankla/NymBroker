@@ -1,9 +1,23 @@
 <Project>
   <PropertyGroup Condition="'$(IsNymBrokerPackage)' == 'true'">
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
+
+  <!-- Internal source shared between packages: see shared/README.md. -->
+  <PropertyGroup>
+    <IsNymBrokerStore Condition="$(MSBuildProjectName.StartsWith('NymBroker.Idempotency.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Scheduling.'))">true</IsNymBrokerStore>
+  </PropertyGroup>
+  <ItemGroup>
+    <SharedSource Include="$(MSBuildThisFileDirectory)shared\Postgres\*.cs" Condition="$(MSBuildProjectName.EndsWith('.Postgres'))" />
+    <SharedSource Include="$(MSBuildThisFileDirectory)shared\SqlServer\*.cs" Condition="$(MSBuildProjectName.EndsWith('.SqlServer'))" />
+    <SharedSource Include="$(MSBuildThisFileDirectory)shared\MySql\*.cs" Condition="$(MSBuildProjectName.EndsWith('.MySql'))" />
+    <SharedSource Include="$(MSBuildThisFileDirectory)shared\Idempotency\*.cs" Condition="$(MSBuildProjectName.StartsWith('NymBroker.Idempotency.'))" />
+    <SharedSource Include="$(MSBuildThisFileDirectory)shared\Stores\Postgres\*.cs" Condition="'$(IsNymBrokerStore)' == 'true' And $(MSBuildProjectName.EndsWith('.Postgres'))" />
+    <SharedSource Include="$(MSBuildThisFileDirectory)shared\Stores\Sqlite\*.cs" Condition="'$(IsNymBrokerStore)' == 'true' And $(MSBuildProjectName.EndsWith('.Sqlite'))" />
+    <SharedSource Include="$(MSBuildThisFileDirectory)shared\Stores\Pooled\*.cs" Condition="'$(IsNymBrokerStore)' == 'true' And ($(MSBuildProjectName.EndsWith('.SqlServer')) Or $(MSBuildProjectName.EndsWith('.MySql')))" />
+    <Compile Include="@(SharedSource)" Link="Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

@@ -415,12 +415,50 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
         return (await channel.QueueDeclarePassiveAsync(_queue, TestContext.Current.CancellationToken)).ConsumerCount;
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PostBatch_ArrivesInOrder(bool durablePublish)
+    {
+        RequireRabbitMq();
+        var ep = CreateEndPoint(durablePublish: durablePublish);
+        var messages = Enumerable.Range(0, 2_000).Select(i => Encoding.UTF8.GetBytes(i.ToString())).ToList();
+
+        await ep.PostBatchAsync(messages, TestContext.Current.CancellationToken);
+
+        await using var connection = await new ConnectionFactory { HostName = Host! }.CreateConnectionAsync(TestContext.Current.CancellationToken);
+        await using var channel = await connection.CreateChannelAsync(cancellationToken: TestContext.Current.CancellationToken);
+        for (var i = 0; i < messages.Count; i++)
+        {
+            var received = await channel.BasicGetAsync(_queue, autoAck: true, TestContext.Current.CancellationToken);
+            Assert.NotNull(received);
+            Assert.Equal(i.ToString(), Encoding.UTF8.GetString(received.Body.Span));
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Post_IsPersistent_UnlessDurablePublishIsOff(bool durablePublish)
+    {
+        RequireRabbitMq();
+        var ep = CreateEndPoint(durablePublish: durablePublish);
+
+        await ep.PostAsync("{}"u8.ToArray(), TestContext.Current.CancellationToken);
+
+        await using var connection = await new ConnectionFactory { HostName = Host! }.CreateConnectionAsync(TestContext.Current.CancellationToken);
+        await using var channel = await connection.CreateChannelAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var received = await channel.BasicGetAsync(_queue, autoAck: true, TestContext.Current.CancellationToken);
+        Assert.NotNull(received);
+        Assert.Equal(durablePublish, received.BasicProperties.Persistent);
+    }
+
     private static void RequireRabbitMq()
         => Assert.SkipUnless(!string.IsNullOrWhiteSpace(Host),
             $"Set {HostVariable} to run RabbitMQ integration tests (scripts/setup-rabbitmq.ps1).");
 
     private RabbitMqEndPoint CreateEndPoint(CapturingLogger<RabbitMqEndPoint>? logger = null, int? port = null, int batchAckSize = 1,
-        int prefetchCount = 100, string name = "RabbitTest")
+        int prefetchCount = 100, string name = "RabbitTest", bool durablePublish = true)
     {
         var settings = new RabbitMqSettings
         {
@@ -430,7 +468,8 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
             WriteQueueName = _queue,
             BatchAckSize = batchAckSize,
             PrefetchCount = prefetchCount,
-            ReconnectDelaySeconds = 1
+            ReconnectDelaySeconds = 1,
+            DurablePublish = durablePublish
         };
         var ep = new RabbitMqEndPoint(name, settings, logger ?? new CapturingLogger<RabbitMqEndPoint>());
         _endpoints.Add(ep);

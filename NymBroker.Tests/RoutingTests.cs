@@ -3,6 +3,7 @@ using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.Memory;
+using NymBroker.Core;
 using NymBroker.Core.Impl;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Message;

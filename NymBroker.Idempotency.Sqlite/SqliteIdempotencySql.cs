@@ -1,3 +1,5 @@
+using NymBroker.Shared;
+
 namespace NymBroker.Idempotency.Sqlite;
 
 internal static class SqliteIdempotencySql
@@ -5,13 +7,7 @@ internal static class SqliteIdempotencySql
     internal const long InProgress = 1;
     internal const long Completed = 2;
 
-    internal static string QuoteIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("SQLite identifier cannot be empty.");
-
-        return $"\"{identifier.Replace("\"", "\"\"")}\"";
-    }
+    internal static string QuoteIdentifier(string identifier) => SqliteStoreTable.Quote(identifier);
 
     internal static string CreateSchema(string tableName)
     {

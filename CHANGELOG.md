@@ -4,6 +4,34 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- RabbitMQ: `RabbitMqSettings.DurablePublish` (see Changed).
+- `IAggregator.KeepForRetry` has a default implementation, so a custom aggregator still compiles, but without an override it keeps the old behaviour described under Fixed.
+
+### Changed
+
+- **Breaking:** `INymBroker` moved from the `NymBroker.Core.Impl` namespace to `NymBroker.Core`. Replace `using NymBroker.Core.Impl;` with `using NymBroker.Core;`.
+- **Breaking:** `PublishAsync(topicName, ...)` and `PublishBatchAsync(topicName, ...)` throw `InvalidOperationException` for an unknown topic, like a post to an unknown endpoint. They used to log a warning and drop the message.
+- **Breaking:** RabbitMQ publishes persistent messages and waits for publisher confirms by default, so a posted message survives a broker restart and a failed publish throws. This costs publish throughput, a lot for `PostAsync` one message at a time (see [Endpoints and configuration](docs/endpoints-and-configuration.md)), so prefer `PostBatchAsync`, which now waits for all confirms together. Set `DurablePublish = false` for the old behaviour.
+- **Behaviour:** if the post to the dead-letter endpoint fails, the broker now returns `Retry` instead of `Completed`. A transport that can redeliver (Amazon SQS, or `UseNativeDeadLetter = false`) keeps the message, so its consumer may run again. A type-based `PublishAsync` throws to the caller.
+- **Behaviour:** `MemoryQueueEndPoint.StopListeningAsync` and `FileEndPoint.StopListeningAsync` wait for the running handler (after 30 seconds it is cancelled), and Memory also handles what is already queued, so `StopAsync` can take longer. A second `StartListeningAsync` while listening throws.
+- Packages: removed the `Microsoft.IO.RecyclableMemoryStream` dependency. `IMessageSerializer.Serialize` still returns a `Stream`, now a `MemoryStream`.
+
+### Fixed
+
+- A split message could be lost on a transport that retries: if processing failed, only the part that completed the group was redelivered, but the group had been removed, so the consumer never got a second attempt.
+- Incomplete split groups were only discarded when another group completed, and at Debug level. They are now discarded on time, with a warning.
+- `MemoryQueueEndPoint` and `FileEndPoint` ran handlers after `StopListeningAsync` returned, and Memory could not listen again after a stop. `FileEndPoint`'s poll loop kept running after a stop.
+- `FileEndPoint`: a file that could not be read for lack of rights ended the listener, a handler raising its own `OperationCanceledException` ended it too, and a failed re-scan after a watcher error could end the process.
+- Packages now include their XML documentation, so IntelliSense shows it. It was enabled too late in the build to take effect.
+- Parsing and formatting no longer depend on the current culture (configuration array indexes, SQS batch ids, SQLite pragmas).
+
+### Performance
+
+- Typed posts serialize once instead of twice and without reflection. Routes, filters, topics and registries use collections that are faster to read, and the pipeline allocates less per message.
+- SQL queue endpoints build their statements once per endpoint instead of on every call.
+
 ## [0.19.0] - 2026-11-02
 
 ### Changed

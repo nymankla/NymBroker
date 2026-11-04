@@ -1,3 +1,5 @@
+using NymBroker.Shared;
+
 namespace NymBroker.Idempotency.SqlServer;
 
 /// <summary>
@@ -16,17 +18,11 @@ internal static class SqlServerIdempotencySql
     internal const int DuplicateResult = 1;
     internal const int InProgressResult = 2;
 
-    internal static string QuoteQualifiedIdentifier(string identifier)
-        => string.Join('.', identifier.Split('.', StringSplitOptions.TrimEntries).Select(QuoteSimpleIdentifier));
+    internal static string QuoteQualifiedIdentifier(string identifier) => SqlServerIdentifier.QuoteQualified(identifier);
 
-    internal static string QuoteSimpleIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("SQL Server identifier cannot be empty.");
-        return $"[{identifier.Replace("]", "]]")}]";
-    }
+    internal static string QuoteSimpleIdentifier(string identifier) => SqlServerIdentifier.QuoteSimple(identifier);
 
-    private static string Literal(string value) => value.Replace("'", "''");
+    private static string Literal(string value) => SqlServerIdentifier.Literal(value);
 
     /// <summary>
     /// Clustered on <c>message_id</c>: every operation is a single-row seek by ID, and rows are narrow, so the page

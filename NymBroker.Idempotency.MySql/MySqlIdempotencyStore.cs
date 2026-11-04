@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using MySqlConnector;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Idempotency;
+using NymBroker.Shared;
 
 namespace NymBroker.Idempotency.MySql;
 
@@ -43,15 +44,13 @@ public sealed class MySqlIdempotencyStore : IExpiringIdempotencyStore
         command.Parameters.AddWithValue("@leaseSeconds", _settings.LeaseSeconds);
 
         await using var reader = await command.ExecuteReaderAsync(ct);
-        IdempotencyClaimResult result;
         do
         {
             if (await reader.ReadAsync(ct))
             {
-                result = reader.GetInt64(1) == 1 ? IdempotencyClaimResult.Claimed
+                return reader.GetInt64(1) == 1 ? IdempotencyClaimResult.Claimed
                     : reader.GetInt32(0) == MySqlIdempotencySql.Completed ? IdempotencyClaimResult.Duplicate
                     : IdempotencyClaimResult.InProgress;
-                return result;
             }
         } while (await reader.NextResultAsync(ct));
 
@@ -80,17 +79,15 @@ public sealed class MySqlIdempotencyStore : IExpiringIdempotencyStore
     public async Task<int> DeleteExpiredAsync(CancellationToken ct = default)
     {
         await EnsureSchemaAsync(ct);
-        var total = 0;
-        while (true)
-        {
-            await using var connection = await OpenAsync(ct);
-            await using var command = new MySqlCommand(_deleteExpiredSql, connection);
-            command.Parameters.AddWithValue("@batchSize", _settings.CleanupBatchSize);
-            var deleted = await command.ExecuteNonQueryAsync(ct);
-            total += deleted;
-            if (deleted < _settings.CleanupBatchSize)
-                return total;
-        }
+        return await ExpiringStore.DeleteAllAsync(DeleteBatchAsync, _settings.CleanupBatchSize, ct);
+    }
+
+    private async Task<int> DeleteBatchAsync(CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct);
+        await using var command = new MySqlCommand(_deleteExpiredSql, connection);
+        command.Parameters.AddWithValue("@batchSize", _settings.CleanupBatchSize);
+        return await command.ExecuteNonQueryAsync(ct);
     }
 
     private Task EnsureSchemaAsync(CancellationToken ct)
@@ -104,20 +101,8 @@ public sealed class MySqlIdempotencyStore : IExpiringIdempotencyStore
         _logger.LogDebug("Idempotency table {Table} is ready", _settings.TableName);
     }
 
-    private async Task<MySqlConnection> OpenAsync(CancellationToken ct)
-    {
-        var connection = new MySqlConnection(_settings.ConnectionString);
-        try
-        {
-            await connection.OpenAsync(ct);
-            return connection;
-        }
-        catch
-        {
-            await connection.DisposeAsync();
-            throw;
-        }
-    }
+    private Task<MySqlConnection> OpenAsync(CancellationToken ct)
+        => PooledConnection.OpenAsync(new MySqlConnection(_settings.ConnectionString), ct);
 
     private static MySqlCommand Command(MySqlConnection connection, string sql, Guid messageId)
     {

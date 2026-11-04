@@ -12,11 +12,16 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoin
 {
     // Task.Delay rejects longer waits (about 49 days), so a longer deferral waits in steps.
     private static readonly TimeSpan MaxDelayStep = TimeSpan.FromDays(1);
+    // A handler that never returns must not keep the broker from stopping.
+    private static readonly TimeSpan DrainTimeout = TimeSpan.FromSeconds(30);
 
-    private readonly CancellationTokenSource _stopped = new();
-    private readonly Channel<byte[]> _channel;
+    private readonly int _capacity;
     private readonly ILogger<MemoryQueueEndPoint> _logger;
     private readonly string _name;
+    private CancellationTokenSource _stopped = new();
+    private Channel<byte[]> _channel;
+    private CancellationTokenSource? _listeningCts;
+    private Task? _loop;
 
     public EndpointMode Mode { get; }
 
@@ -24,14 +29,17 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoin
     {
         _name = name;
         Mode = mode;
+        _capacity = capacity;
         _logger = logger ?? NullLogger<MemoryQueueEndPoint>.Instance;
-        _channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(capacity)
-        {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
-            SingleWriter = false
-        });
+        _channel = NewChannel();
     }
+
+    private Channel<byte[]> NewChannel() => Channel.CreateBounded<byte[]>(new BoundedChannelOptions(_capacity)
+    {
+        FullMode = BoundedChannelFullMode.Wait,
+        SingleReader = true,
+        SingleWriter = false
+    });
 
     public Task PostAsync(byte[] message, CancellationToken ct = default)
         => _channel.Writer.WriteAsync(message, ct).AsTask();
@@ -48,18 +56,18 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoin
         if (_stopped.IsCancellationRequested)
             throw new ChannelClosedException($"Memory endpoint '{_name}' has stopped.");
 
-        _ = DeliverWhenDueAsync(message, deliverAt);
+        _ = DeliverWhenDueAsync(message, deliverAt, _channel, _stopped.Token);
         return Task.CompletedTask;
     }
 
-    private async Task DeliverWhenDueAsync(byte[] message, DateTimeOffset deliverAt)
+    private async Task DeliverWhenDueAsync(byte[] message, DateTimeOffset deliverAt, Channel<byte[]> channel, CancellationToken stopped)
     {
         try
         {
             for (var wait = deliverAt - DateTimeOffset.UtcNow; wait > TimeSpan.Zero; wait = deliverAt - DateTimeOffset.UtcNow)
-                await Task.Delay(wait < MaxDelayStep ? wait : MaxDelayStep, _stopped.Token);
+                await Task.Delay(wait < MaxDelayStep ? wait : MaxDelayStep, stopped);
 
-            await _channel.Writer.WriteAsync(message, _stopped.Token);
+            await channel.Writer.WriteAsync(message, stopped);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ChannelClosedException)
         {
@@ -71,36 +79,82 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoin
         }
     }
 
+    /// <summary>Starts reading on the thread pool and returns. After a stop, listening again takes up where it left off.</summary>
+    /// <exception cref="InvalidOperationException">The endpoint is already listening.</exception>
     public Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
     {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await foreach (var msg in _channel.Reader.ReadAllAsync(ct))
-                {
-                    var result = await EndpointHandler.InvokeAsync(handler, msg, _logger, _name, ct);
-                    // In-memory messages cannot be redelivered, and the broker never asks this endpoint to
-                    // dead-letter (UsesNativeDeadLetter is false), so anything but Completed means the message is lost.
-                    if (result.Outcome != ProcessOutcome.Completed)
-                        _logger.LogError(result.Exception, "Message on endpoint '{Name}' was not processed ({Outcome}: {Failure}) and cannot be redelivered",
-                            _name, result.Outcome, result.FailureText);
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                _logger.LogCritical(ex, "Listener loop for endpoint '{_name}' terminated unexpectedly", _name);
-            }
-        }, ct);
+        if (_loop is not null)
+            throw new InvalidOperationException($"Memory endpoint '{_name}' is already listening.");
+
+        if (_stopped.IsCancellationRequested)
+            Reopen();
+
+        _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var token = _listeningCts.Token;
+        var reader = _channel.Reader;
+        _loop = Task.Run(() => RunListenerAsync(handler, reader, token), CancellationToken.None);
         return Task.CompletedTask;
     }
 
-    public Task StopListeningAsync()
+    // Messages left over from a stop without a listener move along; none are lost.
+    private void Reopen()
     {
-        _stopped.Cancel();
+        var old = _channel;
+        var channel = NewChannel();
+        while (old.Reader.TryRead(out var message))
+            channel.Writer.TryWrite(message);
+
+        _channel = channel;
+        _stopped.Dispose();
+        _stopped = new CancellationTokenSource();
+    }
+
+    private async Task RunListenerAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, ChannelReader<byte[]> reader, CancellationToken token)
+    {
+        try
+        {
+            await foreach (var msg in reader.ReadAllAsync(token))
+            {
+                var result = await EndpointHandler.InvokeAsync(handler, msg, _logger, _name, token);
+                // In-memory messages cannot be redelivered, and the broker never asks this endpoint to
+                // dead-letter (UsesNativeDeadLetter is false), so anything but Completed means the message is lost.
+                if (result.Outcome != ProcessOutcome.Completed)
+                    _logger.LogError(result.Exception, "Message on endpoint '{Name}' was not processed ({Outcome}: {Failure}) and cannot be redelivered",
+                        _name, result.Outcome, result.FailureText);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", _name);
+        }
+    }
+
+    /// <summary>
+    /// Refuses new messages, drops those still waiting for their time, then handles what is already queued and returns, so
+    /// no handler runs after this. After 30 seconds the running handler is cancelled and what is left stays queued.
+    /// </summary>
+    public async Task StopListeningAsync()
+    {
+        await _stopped.CancelAsync();
         _channel.Writer.TryComplete();
-        return Task.CompletedTask;
+
+        if (_loop is null) return;
+
+        try
+        {
+            await _loop.WaitAsync(DrainTimeout);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("Memory endpoint '{Name}' did not finish its queue within {Timeout}; cancelling the running handler", _name, DrainTimeout);
+            await _listeningCts!.CancelAsync();
+            await _loop;
+        }
+
+        _loop = null;
+        _listeningCts!.Dispose();
+        _listeningCts = null;
     }
 
     public async IAsyncEnumerable<string> ReadAsync([EnumeratorCancellation] CancellationToken ct = default)

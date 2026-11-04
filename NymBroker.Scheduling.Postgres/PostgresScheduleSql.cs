@@ -1,23 +1,13 @@
+using NymBroker.Shared;
+
 namespace NymBroker.Scheduling.Postgres;
 
 /// <summary>SQL for the schedule table: one row per named scheduled action with the last claimed occurrence.</summary>
 internal static class PostgresScheduleSql
 {
-    internal static string QuoteQualifiedIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("PostgreSQL identifier cannot be empty.");
+    internal static string QuoteQualifiedIdentifier(string identifier) => PostgresIdentifier.QuoteQualified(identifier);
 
-        return string.Join('.', identifier.Split('.', StringSplitOptions.TrimEntries).Select(QuoteSimpleIdentifier));
-    }
-
-    internal static string QuoteSimpleIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new InvalidOperationException("PostgreSQL identifier cannot be empty.");
-
-        return $"\"{identifier.Replace("\"", "\"\"")}\"";
-    }
+    internal static string QuoteSimpleIdentifier(string identifier) => PostgresIdentifier.QuoteSimple(identifier);
 
     /// <summary>Parameter <c>lockKey</c>: serializes concurrent creators; run inside a transaction (see <c>PostgresScheduleStore.CreateSchemaAsync</c>).</summary>
     internal static string CreateSchema(string tableName) => $"""

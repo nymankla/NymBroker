@@ -9,6 +9,9 @@ namespace NymBroker.Endpoint.RabbitMq;
 
 public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
 {
+    private static readonly BasicProperties PersistentMessage = new() { Persistent = true };
+    private static readonly BasicProperties TransientMessage = new();
+
     private readonly RabbitMqSettings _settings;
     private readonly ILogger<RabbitMqEndPoint> _logger;
     private readonly RetryPolicy _reconnectPolicy;
@@ -59,12 +62,32 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     public async Task PostAsync(byte[] message, CancellationToken ct = default)
     {
         var channel = await EnsurePublishChannelAsync(ct);
-        await channel.BasicPublishAsync(
+        await PublishAsync(channel, message, ct);
+    }
+
+    /// <summary>
+    /// Publishes all messages, in order, then waits for all their confirmations, so a batch costs far less than one
+    /// <see cref="PostAsync"/> each. Not atomic: if it throws, some messages may have been published.
+    /// </summary>
+    public async Task PostBatchAsync(IReadOnlyList<byte[]> messages, CancellationToken ct = default)
+    {
+        if (messages.Count == 0) return;
+
+        var channel = await EnsurePublishChannelAsync(ct);
+        var published = new Task[messages.Count];
+        for (var i = 0; i < messages.Count; i++)
+            published[i] = PublishAsync(channel, messages[i], ct).AsTask();
+        await Task.WhenAll(published);
+    }
+
+    private ValueTask PublishAsync(IChannel channel, byte[] message, CancellationToken ct)
+        => channel.BasicPublishAsync(
             exchange: string.Empty,
             routingKey: _settings.WriteQueueName,
+            mandatory: false,
+            basicProperties: _settings.DurablePublish ? PersistentMessage : TransientMessage,
             body: message,
             cancellationToken: ct);
-    }
 
     /// <summary>Dead-letters via <c>BasicNack(requeue: false)</c>, i.e. the queue's dead-letter exchange.</summary>
     public bool UsesNativeDeadLetter => _settings.UseNativeDeadLetter;
@@ -287,7 +310,9 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
             if (_publishChannel?.IsOpen == true) return _publishChannel;
 
             var conn = await EnsureConnectionAsync(ct);
-            _publishChannel = await conn.CreateChannelAsync(cancellationToken: ct);
+            _publishChannel = await conn.CreateChannelAsync(
+                new CreateChannelOptions(publisherConfirmationsEnabled: _settings.DurablePublish, publisherConfirmationTrackingEnabled: _settings.DurablePublish),
+                ct);
             await _publishChannel.QueueDeclareAsync(_settings.WriteQueueName, durable: true,
                 exclusive: false, autoDelete: false, cancellationToken: ct);
             return _publishChannel;

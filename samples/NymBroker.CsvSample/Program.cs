@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using NymBroker.Core.DI;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.Memory;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.CsvSample.Consumers;
 using NymBroker.CsvSample.Messages;
 using NymBroker.CsvSample.Transform;

@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using NymBroker.Endpoint.AzureServiceBus;
 using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Core.Message;
 
 // Start the emulator first: ./scripts/setup-servicebus.ps1

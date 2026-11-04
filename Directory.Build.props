@@ -15,9 +15,10 @@
     <PackageTags>NymBroker;messaging;message-processing;message-queue;message-broker;integration;eip;enterprise-integration-patterns;pubsub;routing;dead-letter</PackageTags>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <TreatWarningsAsErrors Condition="'$(CI)' == 'true'">true</TreatWarningsAsErrors>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NymBroker.Core' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AzureServiceBus' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.AwsSqs' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Http' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.RabbitMq' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Endpoint.Sqlite' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Idempotency.Sqlite' Or '$(MSBuildProjectName)' == 'NymBroker.Scheduling.MySql' Or '$(MSBuildProjectName)' == 'NymBroker.Scheduling.Postgres' Or '$(MSBuildProjectName)' == 'NymBroker.Scheduling.SqlServer' Or '$(MSBuildProjectName)' == 'NymBroker.Scheduling.Sqlite'">
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NymBroker.Core' Or $(MSBuildProjectName.StartsWith('NymBroker.Endpoint.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Idempotency.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Scheduling.'))">
     <IsNymBrokerPackage>true</IsNymBrokerPackage>
   </PropertyGroup>
 
@@ -28,6 +29,11 @@
   </ItemGroup>
   <PropertyGroup Condition="'$(IsNymBrokerPackage)' == 'true'">
     <EnablePackageValidation>true</EnablePackageValidation>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- A comment on every public member is not required; a wrong cref or malformed comment still warns. -->
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <WarningsAsErrors>$(WarningsAsErrors);RS0016;RS0017;RS0018;RS0024;RS0025;RS0036</WarningsAsErrors>
   </PropertyGroup>
 </Project>

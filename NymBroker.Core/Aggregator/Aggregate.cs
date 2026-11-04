@@ -8,6 +8,8 @@ public sealed class Aggregate
     public int ReceivedCount => _parts.Count;
     public DateTime FirstReceived { get; } = DateTime.UtcNow;
     internal bool IsCompleted { get; set; }
+    /// <summary>The payload of a group that was reassembled before, kept for a redelivered part.</summary>
+    internal byte[]? Kept { get; init; }
 
     public Aggregate(Guid correlationId) => CorrelationId = correlationId;
 

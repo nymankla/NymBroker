@@ -1,6 +1,6 @@
 using NymBroker.Core.Consume;
 using NymBroker.Core.Filter;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Core.Message;
 
 namespace NymBroker.MediatRSample.Orders;

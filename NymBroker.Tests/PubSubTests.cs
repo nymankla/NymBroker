@@ -6,6 +6,7 @@ using NymBroker.Core.Endpoint.Memory;
 using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Factory;
 using NymBroker.Core.Factory.Configuration;
+using NymBroker.Core;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Message;
 using NymBroker.Core.PubSub;
@@ -550,12 +551,14 @@ public sealed class PubSubTests
     // =========================================================================
 
     [Fact]
-    public async Task PublishAsync_UnknownTopicName_DoesNotThrow()
+    public async Task PublishAsync_UnknownTopicName_Throws()
     {
         var (broker, _) = BuildBroker();
 
-        // Should log a warning but not throw
-        await broker.PublishAsync("no-such-topic", new OrderMessage { OrderId = "X" }, TestContext.Current.CancellationToken);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            broker.PublishAsync("no-such-topic", new OrderMessage { OrderId = "X" }, TestContext.Current.CancellationToken));
+
+        Assert.Contains("no-such-topic", ex.Message);
     }
 
     // =========================================================================

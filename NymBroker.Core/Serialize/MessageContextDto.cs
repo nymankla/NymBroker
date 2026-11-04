@@ -4,7 +4,7 @@ using NymBroker.Core.Message;
 
 namespace NymBroker.Core.Serialize;
 
-internal sealed class MessageContextDto
+internal sealed class MessageContextDto<TMessage>
 {
     [JsonPropertyName("id")]
     public Guid Id { get; set; }
@@ -22,7 +22,7 @@ internal sealed class MessageContextDto
     public DateTime Created { get; set; }
 
     [JsonPropertyName("message")]
-    public JsonElement Message { get; set; }
+    public TMessage? Message { get; set; }
 
     [JsonPropertyName("deadLetter")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

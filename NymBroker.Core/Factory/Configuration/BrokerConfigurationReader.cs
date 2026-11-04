@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using NymBroker.Core.Serialize;
 using Microsoft.Extensions.Configuration;
@@ -65,12 +66,12 @@ public static class BrokerConfigurationReader
             return;
         }
 
-        bool isArray = children.All(c => int.TryParse(c.Key, out _));
+        bool isArray = children.All(c => int.TryParse(c.Key, CultureInfo.InvariantCulture, out _));
 
         if (isArray)
         {
             writer.WriteStartArray();
-            foreach (var child in children.OrderBy(c => int.Parse(c.Key)))
+            foreach (var child in children.OrderBy(c => int.Parse(c.Key, CultureInfo.InvariantCulture)))
                 WriteSection(writer, child);
             writer.WriteEndArray();
         }

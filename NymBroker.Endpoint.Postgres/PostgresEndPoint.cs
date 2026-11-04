@@ -24,6 +24,14 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
     private readonly AsyncOnce _schema = new();
     private readonly string _name;
     private readonly Listener _listener;
+    private readonly string _insertSql;
+    private readonly string _insertBatchSql;
+    private readonly string _insertDeferredSql;
+    private readonly string _claimSql;
+    private readonly string _finalizeSql;
+    private readonly string _promoteDueSql;
+    private readonly string _deleteCompletedSql;
+    private readonly string _deleteFailedSql;
 
     private readonly Lazy<NpgsqlDataSource> _dataSource;
 
@@ -36,6 +44,14 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
         _settings = settings;
         _dataSource = new Lazy<NpgsqlDataSource>(CreateDataSource);
         _logger = logger;
+        _insertSql = PostgresQueueSql.InsertMessage(settings.TableName, settings.UseNotifications);
+        _insertBatchSql = PostgresQueueSql.InsertMessages(settings.TableName, settings.UseNotifications);
+        _insertDeferredSql = PostgresQueueSql.InsertDeferred(settings.TableName);
+        _claimSql = PostgresQueueSql.ClaimMessages(settings.TableName);
+        _finalizeSql = PostgresQueueSql.FinalizeMessages(settings.TableName);
+        _promoteDueSql = PostgresQueueSql.PromoteDue(settings.TableName);
+        _deleteCompletedSql = PostgresQueueSql.DeleteCompleted(settings.TableName);
+        _deleteFailedSql = PostgresQueueSql.DeleteFailed(settings.TableName);
         _listener = new Listener(this);
     }
 
@@ -55,7 +71,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
     {
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = PostgresQueueSql.InsertMessage(_settings.TableName, _settings.UseNotifications);
+        cmd.CommandText = _insertSql;
         cmd.Parameters.AddWithValue("messageId", Guid.NewGuid());
         cmd.Parameters.Add(new NpgsqlParameter<byte[]>("payload", NpgsqlDbType.Bytea) { TypedValue = message });
         await cmd.ExecuteNonQueryAsync(ct);
@@ -68,7 +84,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
 
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = PostgresQueueSql.InsertMessages(_settings.TableName, _settings.UseNotifications);
+        cmd.CommandText = _insertBatchSql;
         cmd.Parameters.Add(new NpgsqlParameter<Guid[]>("messageIds", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
         {
             TypedValue = messages.Select(static _ => Guid.NewGuid()).ToArray()
@@ -85,7 +101,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
     {
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = PostgresQueueSql.InsertDeferred(_settings.TableName);
+        cmd.CommandText = _insertDeferredSql;
         cmd.Parameters.Add(new NpgsqlParameter<DateTimeOffset>("deliverAt", NpgsqlDbType.TimestampTz) { TypedValue = deliverAt.ToUniversalTime() });
         cmd.Parameters.AddWithValue("messageId", Guid.NewGuid());
         cmd.Parameters.Add(new NpgsqlParameter<byte[]>("payload", NpgsqlDbType.Bytea) { TypedValue = message });
@@ -123,7 +139,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
         if (outcomes.Count > 0)
             batch.BatchCommands.Add(CreateFinalizeCommand(outcomes));
 
-        var claim = new NpgsqlBatchCommand(PostgresQueueSql.ClaimMessages(_settings.TableName));
+        var claim = new NpgsqlBatchCommand(_claimSql);
         claim.Parameters.Add(new NpgsqlParameter<int>("batchSize", _settings.BatchSize));
         claim.Parameters.Add(new NpgsqlParameter<int>("leaseTimeout", LeasedQueueListener.GetLeaseTimeoutSeconds(_settings)));
         batch.BatchCommands.Add(claim);
@@ -154,7 +170,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
     {
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = PostgresQueueSql.PromoteDue(_settings.TableName);
+        cmd.CommandText = _promoteDueSql;
         cmd.Parameters.Add(new NpgsqlParameter<int>("batchSize", _settings.BatchSize));
         return await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -164,8 +180,8 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = status == QueueMessageStatus.Completed
-            ? PostgresQueueSql.DeleteCompleted(_settings.TableName)
-            : PostgresQueueSql.DeleteFailed(_settings.TableName);
+            ? _deleteCompletedSql
+            : _deleteFailedSql;
         cmd.Parameters.Add(new NpgsqlParameter<int>("olderThanSeconds", olderThanSeconds));
         cmd.Parameters.Add(new NpgsqlParameter<int>("batchSize", _settings.CleanupBatchSize));
         return await cmd.ExecuteNonQueryAsync(ct);
@@ -181,7 +197,7 @@ public sealed class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, 
 
     private NpgsqlBatchCommand CreateFinalizeCommand(IReadOnlyList<QueueMessageOutcome> outcomes)
     {
-        var cmd = new NpgsqlBatchCommand(PostgresQueueSql.FinalizeMessages(_settings.TableName));
+        var cmd = new NpgsqlBatchCommand(_finalizeSql);
         cmd.Parameters.Add(new NpgsqlParameter<long[]>("queueIds", NpgsqlDbType.Array | NpgsqlDbType.Bigint)
         {
             TypedValue = outcomes.Select(static o => o.Message.QueueId).ToArray()

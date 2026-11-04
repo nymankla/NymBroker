@@ -9,7 +9,7 @@ using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Endpoint.Memory;
 using NymBroker.Core.Factory;
-using NymBroker.Core.Impl;
+using NymBroker.Core;
 using NymBroker.Core.Message;
 using NymBroker.Core.Serialize;
 
@@ -260,10 +260,11 @@ public sealed class BatchPostingTests
     }
 
     [Fact]
-    public async Task PublishBatch_UnknownTopic_IsANoOp()
+    public async Task PublishBatch_UnknownTopic_Throws()
     {
         var (broker, _, _) = Build(_ => { });
 
-        await broker.PublishBatchAsync("no-such-topic", Orders(2), TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            broker.PublishBatchAsync("no-such-topic", Orders(2), TestContext.Current.CancellationToken));
     }
 }

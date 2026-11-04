@@ -67,7 +67,7 @@ Rules:
 
 `IMessageContext`: `Id` (message id), `CorrelationId`, `Address.From` (endpoint it was received on) / `Address.To`, `MessageType`, `Created` (UTC), `DeadLetter` (why it was dead-lettered, when consuming a dead-letter endpoint).
 
-Send follow-up messages by injecting `INymBroker` (namespace `NymBroker.Core.Impl`):
+Send follow-up messages by injecting `INymBroker` (namespace `NymBroker.Core`):
 
 ```csharp
 await broker.PostAsync("Payments", new ChargeCard(message.OrderId, message.Amount), ct);

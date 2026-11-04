@@ -49,6 +49,8 @@ flowchart TD
 
 Set `UseNativeDeadLetter = false` on a RabbitMQ, Service Bus or SQL endpoint to make it behave like Memory/File: no retries, failures go to the broker's dead-letter endpoint.
 
+If the post to the dead-letter endpoint itself fails, the broker returns **Retry** instead of completing the message, so a transport that can redeliver keeps it. Memory and File cannot redeliver, so they log the loss. A type-based `PublishAsync` throws to the caller.
+
 ### No retry for one consumer
 
 Some failures are not worth retrying: invalid data, a business rule that rejects the message. Register that consumer with `RetryOnFailure = false` and a message whose consumer throws is dead-lettered at once (reason `ConsumerFailed`), without redelivery:

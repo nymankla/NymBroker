@@ -27,7 +27,13 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
     private readonly string _name;
     private readonly string _table;
     private readonly Listener _listener;
-
+    private readonly string _insertSql;
+    private readonly string _insertDeferredSql;
+    private readonly string _finalizeAndLockSql;
+    private readonly string _lockDueSql;
+    private readonly string _finalizeSql;
+    private readonly string _deleteCompletedSql;
+    private readonly string _deleteFailedSql;
 
     public EndpointMode Mode { get; }
 
@@ -38,6 +44,13 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
         _settings = settings;
         _logger = logger;
         _table = MySqlQueueSql.QuoteTableName(settings.TableName);
+        _insertSql = MySqlQueueSql.InsertMessage(_table);
+        _insertDeferredSql = MySqlQueueSql.InsertDeferred(_table);
+        _finalizeAndLockSql = MySqlQueueSql.FinalizeAndLock(_table);
+        _lockDueSql = MySqlQueueSql.LockDue(_table);
+        _finalizeSql = MySqlQueueSql.Finalize(_table);
+        _deleteCompletedSql = MySqlQueueSql.DeleteCompleted(_table);
+        _deleteFailedSql = MySqlQueueSql.DeleteFailed(_table);
         _listener = new Listener(this);
     }
 
@@ -56,7 +69,7 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
     public async Task PostAsync(byte[] message, CancellationToken ct = default)
     {
         await using var conn = await OpenConnectionAsync(ct);
-        await using var cmd = new MySqlCommand(MySqlQueueSql.InsertMessage(_table), conn);
+        await using var cmd = new MySqlCommand(_insertSql, conn);
         cmd.Parameters.AddWithValue("@messageId", Guid.NewGuid().ToByteArray());
         cmd.Parameters.AddWithValue("@payload", message);
         await cmd.ExecuteNonQueryAsync(ct);
@@ -81,7 +94,7 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
     public async Task PostDeferredAsync(byte[] message, DateTimeOffset deliverAt, CancellationToken ct = default)
     {
         await using var conn = await OpenConnectionAsync(ct);
-        await using var cmd = new MySqlCommand(MySqlQueueSql.InsertDeferred(_table), conn);
+        await using var cmd = new MySqlCommand(_insertDeferredSql, conn);
         cmd.Parameters.AddWithValue("@deliverAt", deliverAt.UtcDateTime);
         cmd.Parameters.AddWithValue("@messageId", Guid.NewGuid().ToByteArray());
         cmd.Parameters.AddWithValue("@payload", message);
@@ -107,7 +120,7 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
         try
         {
             var ids = new List<long>();
-            await using (var lockCmd = new MySqlCommand(MySqlQueueSql.FinalizeAndLock(_table), conn))
+            await using (var lockCmd = new MySqlCommand(_finalizeAndLockSql, conn))
             {
                 AddItemsParameter(lockCmd, outcomes);
                 lockCmd.Parameters.AddWithValue("@batchSize", _settings.BatchSize);
@@ -159,7 +172,7 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
         try
         {
             var ids = new List<long>();
-            await using (var lockCmd = new MySqlCommand(MySqlQueueSql.LockDue(_table), conn))
+            await using (var lockCmd = new MySqlCommand(_lockDueSql, conn))
             {
                 lockCmd.Parameters.AddWithValue("@batchSize", _settings.BatchSize);
                 await using var reader = await lockCmd.ExecuteReaderAsync(ct);
@@ -185,8 +198,8 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
     {
         await using var conn = await OpenConnectionAsync(ct);
         await using var cmd = new MySqlCommand(status == QueueMessageStatus.Completed
-            ? MySqlQueueSql.DeleteCompleted(_table)
-            : MySqlQueueSql.DeleteFailed(_table), conn);
+            ? _deleteCompletedSql
+            : _deleteFailedSql, conn);
         cmd.Parameters.AddWithValue("@olderThanSeconds", olderThanSeconds);
         cmd.Parameters.AddWithValue("@batchSize", _settings.CleanupBatchSize);
         return await cmd.ExecuteNonQueryAsync(ct);
@@ -195,7 +208,7 @@ public sealed class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAs
     private async Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
     {
         await using var conn = await OpenConnectionAsync(ct);
-        await using var cmd = new MySqlCommand(MySqlQueueSql.Finalize(_table), conn);
+        await using var cmd = new MySqlCommand(_finalizeSql, conn);
         AddItemsParameter(cmd, outcomes);
         await cmd.ExecuteNonQueryAsync(ct);
     }

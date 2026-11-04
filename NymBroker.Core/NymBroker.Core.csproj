@@ -18,7 +18,6 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.14" />
-    <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" Version="4.0.1" />
   </ItemGroup>
 
   <ItemGroup>
