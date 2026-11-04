@@ -7,6 +7,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Added
 
 - RabbitMQ: `RabbitMqSettings.DurablePublish` (see Changed).
+- `samples/NymBroker.Benchmarks`: scenarios for idempotency, dead-lettering, wire tap, input and output transformers, deferred posts, HTTP, several producers, large messages, route conditions and incompressible data, plus `drain backlog` scenarios that measure only the receive side and a `--filter` option. Removed scenarios that showed nothing (`Memory – filtered`, `PubSub – 1 sub`, Service Bus `batch/100` against the rate-limited emulator). `RabbitMQ – batch/100` now batches posts; it used to batch only acknowledgements.
 - `IAggregator.KeepForRetry` has a default implementation, so a custom aggregator still compiles, but without an override it keeps the old behaviour described under Fixed.
 
 ### Changed

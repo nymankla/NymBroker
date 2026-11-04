@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Text;
+using System.Security.Cryptography;
 using NymBroker.Benchmarks;
 using NymBroker.Core.DI;
+using NymBroker.Core.Endpoint;
 using NymBroker.Core.Factory;
 using NymBroker.Core;
 using NymBroker.Core.Route;
@@ -12,6 +15,9 @@ using NymBroker.Endpoint.SqlServer;
 using NymBroker.Endpoint.AzureServiceBus;
 using NymBroker.Endpoint.AwsSqs;
 using NymBroker.Endpoint.MySql;
+using NymBroker.Endpoint.Http;
+using NymBroker.Idempotency.Postgres;
+using NymBroker.Idempotency.Sqlite;
 using MySqlConnector;
 using Amazon.Runtime;
 using Amazon.SQS;
@@ -26,12 +32,15 @@ const int    FileCount    = 100;
 const int    SqlCount     = 1_000;
 const int    PgCount      = 1_000;
 const int    MssqlCount   = 1_000;
-const int    SbCount      = 1_000;
+const int    SbCount      = 200;      // the emulator limits this to about 35 messages a second
 const int    RabbitCount  = 1_000;
 const int    SqsCount     = 1_000;
 const int    MySqlCount   = 1_000;
 const int    SplitCount   = 200;
 const int    SplitThresholdBytes = 16 * 1024;
+const int    BacklogFactor = 5;       // a drain scenario reads this many times the transport's message count
+const int    SlowPathCount = 10_000;  // scenarios that do far more per message than the fast in-process ones
+const int    LargeCount    = 5_000;
 // In-process scenarios finish in about a second, so one run is mostly noise and JIT warm-up. They get their own
 // warm-up pass, then several measured runs; the median run is reported.
 const int    InProcessWarmup = 10_000;
@@ -49,27 +58,29 @@ const string SqsServiceUrl = "http://localhost:9324";
 const string SqsQueue      = "nymbroker-bench";
 const string MySqlConnStr  = "Server=localhost;Port=3306;Database=nymbroker;User ID=root;Password=NymBroker!Dev123";
 const string MySqlTable    = "nymbroker_bench";
+const string PgIdempotencyTable = "nymbroker_bench_idempotency";
 var Settings = Path.Combine(AppContext.BaseDirectory, "benchmarksettings.json");
 // --latency: also collect the broker's own metrics (slows the run; see LatencyRecorder).
 var Latency = args.Contains("--latency");
+// --filter <text>: run only the scenarios whose name contains the text.
+var filterAt = Array.IndexOf(args, "--filter");
+var Filter = filterAt >= 0 && filterAt + 1 < args.Length ? args[filterAt + 1] : null;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 Console.WriteLine("NymBroker Throughput Benchmarks");
 Console.WriteLine(new string('=', 42));
-Console.WriteLine($"  Memory scenarios : {MemoryCount:N0} messages, median of {InProcessRuns} runs after {InProcessWarmup:N0} warm-up messages");
-Console.WriteLine($"  File scenario    : {FileCount:N0} messages");
-Console.WriteLine($"  SQLite scenario  : {SqlCount:N0} messages");
-Console.WriteLine($"  Postgres scenario: {PgCount:N0} messages");
-Console.WriteLine($"  SQL Server scen. : {MssqlCount:N0} messages");
-Console.WriteLine($"  Service Bus scen.: {SbCount:N0} messages");
-Console.WriteLine($"  RabbitMQ scenarios: {RabbitCount:N0} messages (direct + batch/100)");
-Console.WriteLine($"  Split scenarios  : {SplitCount:N0} messages (threshold={SplitThresholdBytes / 1024} KB)");
+Console.WriteLine($"  In-process scenarios: median of {InProcessRuns} runs, each after its own warm-up");
+Console.WriteLine($"  Transport scenarios: one run, skipped if the service is not reachable");
+if (Filter != null) Console.WriteLine($"  --filter           : only scenarios containing '{Filter}'");
 if (Latency) Console.WriteLine("  --latency        : broker metrics collected; Msg/sec is lower than without it");
 Console.WriteLine();
 
 // Large, highly compressible payload — big enough to require several split parts at
 // SplitThresholdBytes, and repetitive enough that Brotli compression noticeably shrinks it.
 var splitPayload = string.Concat(Enumerable.Repeat("The quick brown fox jumps over the lazy dog. ", 6_000));
+// As large, but about as hard to compress as text gets: Base64 of random bytes.
+var randomPayload = Convert.ToBase64String(RandomNumberGenerator.GetBytes(200_000));
+var largePayload = new string('X', 64 * 1024);
 
 Console.Write("Warming up... ");
 // A full in-process scenario, not a token run: the first scenarios measured otherwise ran up to 2× slower than the
@@ -78,25 +89,37 @@ await RunAsync("_warmup", "Memory", MemoryCount, runs: InProcessRuns, warmup: In
 Console.WriteLine("done");
 Console.WriteLine();
 
-Console.Write("Watcher sanity check... ");
-await WatcherSanityCheckAsync();
-
 Console.WriteLine("Running scenarios:");
-var results = new List<BenchmarkResult>
+var results = new List<BenchmarkResult?>
 {
+    // ── The pipeline ─────────────────────────────────────────────────────────────────────────────────────
     await RunAsync("Memory – direct",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup),
+    await RunAsync("Memory – 8 producers", "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, producers: 8),
+    await RunAsync("Memory – batch/100",   "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, postBatchSize: 100),
+    await RunAsync("Memory – 64 KB",       "Memory",  LargeCount,  runs: InProcessRuns, warmup: LargeCount,
+        messageFactory: i => new BenchmarkMessage(i, largePayload)),
     await RunAsync("Memory – routed",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup,
         configureBuilder: b => b.AddRoute<BenchmarkMessage>(r => r.To("MemoryRouted").WhenFrom("Memory"))),
-    await RunAsync("Memory – filtered",    "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, addFilter: true),
-
-    await RunAsync("PubSub – 1 sub",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, usePubSub: true,
+    // 19 routes read the message and do not match; the 20th sends it on.
+    await RunAsync("Memory – 20 routes",   "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup,
         configureBuilder: b =>
         {
-            b.AddTopic<BenchmarkMessage>("bench.pubsub.1")
-                .SubscribeWith<BenchmarkSubscriberA>()
-                .Build();
+            for (var i = 0; i < 19; i++)
+                b.AddRoute<BenchmarkMessage>(r => r.To("MemoryRouted").When(m => m.GetProperty("seq").GetInt32() < 0).WhenFrom("Memory"));
+            b.AddRoute<BenchmarkMessage>(r => r.To("MemoryRouted").WhenFrom("Memory"));
+        }),
+    await RunAsync("Memory – wire tap",    "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup,
+        configureBuilder: b => AddSink(b, "Tap", signal: false).AddWireTap("Tap")),
+    await RunAsync("Input transformer",    "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, bareInput: true,
+        configureBuilder: b => b.AddInputTransformer<BareJsonInputTransformer>("Memory")),
+    await RunAsync("Output transformer",   "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup,
+        configureBuilder: b =>
+        {
+            AddSink(b, "Partner", signal: true).AddOutputTransformer<BareJsonOutputTransformer>("Partner");
+            b.AddRoute<BenchmarkMessage>(r => r.To("Partner").WhenFrom("Memory"));
         }),
 
+    // ── Topics ───────────────────────────────────────────────────────────────────────────────────────────
     await RunAsync("PubSub – 3 subs",     "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, usePubSub: true,
         signalsPerMessage: 3,
         configureBuilder: b =>
@@ -119,17 +142,23 @@ var results = new List<BenchmarkResult>
                 .Build();
         }),
 
-    await RunAsync("File   – direct",     "FileLoop", FileCount, fileDir: "bench-in"),
-
-    await RunAsync("SQLite – direct",     "SqlBench", SqlCount,
-        configureBuilder: b => b.AddSqliteEndPoint("SqlBench", new SqliteSettings
+    // ── Reliability ──────────────────────────────────────────────────────────────────────────────────────
+    await RunAsync("Idempotent – memory", "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup,
+        configureBuilder: b => b.AddIdempotentReceiver()),
+    await RunAsync("Idempotent – SQLite", "Memory",  SqlCount,
+        configureBuilder: b => b.AddSqliteIdempotency(new SqliteIdempotencySettings { ConnectionString = "Data Source=:memory:", CleanupInterval = TimeSpan.Zero })),
+    // Every consumer call throws, and the broker dead-letters the message: what a run of poison messages costs.
+    await RunAsync("Consumer fails → DLQ", "Memory", SlowPathCount, runs: InProcessRuns, warmup: SlowPathCount, consumerFails: true,
+        configureBuilder: b => AddSink(b, "Dlq", signal: true).WithDeadLetterEndpoint("Dlq")),
+    // Due in a second, so Msg/sec mostly shows that wait; Alloc/msg is the cost of holding a message in the broker.
+    await RunAsync("Deferred – in broker", "Plain", 20_000, deferBy: TimeSpan.FromSeconds(1),
+        configureBuilder: b =>
         {
-            ConnectionString = "Data Source=:memory:",
-            TableName        = "BenchMessages",
-            BatchSize        = 100,
-            PollInterval     = TimeSpan.Zero
-        })),
+            b.Services.AddKeyedSingleton<IEndPoint>("Plain", (_, _) => new NonDeferringEndPoint("Plain"));
+            b.RegisterEndpoint("Plain");
+        }),
 
+    // ── Large messages ───────────────────────────────────────────────────────────────────────────────────
     await RunAsync("Split+Compress – direct", "Memory", SplitCount,
         messageFactory: i => new BenchmarkMessage(i, splitPayload),
         splitThresholdBytes: SplitThresholdBytes, compress: true),
@@ -137,7 +166,36 @@ var results = new List<BenchmarkResult>
     await RunAsync("Split – no compress",     "Memory", SplitCount,
         messageFactory: i => new BenchmarkMessage(i, splitPayload),
         splitThresholdBytes: SplitThresholdBytes, compress: false),
+
+    await RunAsync("Split+Compress – random", "Memory", SplitCount,
+        messageFactory: i => new BenchmarkMessage(i, randomPayload),
+        splitThresholdBytes: SplitThresholdBytes, compress: true),
+
+    // ── Transports that need no service ──────────────────────────────────────────────────────────────────
+    await RunAsync("File   – direct",     "FileLoop", FileCount, fileDir: "bench-in"),
+
+    // No network and no server: what the HTTP endpoint and HttpClient add per request.
+    await RunAsync("HTTP – no network",   "HttpBench", SlowPathCount, runs: InProcessRuns, warmup: SlowPathCount,
+        configureBuilder: b => b.AddHttpEndPoint("HttpBench", new HttpSettings { Url = "http://localhost/bench", MaxRetryAttempts = 0 },
+            client => client.ConfigurePrimaryHttpMessageHandler(sp => new CountingHandler(sp.GetRequiredService<CompletionTracker>())))),
 };
+
+var sqliteSettings = new SqliteSettings
+{
+    ConnectionString = "Data Source=:memory:",
+    TableName        = "BenchMessages",
+    BatchSize        = 100,
+    PollInterval     = TimeSpan.Zero
+};
+results.Add(await RunAsync("SQLite – direct", "SqlBench", SqlCount,
+    configureBuilder: b => b.AddSqliteEndPoint("SqlBench", sqliteSettings)));
+results.Add(await RunAsync("SQLite – batch/100", "SqlBench", SqlCount, postBatchSize: 100,
+    configureBuilder: b => b.AddSqliteEndPoint("SqlBench", sqliteSettings)));
+results.Add(await RunAsync("SQLite – drain backlog", "SqlBench", SqlCount * BacklogFactor, drainBacklog: true,
+    configureBuilder: b => b.AddSqliteEndPoint("SqlBench", sqliteSettings)));
+// A time in the past: every message goes through the deferred table and is moved to the queue at once.
+results.Add(await RunAsync("SQLite – deferred", "SqlBench", SqlCount, deferBy: TimeSpan.FromMinutes(-1),
+    configureBuilder: b => b.AddSqliteEndPoint("SqlBench", sqliteSettings)));
 
 if (await IsPostgresAvailableAsync())
 {
@@ -155,6 +213,21 @@ if (await IsPostgresAvailableAsync())
     await CleanPgTableAsync();
     results.Add(await RunAsync("Postgres – batch/100", "PgBench", PgCount, postBatchSize: 100,
         configureBuilder: b => b.AddPostgresEndPoint("PgBench", pgSettings)));
+    await CleanPgTableAsync();
+    results.Add(await RunAsync("Postgres – drain backlog", "PgBench", PgCount * BacklogFactor, drainBacklog: true,
+        configureBuilder: b => b.AddPostgresEndPoint("PgBench", pgSettings)));
+    await CleanPgTableAsync();
+    results.Add(await RunAsync("Postgres – deferred", "PgBench", PgCount, deferBy: TimeSpan.FromMinutes(-1),
+        configureBuilder: b => b.AddPostgresEndPoint("PgBench", pgSettings)));
+    await CleanPgTableAsync();
+    results.Add(await RunAsync("Idempotent – Postgres", "Memory", PgCount,
+        configureBuilder: b => b.AddPostgresIdempotency(new PostgresIdempotencySettings
+        {
+            ConnectionString = PgConnStr,
+            TableName        = PgIdempotencyTable,
+            CleanupInterval  = TimeSpan.Zero
+        })));
+    await CleanPgTableAsync();
 }
 else
 {
@@ -177,6 +250,10 @@ if (await IsSqlServerAvailableAsync())
     await CleanSqlServerTableAsync();
     results.Add(await RunAsync("SqlServer – batch/100", "MssqlBench", MssqlCount, postBatchSize: 100,
         configureBuilder: b => b.AddSqlServerEndPoint("MssqlBench", mssqlSettings)));
+    await CleanSqlServerTableAsync();
+    results.Add(await RunAsync("SqlServer – drain backlog", "MssqlBench", MssqlCount * BacklogFactor, drainBacklog: true,
+        configureBuilder: b => b.AddSqlServerEndPoint("MssqlBench", mssqlSettings)));
+    await CleanSqlServerTableAsync();
 }
 else
 {
@@ -199,6 +276,10 @@ if (await IsMySqlAvailableAsync())
     await CleanMySqlTableAsync();
     results.Add(await RunAsync("MySQL – batch/100", "MySqlBench", MySqlCount, postBatchSize: 100,
         configureBuilder: b => b.AddMySqlEndPoint("MySqlBench", mySqlSettings)));
+    await CleanMySqlTableAsync();
+    results.Add(await RunAsync("MySQL – drain backlog", "MySqlBench", MySqlCount * BacklogFactor, drainBacklog: true,
+        configureBuilder: b => b.AddMySqlEndPoint("MySqlBench", mySqlSettings)));
+    await CleanMySqlTableAsync();
 }
 else
 {
@@ -216,9 +297,6 @@ if (await IsServiceBusAvailableAsync())
     };
     results.Add(await RunAsync("ServiceBus – direct", "SbBench", SbCount,
         configureBuilder: b => b.AddAzureServiceBusEndPoint("SbBench", sbSettings)));
-    await DrainServiceBusQueueAsync();
-    results.Add(await RunAsync("ServiceBus – batch/100", "SbBench", SbCount, postBatchSize: 100,
-        configureBuilder: b => b.AddAzureServiceBusEndPoint("SbBench", sbSettings)));
 }
 else
 {
@@ -227,24 +305,32 @@ else
 
 if (await IsRabbitMqAvailableAsync())
 {
+    var rabbitSettings = new RabbitMqSettings { HostName = "localhost", ReadQueueName = RabbitQueue, WriteQueueName = RabbitQueue };
     await PurgeRabbitQueueAsync();
-    results.Add(await RunAsync("RabbitMQ – direct",     "RabbitBench", RabbitCount,
+    results.Add(await RunAsync("RabbitMQ – direct", "RabbitBench", RabbitCount,
+        configureBuilder: b => b.AddRabbitMqEndPoint("RabbitBench", rabbitSettings)));
+    await PurgeRabbitQueueAsync();
+    results.Add(await RunAsync("RabbitMQ – batch/100", "RabbitBench", RabbitCount, postBatchSize: 100,
         configureBuilder: b => b.AddRabbitMqEndPoint("RabbitBench", new RabbitMqSettings
         {
-            HostName       = "localhost",
+            HostName       = rabbitSettings.HostName,
             ReadQueueName  = RabbitQueue,
             WriteQueueName = RabbitQueue,
-            BatchAckSize   = 1,
+            BatchAckSize   = 100
         })));
     await PurgeRabbitQueueAsync();
-    results.Add(await RunAsync("RabbitMQ – batch/100", "RabbitBench", RabbitCount,
+    results.Add(await RunAsync("RabbitMQ – not durable", "RabbitBench", RabbitCount,
         configureBuilder: b => b.AddRabbitMqEndPoint("RabbitBench", new RabbitMqSettings
         {
-            HostName       = "localhost",
+            HostName       = rabbitSettings.HostName,
             ReadQueueName  = RabbitQueue,
             WriteQueueName = RabbitQueue,
-            BatchAckSize   = 100,
+            DurablePublish = false
         })));
+    await PurgeRabbitQueueAsync();
+    results.Add(await RunAsync("RabbitMQ – drain backlog", "RabbitBench", RabbitCount * BacklogFactor, drainBacklog: true,
+        configureBuilder: b => b.AddRabbitMqEndPoint("RabbitBench", rabbitSettings)));
+    await PurgeRabbitQueueAsync();
 }
 else
 {
@@ -266,13 +352,16 @@ if (await TryCreateSqsQueueAsync() is { } sqsQueueUrl)
     await PurgeSqsQueueAsync(sqsQueueUrl);
     results.Add(await RunAsync("SQS – batch/100", "SqsBench", SqsCount, postBatchSize: 100,
         configureBuilder: b => b.AddAwsSqsEndPoint("SqsBench", sqsSettings)));
+    await PurgeSqsQueueAsync(sqsQueueUrl);
+    results.Add(await RunAsync("SQS – drain backlog", "SqsBench", SqsCount * BacklogFactor, drainBacklog: true,
+        configureBuilder: b => b.AddAwsSqsEndPoint("SqsBench", sqsSettings)));
 }
 else
 {
     Console.WriteLine("  SQS – direct             ... skipped (ElasticMQ not available)");
 }
 
-PrintTable(results);
+PrintTable(results.OfType<BenchmarkResult>().ToList());
 
 // ─── sqs helpers ─────────────────────────────────────────────────────────────
 
@@ -315,7 +404,7 @@ async Task CleanPgTableAsync()
     await using var ds   = NpgsqlDataSource.Create(PgConnStr);
     await using var conn = await ds.OpenConnectionAsync();
     await using var cmd  = conn.CreateCommand();
-    cmd.CommandText = "DROP TABLE IF EXISTS nymbroker_bench";
+    cmd.CommandText = $"DROP TABLE IF EXISTS nymbroker_bench, nymbroker_bench_deferred, {PgIdempotencyTable}";
     await cmd.ExecuteNonQueryAsync();
 }
 
@@ -337,7 +426,7 @@ async Task CleanMySqlTableAsync()
 {
     await using var conn = new MySqlConnection(MySqlConnStr);
     await conn.OpenAsync();
-    await using var cmd = new MySqlCommand($"DROP TABLE IF EXISTS {MySqlTable}", conn);
+    await using var cmd = new MySqlCommand($"DROP TABLE IF EXISTS {MySqlTable}, {MySqlTable}_deferred", conn);
     await cmd.ExecuteNonQueryAsync();
 }
 
@@ -360,7 +449,7 @@ async Task CleanSqlServerTableAsync()
     await using var conn = new SqlConnection(MssqlConnStr);
     await conn.OpenAsync();
     await using var cmd = conn.CreateCommand();
-    cmd.CommandText = $"DROP TABLE IF EXISTS {MssqlTable}";
+    cmd.CommandText = $"DROP TABLE IF EXISTS {MssqlTable}, {MssqlTable}_deferred";
     await cmd.ExecuteNonQueryAsync();
 }
 
@@ -422,46 +511,20 @@ async Task PurgeRabbitQueueAsync()
     catch { }
 }
 
-// ─── watcher sanity ──────────────────────────────────────────────────────────
-
-async Task WatcherSanityCheckAsync()
-{
-    const int n = 5;
-    var dir = Path.Combine(AppContext.BaseDirectory, "bench-sanity");
-    Directory.CreateDirectory(dir);
-
-    var seen = 0;
-    var tcs  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-    using var w = new FileSystemWatcher(dir, "*.json")
-    {
-        NotifyFilter        = NotifyFilters.FileName,
-        InternalBufferSize  = 65536,
-        EnableRaisingEvents = true
-    };
-    w.Created += (_, _) => { if (Interlocked.Increment(ref seen) >= n) tcs.TrySetResult(); };
-
-    for (var i = 0; i < n; i++)
-    {
-        var path = Path.Combine(dir, $"s{i}_{Guid.NewGuid():N}.json");
-        await using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true);
-        await fs.WriteAsync("{\"ok\":1}"u8.ToArray());
-    }
-
-    var ok = await Task.WhenAny(tcs.Task, Task.Delay(5_000)) == tcs.Task;
-    Console.WriteLine(ok ? $"OK ({n}/{n})" : $"FAIL ({seen}/{n} events received)");
-
-    foreach (var f in Directory.GetFiles(dir)) try { File.Delete(f); } catch { }
-    try { Directory.Delete(dir); } catch { }
-}
-
 // ─── scenario runner ────────────────────────────────────────────────────────
 
-async Task<BenchmarkResult> RunAsync(
+NymBrokerBuilder AddSink(NymBrokerBuilder builder, string name, bool signal)
+{
+    builder.Services.AddKeyedSingleton<IEndPoint>(name, (sp, _) => new SinkEndPoint(sp.GetRequiredService<CompletionTracker>(), signal));
+    builder.RegisterEndpoint(name);
+    return builder;
+}
+
+async Task<BenchmarkResult?> RunAsync(
     string name,
     string endpoint,
     int count,
     Action<NymBrokerBuilder>? configureBuilder = null,
-    bool addFilter = false,
     bool usePubSub = false,
     int signalsPerMessage = 1,
     string? fileDir = null,
@@ -470,9 +533,16 @@ async Task<BenchmarkResult> RunAsync(
     bool compress = true,
     int? postBatchSize = null,
     int runs = 1,
-    int warmup = 0)
+    int warmup = 0,
+    int producers = 1,
+    bool bareInput = false,
+    bool consumerFails = false,
+    TimeSpan? deferBy = null,
+    bool drainBacklog = false)
 {
     var isWarmup = name.StartsWith('_');
+    if (!isWarmup && Filter != null && !name.Contains(Filter, StringComparison.OrdinalIgnoreCase))
+        return null;
     if (!isWarmup) Console.Write($"  {name,-24} ... ");
 
     if (fileDir != null)
@@ -487,15 +557,16 @@ async Task<BenchmarkResult> RunAsync(
         .AddConsumer<BenchmarkConsumer>();
 
     configureBuilder?.Invoke(builder);
-    if (addFilter)
-        builder.AddFilter(new PassthroughFilter());
     builder.Build();
 
     await using var provider = services.BuildServiceProvider();
     var broker  = provider.GetRequiredService<INymBroker>();
     var tracker = provider.GetRequiredService<CompletionTracker>();
+    tracker.ConsumerFails = consumerFails;
 
-    await broker.StartAsync();
+    // A drain scenario starts the broker itself, once the backlog is there.
+    if (!drainBacklog)
+        await broker.StartAsync();
 
     // Warm up this scenario's own code path (filter, routing, topics…) and give tiered JIT time to install the
     // optimized code, so the measured runs don't include compilation.
@@ -521,6 +592,9 @@ async Task<BenchmarkResult> RunAsync(
 
     async Task<BenchmarkResult> MeasureAsync(int messages, bool collectLatency)
     {
+        if (drainBacklog)
+            await PostAllAsync(messages, batchSize: 100);
+
         // Clean GC baseline before measuring.
         GC.Collect(2, GCCollectionMode.Forced, blocking: true);
         GC.WaitForPendingFinalizers();
@@ -535,27 +609,12 @@ async Task<BenchmarkResult> RunAsync(
         var completion = tracker.Prepare(messages * signalsPerMessage);
         var sw         = Stopwatch.StartNew();
 
-        var payload = new string('X', 32);
-        var pending = new List<BenchmarkMessage>(postBatchSize ?? 0);
-        for (var i = 0; i < messages; i++)
-        {
-            var msg = messageFactory != null ? messageFactory(i) : new BenchmarkMessage(i, payload);
-            if (usePubSub)
-                await broker.PublishAsync(msg);
-            else if (postBatchSize.HasValue)
-            {
-                pending.Add(msg);
-                if (pending.Count == postBatchSize.Value)
-                {
-                    await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
-                    pending.Clear();
-                }
-            }
-            else
-                await broker.PostAsync(endpoint, msg, splitThresholdBytes: splitThresholdBytes, compress: compress);
-        }
-        if (pending.Count > 0)
-            await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
+        if (drainBacklog)
+            await broker.StartAsync();
+        else if (producers > 1)
+            await Task.WhenAll(Enumerable.Range(0, producers).Select(_ => Task.Run(() => PostAllAsync(messages / producers, postBatchSize))));
+        else
+            await PostAllAsync(messages, postBatchSize);
 
         try { await completion.WaitAsync(TimeSpan.FromSeconds(30)); }
         catch (TimeoutException)
@@ -569,6 +628,35 @@ async Task<BenchmarkResult> RunAsync(
         var gen2      = GC.CollectionCount(2) - gen2Before;
         var allocated = (long)(GC.GetTotalAllocatedBytes(precise: true) - allocBefore);
         return new BenchmarkResult(name, messages, sw.ElapsedMilliseconds, gen0, gen1, gen2, allocated, recorder?.Stop());
+    }
+
+    async Task PostAllAsync(int messages, int? batchSize)
+    {
+        var payload = new string('X', 32);
+        var pending = new List<BenchmarkMessage>(batchSize ?? 0);
+        for (var i = 0; i < messages; i++)
+        {
+            var msg = messageFactory != null ? messageFactory(i) : new BenchmarkMessage(i, payload);
+            if (bareInput)
+                await broker.PostRawAsync(endpoint, Encoding.UTF8.GetBytes($$"""{"seq":{{i}},"data":"{{payload}}"}""").AsMemory());
+            else if (deferBy is { } delay)
+                await broker.PostDeferredAsync(endpoint, msg, DateTimeOffset.UtcNow + delay);
+            else if (usePubSub)
+                await broker.PublishAsync(msg);
+            else if (batchSize.HasValue)
+            {
+                pending.Add(msg);
+                if (pending.Count == batchSize.Value)
+                {
+                    await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
+                    pending.Clear();
+                }
+            }
+            else
+                await broker.PostAsync(endpoint, msg, splitThresholdBytes: splitThresholdBytes, compress: compress);
+        }
+        if (pending.Count > 0)
+            await broker.PostBatchAsync(endpoint, pending, splitThresholdBytes: splitThresholdBytes, compress: compress);
     }
 }
 

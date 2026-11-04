@@ -25,6 +25,7 @@ dotnet test --project NymBroker.Tests -- --filter-class "*SerializerTests"    # 
 ./scripts/test-all.ps1 -Filter "*RabbitMqEndPointTests"                       # same, one class
 ./scripts/pack.ps1                                                            # packs all packages + artifacts/nymbroker-skills.zip
 dotnet run -c Release --project samples/NymBroker.Benchmarks                  # throughput benchmark
+dotnet run -c Release --project samples/NymBroker.Benchmarks -- --filter rabbit   # only matching scenarios
 ```
 
 Integration tests run only when their variable is set — `test-all.ps1` sets all six.

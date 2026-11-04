@@ -6,6 +6,9 @@ public sealed class CompletionTracker
     private int _remaining;
     private TaskCompletionSource _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    /// <summary>Makes the consumer throw, for the dead-letter scenario; the dead-letter endpoint signals instead.</summary>
+    public bool ConsumerFails { get; set; }
+
     public int Processed => _target - Volatile.Read(ref _remaining);
 
     public Task Prepare(int count)

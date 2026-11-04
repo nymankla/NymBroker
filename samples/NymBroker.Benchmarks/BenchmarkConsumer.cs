@@ -7,6 +7,8 @@ public sealed class BenchmarkConsumer(CompletionTracker tracker) : IMessageConsu
 {
     public Task ConsumeAsync(BenchmarkMessage msg, IMessageContext ctx, CancellationToken ct = default)
     {
+        if (tracker.ConsumerFails) throw new InvalidOperationException("Benchmark: consumer fails on purpose.");
+
         tracker.Signal();
         return Task.CompletedTask;
     }
