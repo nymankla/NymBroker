@@ -16,3 +16,5 @@
 **Retention**: `DeleteFinishedAsync` runs `DeleteCompleted` / `DeleteFailed`: one batch, `FOR UPDATE SKIP LOCKED` so instances don't wait for each other, through partial indexes `(completed_at_utc) WHERE status = 2` and `(failed_at_utc) WHERE status = 3`. `CreateSchema` adds them non-concurrently (it runs in one multi-statement command, which `CONCURRENTLY` doesn't allow), so `docs/` tells owners of large tables to create them beforehand.
 
 Integration tests: `PostgresEndPointTests` (`NYMBROKER_POSTGRES_CS`, `./scripts/setup-postgres.ps1`).
+
+**Queue inspection** (`PostgresEndPoint.Inspection.cs`) implements Core's `IQueueInspector` using read-only SQL. Counts are one statement/snapshot; each message page is one statement. Active pages use queue-id order, failed pages use `(failed_at_utc, queue_id)`, and deferred pages use `(deliver_at_utc, deferred_id)` keyset cursors. Completed rows are count-only. Inspection does not claim or lease rows.
