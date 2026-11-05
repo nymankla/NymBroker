@@ -15,4 +15,6 @@
 
 **Retention**: `DeleteFinishedAsync` runs `DeleteCompleted` / `DeleteFailed`: `DELETE TOP (@batchSize) … WITH (UPDLOCK, READPAST, ROWLOCK)` through filtered indexes `(completed_at_utc) WHERE status = 2` and `(failed_at_utc) WHERE status = 3`. No `SET NOCOUNT ON` there: `ExecuteNonQuery` must return the row count.
 
-Integration tests: `SqlServerEndPointTests` (`NYMBROKER_SQLSERVER_CS`, `./scripts/setup-sqlserver.ps1`). Production TLS / `TrustServerCertificate`: [docs/security.md](../docs/security.md).
+**Inspection**: `IQueueInspector` uses read-only `SELECT` statements: one statement for all five counts and one keyset query per list page. Pending / in-progress pages use `queue_id`; failed pages use `(failed_at_utc, queue_id)`; deferred pages use `(deliver_at_utc, deferred_id)`. No claim, lease, or status update is performed. Timestamp cursors encode `datetime2` ticks plus the row key.
+
+Integration tests: `SqlServerEndPointTests` and `SqlServerQueueInspectorTests` (`NYMBROKER_SQLSERVER_CS`, `./scripts/setup-sqlserver.ps1`). Production TLS / `TrustServerCertificate`: [docs/security.md](../docs/security.md).
