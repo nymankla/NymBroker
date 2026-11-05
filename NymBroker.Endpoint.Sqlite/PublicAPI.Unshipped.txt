@@ -1,3 +1,1 @@
 #nullable enable
-NymBroker.Endpoint.Sqlite.SqliteEndPoint.GetCountsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueueCounts!>!
-NymBroker.Endpoint.Sqlite.SqliteEndPoint.GetMessagesAsync(NymBroker.Core.Endpoint.Queue.QueueInspectionState state, int limit = 100, string? cursor = null, System.DateTimeOffset? failedSince = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueuePage!>!

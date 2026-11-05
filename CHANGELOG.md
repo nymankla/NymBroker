@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-05
+
 ### Added
 
 - Queue inspection: `INymBroker.GetQueueInspector(endpointName)` returns an `IQueueInspector` (counts per state, and cursor-paged listing of pending, in-progress, deferred and failed messages with stable ids, attempts, delivery time, failure time and last error), so an application doesn't have to read a transport's tables. SQLite implements it (`SqliteEndPoint`); other transports return `null`. `GetQueueInspector` is a default interface method, so existing `INymBroker` implementations still compile. (#99)
