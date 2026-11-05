@@ -63,6 +63,42 @@ internal static class MySqlQueueSql
 
     internal static string DeleteFailed(string table) => DeleteFinished(table, Failed, "failed_at_utc");
 
+    /// <summary>One statement provides a consistent snapshot of counts for every state.</summary>
+    internal static string InspectCounts(string table) => $"""
+        SELECT (SELECT COUNT(*) FROM {table} WHERE status = {Pending}),
+               (SELECT COUNT(*) FROM {table} WHERE status = {InProgress}),
+               (SELECT COUNT(*) FROM {table} WHERE status = {Failed}),
+               (SELECT COUNT(*) FROM {table} WHERE status = {Completed}),
+               (SELECT COUNT(*) FROM {DeferredTable(table)})
+        """;
+
+    /// <summary>One page after its keyset cursor; completed messages are count-only.</summary>
+    internal static string InspectList(string table, QueueInspectionState state) => state switch
+    {
+        QueueInspectionState.Pending or QueueInspectionState.InProgress => $"""
+            SELECT queue_id, 0, message_id, created_at_utc, NULL, NULL, attempt_count, last_error, payload
+              FROM {table}
+             WHERE status = {(state == QueueInspectionState.Pending ? Pending : InProgress)} AND queue_id > @after1
+             ORDER BY queue_id
+             LIMIT @limit
+            """,
+        QueueInspectionState.Failed => $"""
+            SELECT failed_at_utc, queue_id, message_id, created_at_utc, NULL, failed_at_utc, attempt_count, last_error, payload
+              FROM {table}
+             WHERE status = {Failed} AND failed_at_utc >= @since
+               AND (failed_at_utc > @afterTime OR (failed_at_utc = @afterTime AND queue_id > @after2))
+             ORDER BY failed_at_utc, queue_id
+             LIMIT @limit
+            """,
+        _ => $"""
+            SELECT deliver_at_utc, deferred_id, message_id, deliver_at_utc, deliver_at_utc, NULL, 0, NULL, payload
+              FROM {DeferredTable(table)}
+             WHERE deliver_at_utc > @afterTime OR (deliver_at_utc = @afterTime AND deferred_id > @after2)
+             ORDER BY deliver_at_utc, deferred_id
+             LIMIT @limit
+            """
+    };
+
     /// <summary>One batch of old finished rows. READ COMMITTED, as for a claim, so the delete takes no gap locks that would block concurrent inserts.</summary>
     private static string DeleteFinished(string table, int status, string finishedAtColumn) => $"""
         SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
