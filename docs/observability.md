@@ -131,7 +131,7 @@ Health checks contact external systems, so don't run them on a hot path; a probe
 
 ## Queue inspection
 
-To show queue status without reading the transport's tables, ask the broker for an inspector: `broker.GetQueueInspector("endpointName")` returns an `IQueueInspector`, or `null` when the endpoint's transport doesn't offer one (**SQLite only** so far). It throws `InvalidOperationException` for an unknown endpoint. It is read-only and safe to call while the broker runs.
+returns an `IQueueInspector`, or `null` when the endpoint's transport doesn't offer one. The queue-table endpoints offer it: **SQLite, PostgreSQL, SQL Server and MySQL**. RabbitMQ, Azure Service Bus, Amazon SQS, Memory, File and HTTP return `null`: they cannot list messages and tell their states apart without receiving them, which would change what is being inspected. It throws `InvalidOperationException` for an unknown endpoint. It is read-only and safe to call while the broker runs.
 
 ```csharp
 var inspector = broker.GetQueueInspector("Orders") ?? throw new NotSupportedException();

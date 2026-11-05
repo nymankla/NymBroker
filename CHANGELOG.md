@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- Queue inspection (`IQueueInspector`) for the PostgreSQL, SQL Server and MySQL endpoints, with the same semantics as SQLite. RabbitMQ, Azure Service Bus, Amazon SQS, Memory, File and HTTP still return `null` from `GetQueueInspector`: none can list messages per state without receiving them (or, for Memory and File, without new bookkeeping). (#100, #101, #102, #103, #104, #105, #106, #107, #108)
+
 ## [0.21.0] - 2026-11-05
 
 ### Added
