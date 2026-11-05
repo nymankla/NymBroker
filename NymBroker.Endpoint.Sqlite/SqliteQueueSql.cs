@@ -152,6 +152,55 @@ internal static partial class SqliteQueueSql
         DROP INDEX IF EXISTS {Quote($"IX_{tableName}_LockedUntil")};
         """;
 
+    /// <summary>One statement, so the five counts are one snapshot. Each subquery's predicate matches a partial index.</summary>
+    internal static string InspectCounts(string tableName)
+    {
+        var t = Quote(tableName);
+        return $"""
+            SELECT (SELECT COUNT(*) FROM {t} WHERE Status = {Pending}),
+                   (SELECT COUNT(*) FROM {t} WHERE Status = {InProgress}),
+                   (SELECT COUNT(*) FROM {t} WHERE Status = {Failed}),
+                   (SELECT COUNT(*) FROM {t} WHERE Status = {Completed}),
+                   (SELECT COUNT(*) FROM {Quote(DeferredTableName(tableName))})
+            """;
+    }
+
+    /// <summary>
+    /// One page (<c>$limit</c> rows) after the cursor <c>($after1, $after2)</c>. Columns: key1, key2, MessageId,
+    /// CreatedAtUtc (s), DeliverAtUtc (ms), FailedAtUtc (s), AttemptCount, LastError, Payload. Active states are keyed by
+    /// <c>QueueId</c>, failed by <c>(FailedAtUtc, QueueId)</c> through the failed index, deferred by <c>(DeliverAtUtc, DeferredId)</c>
+    /// through the due index.
+    /// </summary>
+    internal static string InspectList(string tableName, QueueInspectionState state)
+    {
+        var t = Quote(tableName);
+        return state switch
+        {
+            QueueInspectionState.Pending or QueueInspectionState.InProgress => $"""
+                SELECT QueueId, 0, MessageId, CreatedAtUtc, NULL, NULL, AttemptCount, LastError, Payload
+                  FROM {t}
+                 WHERE Status = {(state == QueueInspectionState.Pending ? Pending : InProgress)} AND QueueId > $after1
+                 ORDER BY QueueId
+                 LIMIT $limit
+                """,
+            QueueInspectionState.Failed => $"""
+                SELECT FailedAtUtc, QueueId, MessageId, CreatedAtUtc, NULL, FailedAtUtc, AttemptCount, LastError, Payload
+                  FROM {t}
+                 WHERE Status = {Failed} AND FailedAtUtc >= $since
+                   AND (FailedAtUtc > $after1 OR (FailedAtUtc = $after1 AND QueueId > $after2))
+                 ORDER BY FailedAtUtc, QueueId
+                 LIMIT $limit
+                """,
+            _ => $"""
+                SELECT DeliverAtUtc, DeferredId, MessageId, DeliverAtUtc / 1000, DeliverAtUtc, NULL, 0, NULL, Payload
+                  FROM {Quote(DeferredTableName(tableName))}
+                 WHERE DeliverAtUtc > $after1 OR (DeliverAtUtc = $after1 AND DeferredId > $after2)
+                 ORDER BY DeliverAtUtc, DeferredId
+                 LIMIT $limit
+                """
+        };
+    }
+
     internal static string Insert(string tableName) =>
         $"INSERT INTO {Quote(tableName)} (MessageId, Status, CreatedAtUtc, AttemptCount, Payload) VALUES ($messageId, {Pending}, unixepoch(), 0, $payload)";
 

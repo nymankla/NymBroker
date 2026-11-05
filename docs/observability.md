@@ -128,3 +128,28 @@ app.MapHealthChecks("/health/ready", new() { Predicate = r => r.Tags.Contains("r
 `Healthy` and `Degraded` map one to one; `Unhealthy` maps to the registration's `failureStatus` (`Unhealthy` unless you pass another). `HealthCheckResult.Description` is the report's message, and `Data` holds `"brokerStarted"` plus one entry per endpoint (`"Orders": "Unhealthy: <message>"`), so health UIs show which endpoint failed.
 
 Health checks contact external systems, so don't run them on a hot path; a probe every few seconds is fine.
+
+## Queue inspection
+
+To show queue status without reading the transport's tables, ask the broker for an inspector: `broker.GetQueueInspector("endpointName")` returns an `IQueueInspector`, or `null` when the endpoint's transport doesn't offer one (**SQLite only** so far). It throws `InvalidOperationException` for an unknown endpoint. It is read-only and safe to call while the broker runs.
+
+```csharp
+var inspector = broker.GetQueueInspector("Orders") ?? throw new NotSupportedException();
+
+QueueCounts counts = await inspector.GetCountsAsync(ct);   // Pending, InProgress, Deferred, Failed, Completed; counts.Active = the first three
+
+string? cursor = null;
+do
+{
+    QueuePage page = await inspector.GetMessagesAsync(QueueInspectionState.Failed, limit: 100, cursor,
+        failedSince: DateTimeOffset.UtcNow.AddDays(-7), ct: ct);
+    foreach (QueueMessageInfo m in page.Messages)
+        Console.WriteLine($"{m.Id} attempts={m.Attempts} failed={m.FailedAt} error={m.LastError}");
+    cursor = page.NextCursor;
+} while (cursor is not null);
+```
+
+- `GetCountsAsync` reads all five counts as one snapshot.
+- `GetMessagesAsync` lists `Pending`, `InProgress`, `Deferred` or `Failed` messages (`Completed` is only counted), at most `IQueueInspector.MaxPageSize` (1000) per page. Pass `NextCursor` back to continue; a cursor belongs to the state it came from. Pending and in-progress messages come in post order, deferred by delivery time (`DeliverAt`), failed by failure time (`FailedAt`; `failedSince` filters on it).
+- `QueueMessageInfo.Id` is the message's own identifier: it stays the same when a deferred message becomes due, and does not depend on the transport's row numbers. `Payload` is the bytes as posted (the JSON envelope); `LastError` is the last failure text, `"{Reason}: {Description}"` for a dead-lettered message.
+- Counts and pages are a snapshot at the time of the call; a message can change state right after.

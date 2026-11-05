@@ -1,1 +1,73 @@
 #nullable enable
+const NymBroker.Core.Endpoint.Queue.IQueueInspector.MaxPageSize = 1000 -> int
+NymBroker.Core.Endpoint.Queue.IQueueInspector
+NymBroker.Core.Endpoint.Queue.IQueueInspector.GetCountsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueueCounts!>!
+NymBroker.Core.Endpoint.Queue.IQueueInspector.GetMessagesAsync(NymBroker.Core.Endpoint.Queue.QueueInspectionState state, int limit = 100, string? cursor = null, System.DateTimeOffset? failedSince = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueuePage!>!
+NymBroker.Core.Endpoint.Queue.QueueCounts
+NymBroker.Core.Endpoint.Queue.QueueCounts.<Clone>$() -> NymBroker.Core.Endpoint.Queue.QueueCounts!
+NymBroker.Core.Endpoint.Queue.QueueCounts.Active.get -> long
+NymBroker.Core.Endpoint.Queue.QueueCounts.Completed.get -> long
+NymBroker.Core.Endpoint.Queue.QueueCounts.Completed.init -> void
+NymBroker.Core.Endpoint.Queue.QueueCounts.Deconstruct(out long Pending, out long InProgress, out long Deferred, out long Failed, out long Completed) -> void
+NymBroker.Core.Endpoint.Queue.QueueCounts.Deferred.get -> long
+NymBroker.Core.Endpoint.Queue.QueueCounts.Deferred.init -> void
+NymBroker.Core.Endpoint.Queue.QueueCounts.Equals(NymBroker.Core.Endpoint.Queue.QueueCounts? other) -> bool
+NymBroker.Core.Endpoint.Queue.QueueCounts.Failed.get -> long
+NymBroker.Core.Endpoint.Queue.QueueCounts.Failed.init -> void
+NymBroker.Core.Endpoint.Queue.QueueCounts.InProgress.get -> long
+NymBroker.Core.Endpoint.Queue.QueueCounts.InProgress.init -> void
+NymBroker.Core.Endpoint.Queue.QueueCounts.Pending.get -> long
+NymBroker.Core.Endpoint.Queue.QueueCounts.Pending.init -> void
+NymBroker.Core.Endpoint.Queue.QueueCounts.QueueCounts(long Pending, long InProgress, long Deferred, long Failed, long Completed) -> void
+NymBroker.Core.Endpoint.Queue.QueueInspectionState
+NymBroker.Core.Endpoint.Queue.QueueInspectionState.Completed = 4 -> NymBroker.Core.Endpoint.Queue.QueueInspectionState
+NymBroker.Core.Endpoint.Queue.QueueInspectionState.Deferred = 2 -> NymBroker.Core.Endpoint.Queue.QueueInspectionState
+NymBroker.Core.Endpoint.Queue.QueueInspectionState.Failed = 3 -> NymBroker.Core.Endpoint.Queue.QueueInspectionState
+NymBroker.Core.Endpoint.Queue.QueueInspectionState.InProgress = 1 -> NymBroker.Core.Endpoint.Queue.QueueInspectionState
+NymBroker.Core.Endpoint.Queue.QueueInspectionState.Pending = 0 -> NymBroker.Core.Endpoint.Queue.QueueInspectionState
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.<Clone>$() -> NymBroker.Core.Endpoint.Queue.QueueMessageInfo!
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.Attempts.get -> int
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.Attempts.init -> void
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.CreatedAt.get -> System.DateTimeOffset
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.CreatedAt.init -> void
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.Deconstruct(out string! Id, out NymBroker.Core.Endpoint.Queue.QueueInspectionState State, out int Attempts, out System.DateTimeOffset CreatedAt, out System.DateTimeOffset? DeliverAt, out System.DateTimeOffset? FailedAt, out string? LastError, out System.ReadOnlyMemory<byte> Payload) -> void
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.DeliverAt.get -> System.DateTimeOffset?
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.DeliverAt.init -> void
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.Equals(NymBroker.Core.Endpoint.Queue.QueueMessageInfo? other) -> bool
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.FailedAt.get -> System.DateTimeOffset?
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.FailedAt.init -> void
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.Id.get -> string!
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.Id.init -> void
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.LastError.get -> string?
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.LastError.init -> void
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.Payload.get -> System.ReadOnlyMemory<byte>
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.Payload.init -> void
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.QueueMessageInfo(string! Id, NymBroker.Core.Endpoint.Queue.QueueInspectionState State, int Attempts, System.DateTimeOffset CreatedAt, System.DateTimeOffset? DeliverAt, System.DateTimeOffset? FailedAt, string? LastError, System.ReadOnlyMemory<byte> Payload) -> void
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.State.get -> NymBroker.Core.Endpoint.Queue.QueueInspectionState
+NymBroker.Core.Endpoint.Queue.QueueMessageInfo.State.init -> void
+NymBroker.Core.Endpoint.Queue.QueuePage
+NymBroker.Core.Endpoint.Queue.QueuePage.<Clone>$() -> NymBroker.Core.Endpoint.Queue.QueuePage!
+NymBroker.Core.Endpoint.Queue.QueuePage.Deconstruct(out System.Collections.Generic.IReadOnlyList<NymBroker.Core.Endpoint.Queue.QueueMessageInfo!>! Messages, out string? NextCursor) -> void
+NymBroker.Core.Endpoint.Queue.QueuePage.Equals(NymBroker.Core.Endpoint.Queue.QueuePage? other) -> bool
+NymBroker.Core.Endpoint.Queue.QueuePage.Messages.get -> System.Collections.Generic.IReadOnlyList<NymBroker.Core.Endpoint.Queue.QueueMessageInfo!>!
+NymBroker.Core.Endpoint.Queue.QueuePage.Messages.init -> void
+NymBroker.Core.Endpoint.Queue.QueuePage.NextCursor.get -> string?
+NymBroker.Core.Endpoint.Queue.QueuePage.NextCursor.init -> void
+NymBroker.Core.Endpoint.Queue.QueuePage.QueuePage(System.Collections.Generic.IReadOnlyList<NymBroker.Core.Endpoint.Queue.QueueMessageInfo!>! Messages, string? NextCursor) -> void
+NymBroker.Core.INymBroker.GetQueueInspector(string! endpointName) -> NymBroker.Core.Endpoint.Queue.IQueueInspector?
+override NymBroker.Core.Endpoint.Queue.QueueCounts.Equals(object? obj) -> bool
+override NymBroker.Core.Endpoint.Queue.QueueCounts.GetHashCode() -> int
+override NymBroker.Core.Endpoint.Queue.QueueCounts.ToString() -> string!
+override NymBroker.Core.Endpoint.Queue.QueueMessageInfo.Equals(object? obj) -> bool
+override NymBroker.Core.Endpoint.Queue.QueueMessageInfo.GetHashCode() -> int
+override NymBroker.Core.Endpoint.Queue.QueueMessageInfo.ToString() -> string!
+override NymBroker.Core.Endpoint.Queue.QueuePage.Equals(object? obj) -> bool
+override NymBroker.Core.Endpoint.Queue.QueuePage.GetHashCode() -> int
+override NymBroker.Core.Endpoint.Queue.QueuePage.ToString() -> string!
+static NymBroker.Core.Endpoint.Queue.QueueCounts.operator !=(NymBroker.Core.Endpoint.Queue.QueueCounts? left, NymBroker.Core.Endpoint.Queue.QueueCounts? right) -> bool
+static NymBroker.Core.Endpoint.Queue.QueueCounts.operator ==(NymBroker.Core.Endpoint.Queue.QueueCounts? left, NymBroker.Core.Endpoint.Queue.QueueCounts? right) -> bool
+static NymBroker.Core.Endpoint.Queue.QueueMessageInfo.operator !=(NymBroker.Core.Endpoint.Queue.QueueMessageInfo? left, NymBroker.Core.Endpoint.Queue.QueueMessageInfo? right) -> bool
+static NymBroker.Core.Endpoint.Queue.QueueMessageInfo.operator ==(NymBroker.Core.Endpoint.Queue.QueueMessageInfo? left, NymBroker.Core.Endpoint.Queue.QueueMessageInfo? right) -> bool
+static NymBroker.Core.Endpoint.Queue.QueuePage.operator !=(NymBroker.Core.Endpoint.Queue.QueuePage? left, NymBroker.Core.Endpoint.Queue.QueuePage? right) -> bool
+static NymBroker.Core.Endpoint.Queue.QueuePage.operator ==(NymBroker.Core.Endpoint.Queue.QueuePage? left, NymBroker.Core.Endpoint.Queue.QueuePage? right) -> bool

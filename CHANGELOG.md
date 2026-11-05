@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- Queue inspection: `INymBroker.GetQueueInspector(endpointName)` returns an `IQueueInspector` (counts per state, and cursor-paged listing of pending, in-progress, deferred and failed messages with stable ids, attempts, delivery time, failure time and last error), so an application doesn't have to read a transport's tables. SQLite implements it (`SqliteEndPoint`); other transports return `null`. `GetQueueInspector` is a default interface method, so existing `INymBroker` implementations still compile. (#99)
+
 ### Fixed
 
 - Agent skills: brought in line with 0.20.0 (RabbitMQ durability, unknown topics, dead-letter retry, deferred warnings, stop behaviour). `nymbroker-skills.zip` on the 0.20.0 release was replaced with these versions, so it is newer than the `v0.20.0` tag.

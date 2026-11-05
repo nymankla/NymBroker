@@ -15,7 +15,7 @@ namespace NymBroker.Endpoint.Sqlite;
 /// <c>UPDATE … RETURNING</c>, and writes the batch's outcomes in the same transaction as the next claim. The loop itself
 /// is the shared <see cref="LeasedQueueListener"/>.
 /// </summary>
-public sealed class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAsyncDisposable
+public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndPoint, IQueueInspector, IAsyncDisposable
 {
     private const string ReadAsyncLeaseReturnedMessage = "Message lease returned by ReadAsync without acknowledgement.";
 

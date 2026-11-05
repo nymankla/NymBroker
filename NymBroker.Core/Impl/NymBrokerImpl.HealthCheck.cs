@@ -82,6 +82,14 @@ internal sealed partial class NymBrokerImpl
         return report;
     }
 
+    public Endpoint.Queue.IQueueInspector? GetQueueInspector(string endpointName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(endpointName);
+        if (!_endpoints.TryGetValue(endpointName, out var endpoint))
+            throw new InvalidOperationException($"No endpoint registered with name '{endpointName}'.");
+        return endpoint as Endpoint.Queue.IQueueInspector;
+    }
+
     // Values of the "reason" tag on nymbroker.health.endpoint.failures.
     internal const string HealthFailureUnhealthy = "unhealthy";
     internal const string HealthFailureTimeout = "timeout";

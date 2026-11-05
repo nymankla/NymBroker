@@ -20,4 +20,6 @@ Lifecycle: `Pending (0)` → `InProgress (1)` → `Completed (2)` | `Failed (3)`
 
 **Migration**: `EnsureSchemaAsync` detects the version **per table** from `pragma_table_info` (`PRAGMA user_version` is per file and one file can hold several endpoint tables; it is still set to 2). A v1 table (TEXT payload, `MessageId TEXT UNIQUE`, `AUTOINCREMENT`) or the legacy single-status table is renamed to `<table>_v1_<timestamp>` / `<table>_Legacy_<timestamp>` (kept as backup), the new table created and rows copied (`CAST(… AS BLOB)` keeps the UTF-8 bytes) in one `BEGIN IMMEDIATE` transaction.
 
+**Inspection**: `SqliteEndPoint` implements `IQueueInspector` (`SqliteEndPoint.Inspection.cs`; `INymBroker.GetQueueInspector`). Read-only, on the same connection under `_dbLock`, unprepared statements (`InspectCounts`, `InspectList`). Counts are one `SELECT` of five subqueries, each matching a partial index (`Status = n` literals), so it is one snapshot. Paging is keyset: pending/in-progress by `QueueId`, failed by `(FailedAtUtc, QueueId)` through the failed index, deferred by `(DeliverAtUtc, DeferredId)` through the due index; one extra row is read to know whether a next page exists. The public id is `MessageId` (a deferred message keeps it on promotion). `Inspector_*` tests are in `SqliteQueueInspectorTests`.
+
 Config type name: `"Sql"` (`WithSql()`).

@@ -71,6 +71,13 @@ public interface INymBroker
     Task<BrokerHealthReport> CheckHealthAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// A read-only <see cref="Endpoint.Queue.IQueueInspector"/> for a named endpoint, or null when the endpoint's transport
+    /// does not offer one (currently SQLite does).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">There is no endpoint with that name.</exception>
+    Endpoint.Queue.IQueueInspector? GetQueueInspector(string endpointName) => null;
+
+    /// <summary>
     /// Serialize and post several messages to one endpoint in a single endpoint call (<see cref="IEndPoint.PostBatchAsync"/>).
     /// Each message gets its own envelope and is received and settled on its own; order is preserved.
     /// <paramref name="splitThresholdBytes"/> / <paramref name="compress"/> apply per message, as in <c>PostAsync</c>.

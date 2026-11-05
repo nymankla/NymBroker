@@ -76,6 +76,8 @@ app.MapHealthChecks("/health/live", new() { Predicate = _ => false });   // live
 - In a worker without ASP.NET Core, call `await broker.CheckHealthAsync(ct)` (returns `BrokerHealthReport`; never throws) from your own probe or a timer, or add a minimal health endpoint.
 - Checks contact external systems; probe every few seconds at most.
 
+Queue status without the transport's tables (SQLite endpoints only; `null` for others): `broker.GetQueueInspector("endpointName")` gives an `IQueueInspector` with `GetCountsAsync` (Pending/InProgress/Deferred/Failed/Completed) and `GetMessagesAsync(state, limit, cursor, failedSince)` (cursor paging; `Failed` messages carry `LastError` and `FailedAt`). Never query the queue table directly.
+
 ## 4. Logging
 
 - Each message's log entries carry a scope with `MessageId`, `CorrelationId`, `MessageType`, `SourceEndpoint`. Enable scopes in the log provider (console: `"Logging": { "Console": { "IncludeScopes": true } }`; OpenTelemetry logging: `IncludeScopes = true`).
