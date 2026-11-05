@@ -42,3 +42,5 @@ NymBroker.Endpoint.MySql.MySqlSettings.CompletedRetention.get -> System.TimeSpan
 NymBroker.Endpoint.MySql.MySqlSettings.CompletedRetention.set -> void
 NymBroker.Endpoint.MySql.MySqlSettings.FailedRetention.get -> System.TimeSpan
 NymBroker.Endpoint.MySql.MySqlSettings.FailedRetention.set -> void
+NymBroker.Endpoint.MySql.MySqlEndPoint.GetCountsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueueCounts!>!
+NymBroker.Endpoint.MySql.MySqlEndPoint.GetMessagesAsync(NymBroker.Core.Endpoint.Queue.QueueInspectionState state, int limit = 100, string? cursor = null, System.DateTimeOffset? failedSince = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueuePage!>!
