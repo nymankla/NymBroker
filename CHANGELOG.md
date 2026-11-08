@@ -4,6 +4,12 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-11-08
+
+### Changed
+
+- Amazon SQS: updated `AWSSDK.SQS` to 4.0.100.25.
+
 ## [0.22.0] - 2026-11-05
 
 ### Added
