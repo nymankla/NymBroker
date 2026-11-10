@@ -216,77 +216,24 @@ internal sealed partial class NymBrokerImpl
 
     private async Task<ProcessResult> ProcessMessageAsync(byte[] raw, ProcessingRun run, CancellationToken ct)
     {
-        var sourceEndpoint = run.Source;
+        await WireTapAsync(raw, ct);
 
-        // ── Wire Tap ─────────────────────────────────────────────────────────
-        // Copies raw bytes to every tap endpoint before processing. Tap endpoints see
-        // all messages including those that will be filtered, expired, or dead-lettered.
-        foreach (var tapName in _wireTapEndpoints)
-        {
-            if (_endpoints.TryGetValue(tapName, out var tapEndpoint))
-            {
-                try { await SendAsync(tapName, tapEndpoint, raw, ct); }
-                catch (Exception ex) { _logger.LogError(ex, "Wire tap failed for endpoint '{Endpoint}'", tapName); }
-            }
-            else
-                _logger.LogWarning("Wire tap references unknown endpoint '{Endpoint}'", tapName);
-        }
+        var decoded = Decode(raw, run, out var decodeError);
+        if (decoded == null)
+            return decodeError == null
+                ? ProcessResult.Completed   // the input transformer dropped it
+                : await DeadLetterAsync(raw, run, DeadLetterReasons.DeserializationFailed, decodeError.Message, decodeError, ct);
 
-        // ── Deserialize ───────────────────────────────────────────────────────
-        IMessageContext context;
-        var transformer = sourceEndpoint != null && _endpointTransformers.TryGetValue(sourceEndpoint, out var epT)
-            ? epT
-            : _globalInputTransformer;
+        StampReceived(decoded, run);
+        using var logScope = _logger.BeginScope(new MessageLogScope(decoded, run.Source));
 
-        if (transformer != null)
-        {
-            var transformed = transformer.Transform(raw.AsSpan(), sourceEndpoint);
-            if (transformed == null) return ProcessResult.Completed;
-            context = transformed;
-        }
-        else
-        {
-            try { context = _serializer.Deserialize(raw.AsSpan()); }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to deserialize message from {Source}", sourceEndpoint);
-                run.RecordFailure(ex);
-                return await DeadLetterAsync(raw, run, DeadLetterReasons.DeserializationFailed, ex.Message, ex, ct);
-            }
-        }
-
-        context.Address ??= new EndpointAddress();
-        context.Address.From = sourceEndpoint;
-        run.Activity?.SetTag("messaging.message.id", context.Id);
-        run.Activity?.SetTag("messaging.conversation_id", context.CorrelationId);
-        run.Activity?.SetTag("messaging.message.type", context.MessageType);
-        using var logScope = _logger.BeginScope(new MessageLogScope(context, sourceEndpoint));
-
-        var age = DateTime.UtcNow - context.Created;
-        // A transformer may leave Created unset; negative ages are clock skew between hosts.
-        if (context.Created != default)
-            NymBrokerDiagnostics.MessageAge.Record(Math.Max(0, age.TotalSeconds),
-                new KeyValuePair<string, object?>("source", sourceEndpoint));
-
-        // ── TTL check ─────────────────────────────────────────────────────────
         // Expired messages are forwarded to the dead letter endpoint (if configured)
         // and then discarded before reaching filters, routing, or consumer dispatch.
-        if (age > _maxMessageAge)
-        {
-            var maxAge = _maxMessageAge.Value;
-            _logger.LogWarning(
-                "Discarding expired message {MessageId} (type={MessageType}, age={Age:F1}s, ttl={Ttl:F1}s)",
-                context.Id, context.MessageType, age.TotalSeconds, maxAge.TotalSeconds);
-            return await DeadLetterAsync(raw, run, DeadLetterReasons.Expired,
-                $"Message age {age.TotalSeconds:F1}s exceeds the maximum of {maxAge.TotalSeconds:F1}s", null, ct);
-        }
+        if (CheckExpired(decoded, run.Source) is { } expired)
+            return await DeadLetterAsync(raw, run, DeadLetterReasons.Expired, expired, null, ct);
 
-        // ── Filters ───────────────────────────────────────────────────────────
-        foreach (var filter in _filters)
-        {
-            context = filter.Filter(context)!;
-            if (context == null) return ProcessResult.Completed;
-        }
+        var context = ApplyFilters(decoded);
+        if (context == null) return ProcessResult.Completed;
 
         if (context is not RawMessageContext rawContext)
         {
@@ -309,6 +256,88 @@ internal sealed partial class NymBrokerImpl
         return _idempotencyStore is { } store
             ? await ProcessIdempotentlyAsync(store, raw, rawContext, messageType, run, ct)
             : await RouteAndDispatchAsync(raw, rawContext, messageType, run, ct);
+    }
+
+    /// <summary>
+    /// Copies raw bytes to every tap endpoint before processing. Tap endpoints see
+    /// all messages including those that will be filtered, expired, or dead-lettered.
+    /// </summary>
+    private async Task WireTapAsync(byte[] raw, CancellationToken ct)
+    {
+        foreach (var tapName in _wireTapEndpoints)
+        {
+            if (_endpoints.TryGetValue(tapName, out var tapEndpoint))
+            {
+                try { await SendAsync(tapName, tapEndpoint, raw, ct); }
+                catch (Exception ex) { _logger.LogError(ex, "Wire tap failed for endpoint '{Endpoint}'", tapName); }
+            }
+            else
+                _logger.LogWarning("Wire tap references unknown endpoint '{Endpoint}'", tapName);
+        }
+    }
+
+    /// <summary>
+    /// Decodes the raw bytes with the source's input transformer, the global one, or the envelope serializer.
+    /// Returns null when a transformer drops the message (<paramref name="error"/> null) or the envelope
+    /// cannot be deserialized (<paramref name="error"/> set, failure logged and recorded).
+    /// </summary>
+    private IMessageContext? Decode(byte[] raw, ProcessingRun run, out Exception? error)
+    {
+        error = null;
+        var sourceEndpoint = run.Source;
+        var transformer = sourceEndpoint != null && _endpointTransformers.TryGetValue(sourceEndpoint, out var epT)
+            ? epT
+            : _globalInputTransformer;
+
+        if (transformer != null)
+            return transformer.Transform(raw.AsSpan(), sourceEndpoint);
+
+        try { return _serializer.Deserialize(raw.AsSpan()); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize message from {Source}", sourceEndpoint);
+            run.RecordFailure(ex);
+            error = ex;
+            return null;
+        }
+    }
+
+    private static void StampReceived(IMessageContext context, ProcessingRun run)
+    {
+        context.Address ??= new EndpointAddress();
+        context.Address.From = run.Source;
+        run.Activity?.SetTag("messaging.message.id", context.Id);
+        run.Activity?.SetTag("messaging.conversation_id", context.CorrelationId);
+        run.Activity?.SetTag("messaging.message.type", context.MessageType);
+    }
+
+    /// <summary>Records the message's age; if it is older than the maximum age, logs it and returns the dead-letter description.</summary>
+    private string? CheckExpired(IMessageContext context, string? sourceEndpoint)
+    {
+        var age = DateTime.UtcNow - context.Created;
+        // A transformer may leave Created unset; negative ages are clock skew between hosts.
+        if (context.Created != default)
+            NymBrokerDiagnostics.MessageAge.Record(Math.Max(0, age.TotalSeconds),
+                new KeyValuePair<string, object?>("source", sourceEndpoint));
+
+        if (!(age > _maxMessageAge)) return null;
+
+        var maxAge = _maxMessageAge.Value;
+        _logger.LogWarning(
+            "Discarding expired message {MessageId} (type={MessageType}, age={Age:F1}s, ttl={Ttl:F1}s)",
+            context.Id, context.MessageType, age.TotalSeconds, maxAge.TotalSeconds);
+        return $"Message age {age.TotalSeconds:F1}s exceeds the maximum of {maxAge.TotalSeconds:F1}s";
+    }
+
+    /// <summary>Runs the filters in order; null when one of them drops the message.</summary>
+    private IMessageContext? ApplyFilters(IMessageContext context)
+    {
+        foreach (var filter in _filters)
+        {
+            if (filter.Filter(context) is not { } filtered) return null;
+            context = filtered;
+        }
+        return context;
     }
 
     private async Task<ProcessResult> ProcessSplitPartAsync(byte[] raw, SplitMessage split, IMessageContext context, ProcessingRun run, CancellationToken ct)
@@ -349,11 +378,27 @@ internal sealed partial class NymBrokerImpl
     /// <summary>Routes, fans out to topics and dispatches to the consumer — the part of processing an idempotency claim covers.</summary>
     private async Task<ProcessResult> RouteAndDispatchAsync(byte[] raw, RawMessageContext context, Type? messageType, ProcessingRun run, CancellationToken ct)
     {
-        var sourceEndpoint = run.Source;
+        var wasRouted = await RouteToDestinationsAsync(context, messageType, ct);
+        var (wasFannedOut, topicFailure) = await FanOutToTopicsAsync(raw, context, messageType, run, ct);
+
+        if (wasRouted || wasFannedOut)
+            return topicFailure ?? ProcessResult.Completed;
+
+        if (messageType == null)
+        {
+            _logger.LogWarning("No consumer or route for unresolved message type '{MessageType}' from {Source}", context.MessageType, run.Source);
+            return ProcessResult.Completed;
+        }
+
+        return await DispatchToConsumerAsync(raw, context, messageType, run, ct);
+    }
+
+    /// <summary>Sends the envelope to every matching route's destination; a failed send throws (the caller returns Retry).</summary>
+    private async Task<bool> RouteToDestinationsAsync(RawMessageContext context, Type? messageType, CancellationToken ct)
+    {
         var msgElement = context.RawMessage;
         var messageTypeName = context.MessageType ?? messageType?.FullName ?? typeof(IAnyMessage).FullName!;
 
-        // ── Route to destination endpoints ────────────────────────────────────
         var wasRouted = false;
         byte[]? routedEnvelope = null;   // identical for every route, so serialized at most once
         foreach (var route in _routes)
@@ -388,14 +433,24 @@ internal sealed partial class NymBrokerImpl
             wasRouted = true;
         }
 
-        // ── Topic fan-out (pub/sub) ────────────────────────────────────────────
-        var wasTopicFanOut = false;
-        ProcessResult? topicFailure = null;
+        return wasRouted;
+    }
+
+    /// <summary>
+    /// Pub/sub: delivers to every matching topic. A failed topic is settled and the remaining topics are still
+    /// delivered to; <c>Failure</c> is the first failure's result (null if all succeeded or were dead-lettered).
+    /// </summary>
+    private async Task<(bool FannedOut, ProcessResult? Failure)> FanOutToTopicsAsync(
+        byte[] raw, RawMessageContext context, Type? messageType, ProcessingRun run, CancellationToken ct)
+    {
+        var msgElement = context.RawMessage;
+        var fannedOut = false;
+        ProcessResult? failure = null;
         object? deserializedMessage = null;
         foreach (var topic in _topics)
         {
             if (!topic.Evaluate(messageType ?? typeof(IAnyMessage), context, msgElement)) continue;
-            wasTopicFanOut = true;
+            fannedOut = true;
 
             if (topic.SubscriberDispatchers.Count > 0 && messageType != null && deserializedMessage == null)
                 deserializedMessage = MessageSerializerJson.DeserializeMessageObject(context, messageType);
@@ -407,61 +462,93 @@ internal sealed partial class NymBrokerImpl
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 run.RecordFailure(ex);
-                if (run.NativeDeadLetter)
-                {
+                var settlement = SettlementFor(run, retryOff: false);
+                if (settlement == FailureSettlement.EndpointRetries)
                     // Let the transport redeliver; keep delivering to the remaining topics.
                     _logger.LogError(ex, "Topic '{Topic}' failed to deliver message — the endpoint will retry it", topic.TopicName);
-                    topicFailure ??= ProcessResult.Retry(ex);
-                }
                 else
-                {
                     _logger.LogError(ex, "Topic '{Topic}' failed to deliver message — routing to dead letter", topic.TopicName);
-                    if (await TryPostToDeadLetterAsync(raw, sourceEndpoint, DeadLetterReasons.TopicDeliveryFailed, ex.Message, ex, ct) is { } deadLetterFailure)
-                        topicFailure ??= deadLetterFailure;
-                }
+
+                // Settled for every failed topic (each posts its own dead letter); only the first result is kept.
+                var result = await SettleFailureAsync(settlement, raw, run, DeadLetterReasons.TopicDeliveryFailed, ex, ct);
+                failure ??= result;
             }
         }
 
-        if (wasRouted || wasTopicFanOut)
-            return topicFailure ?? ProcessResult.Completed;
+        return (fannedOut, failure);
+    }
 
-        if (messageType == null)
+    /// <summary>Dispatches to the message type's consumer; a failing consumer is settled by <see cref="SettlementFor"/>.</summary>
+    private async Task<ProcessResult> DispatchToConsumerAsync(byte[] raw, RawMessageContext context, Type messageType, ProcessingRun run, CancellationToken ct)
+    {
+        var message = MessageSerializerJson.DeserializeMessageObject(context, messageType);
+        if (message == null) return ProcessResult.Completed;
+
+        try
         {
-            _logger.LogWarning("No consumer or route for unresolved message type '{MessageType}' from {Source}", context.MessageType, sourceEndpoint);
+            await _consumerDispatcher.DispatchAsync(messageType, message, context, ct);
             return ProcessResult.Completed;
         }
-
-        // ── Consumer dispatch — failures go to dead letter ────────────────────
-        var message = MessageSerializerJson.DeserializeMessageObject(context, messageType);
-        if (message != null)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            try
-            {
-                await _consumerDispatcher.DispatchAsync(messageType, message, context, ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-            {
-                run.RecordFailure(ex);
-                if (run.NativeDeadLetter && _noRetryMessageTypes.Contains(messageType))
-                {
-                    _logger.LogError(ex, "Consumer failed for message type {MessageType} — retry is off for its consumer, so the endpoint dead-letters it", messageType.Name);
-                    RecordDeadLettered(DeadLetterReasons.ConsumerFailed, sourceEndpoint, "native");
-                    return ProcessResult.DeadLetter(DeadLetterReasons.ConsumerFailed, ex.Message, ex);
-                }
-
-                if (run.NativeDeadLetter)
-                {
-                    // The transport redelivers it and dead-letters natively once its delivery limit is reached.
-                    _logger.LogError(ex, "Consumer failed for message type {MessageType} — the endpoint will retry it", messageType.Name);
-                    return ProcessResult.Retry(ex);
-                }
-
-                _logger.LogError(ex, "Consumer failed for message type {MessageType} — routing to dead letter", messageType.Name);
-                return await TryPostToDeadLetterAsync(raw, sourceEndpoint, DeadLetterReasons.ConsumerFailed, ex.Message, ex, ct) ?? ProcessResult.Completed;
-            }
+            run.RecordFailure(ex);
+            var settlement = SettlementFor(run, retryOff: _noRetryMessageTypes.Contains(messageType));
+            LogConsumerFailure(ex, messageType, settlement);
+            return await SettleFailureAsync(settlement, raw, run, DeadLetterReasons.ConsumerFailed, ex, ct) ?? ProcessResult.Completed;
         }
+    }
 
-        return ProcessResult.Completed;
+    private void LogConsumerFailure(Exception ex, Type messageType, FailureSettlement settlement)
+    {
+        switch (settlement)
+        {
+            case FailureSettlement.EndpointDeadLetters:
+                _logger.LogError(ex, "Consumer failed for message type {MessageType} — retry is off for its consumer, so the endpoint dead-letters it", messageType.Name);
+                break;
+            case FailureSettlement.EndpointRetries:
+                _logger.LogError(ex, "Consumer failed for message type {MessageType} — the endpoint will retry it", messageType.Name);
+                break;
+            default:
+                _logger.LogError(ex, "Consumer failed for message type {MessageType} — routing to dead letter", messageType.Name);
+                break;
+        }
+    }
+
+    /// <summary>How a failed topic delivery or consumer is settled (the table in the root CLAUDE.md).</summary>
+    private enum FailureSettlement
+    {
+        /// <summary>Native dead letter and retry is off: the transport dead-letters it now.</summary>
+        EndpointDeadLetters,
+
+        /// <summary>Native dead letter: the transport redelivers it and dead-letters natively once its delivery limit is reached.</summary>
+        EndpointRetries,
+
+        /// <summary>No native dead letter: the broker posts it to its dead-letter endpoint.</summary>
+        BrokerDeadLetters,
+    }
+
+    private static FailureSettlement SettlementFor(ProcessingRun run, bool retryOff)
+        => !run.NativeDeadLetter ? FailureSettlement.BrokerDeadLetters
+            : retryOff ? FailureSettlement.EndpointDeadLetters
+            : FailureSettlement.EndpointRetries;
+
+    /// <summary>
+    /// The result for a failure settled as <paramref name="settlement"/>; null when the broker posted it to its
+    /// dead-letter endpoint or none is configured.
+    /// </summary>
+    private async Task<ProcessResult?> SettleFailureAsync(FailureSettlement settlement, byte[] raw, ProcessingRun run, string reason,
+        Exception ex, CancellationToken ct)
+    {
+        switch (settlement)
+        {
+            case FailureSettlement.EndpointDeadLetters:
+                RecordDeadLettered(reason, run.Source, "native");
+                return ProcessResult.DeadLetter(reason, ex.Message, ex);
+            case FailureSettlement.EndpointRetries:
+                return ProcessResult.Retry(ex);
+            default:
+                return await TryPostToDeadLetterAsync(raw, run.Source, reason, ex.Message, ex, ct);
+        }
     }
 
     private bool UsesNativeDeadLetter(string? sourceEndpoint)

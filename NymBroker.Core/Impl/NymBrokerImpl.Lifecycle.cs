@@ -16,55 +16,15 @@ internal sealed partial class NymBrokerImpl
 
             _startInitiated = true;
 
-            // Log all registered endpoints and validate mode constraints.
-            if (_logger.IsEnabled(LogLevel.Information))
-                foreach (var (name, endpoint) in _endpoints)
-                    _logger.LogInformation("Endpoint '{Name}' registered ({Mode})", name, endpoint.Mode.ToString());
-
-            foreach (var route in _routes)
-                ValidateTarget(route.DestinationEndpoint, "Route target");
-
-            foreach (var topic in _topics)
-                foreach (var epName in topic.SubscriberEndpoints)
-                    ValidateTarget(epName, $"Topic '{topic.TopicName}' target");
-
-            if (_deadLetterEndpoint != null)
-                ValidateTarget(_deadLetterEndpoint, "Dead letter endpoint");
-
-            foreach (var tapName in _wireTapEndpoints)
-                ValidateTarget(tapName, "Wire tap endpoint");
-
-            foreach (var outName in _outputTransformers.Keys)
-            {
-                ValidateTarget(outName, "Output transformer endpoint");
-                // The broker would read back the transformed bytes and could not decode them.
-                var outEndpoint = _endpoints[outName];
-                if (outEndpoint is IEndPointEventDriven && outEndpoint.Mode != EndpointMode.WriteOnly
-                    && _globalInputTransformer == null && !_endpointTransformers.ContainsKey(outName))
-                    throw new InvalidOperationException(
-                        $"Endpoint '{outName}' has an output transformer and the broker also listens on it. Make it WriteOnly, or add an input transformer that reads the transformed format.");
-            }
+            LogRegisteredEndpoints();
+            ValidateConfiguration();
 
             StartHoldingMessages();
 
             try
             {
                 StartScheduledActions(ct);
-
-                foreach (var (name, endpoint) in _endpoints)
-                {
-                    if (endpoint is IEndPointEventDriven ed && endpoint.Mode != EndpointMode.WriteOnly)
-                    {
-                        await ed.StartListeningAsync(
-                            (raw, token) => ProcessAsync(raw, name, token),
-                            ct);
-                        _logger.LogInformation("Started listening on endpoint '{Name}'", name);
-                    }
-                    else if (endpoint.Mode == EndpointMode.WriteOnly)
-                    {
-                        _logger.LogInformation("Endpoint '{Name}' is write-only — listener not started", name);
-                    }
-                }
+                await StartListenersAsync(ct);
 
                 _started = true;
                 _startGate.TrySetResult();
@@ -81,6 +41,64 @@ internal sealed partial class NymBrokerImpl
         finally
         {
             _lifecycleLock.Release();
+        }
+    }
+
+    private void LogRegisteredEndpoints()
+    {
+        if (!_logger.IsEnabled(LogLevel.Information)) return;
+        foreach (var (name, endpoint) in _endpoints)
+            _logger.LogInformation("Endpoint '{Name}' registered ({Mode})", name, endpoint.Mode.ToString());
+    }
+
+    /// <summary>Checks that every endpoint the configuration names exists and can be used that way; throws otherwise.</summary>
+    private void ValidateConfiguration()
+    {
+        foreach (var route in _routes)
+            ValidateTarget(route.DestinationEndpoint, "Route target");
+
+        foreach (var topic in _topics)
+            foreach (var epName in topic.SubscriberEndpoints)
+                ValidateTarget(epName, $"Topic '{topic.TopicName}' target");
+
+        if (_deadLetterEndpoint != null)
+            ValidateTarget(_deadLetterEndpoint, "Dead letter endpoint");
+
+        foreach (var tapName in _wireTapEndpoints)
+            ValidateTarget(tapName, "Wire tap endpoint");
+
+        foreach (var outName in _outputTransformers.Keys)
+        {
+            ValidateTarget(outName, "Output transformer endpoint");
+            ValidateOutputTransformerNotReadBack(outName);
+        }
+    }
+
+    // The broker would read back the transformed bytes and could not decode them.
+    private void ValidateOutputTransformerNotReadBack(string outName)
+    {
+        var outEndpoint = _endpoints[outName];
+        if (outEndpoint is IEndPointEventDriven && outEndpoint.Mode != EndpointMode.WriteOnly
+            && _globalInputTransformer == null && !_endpointTransformers.ContainsKey(outName))
+            throw new InvalidOperationException(
+                $"Endpoint '{outName}' has an output transformer and the broker also listens on it. Make it WriteOnly, or add an input transformer that reads the transformed format.");
+    }
+
+    private async Task StartListenersAsync(CancellationToken ct)
+    {
+        foreach (var (name, endpoint) in _endpoints)
+        {
+            if (endpoint is IEndPointEventDriven ed && endpoint.Mode != EndpointMode.WriteOnly)
+            {
+                await ed.StartListeningAsync(
+                    (raw, token) => ProcessAsync(raw, name, token),
+                    ct);
+                _logger.LogInformation("Started listening on endpoint '{Name}'", name);
+            }
+            else if (endpoint.Mode == EndpointMode.WriteOnly)
+            {
+                _logger.LogInformation("Endpoint '{Name}' is write-only — listener not started", name);
+            }
         }
     }
 

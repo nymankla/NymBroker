@@ -33,12 +33,12 @@ internal sealed class CronSchedule
     private CronSchedule(string expression, string[] f)
     {
         _expression = expression;
-        _minutes = ParseSimple(f[0], "minute", 0, 59, null, out var minuteInterval);
-        _hours = (uint)ParseSimple(f[1], "hour", 0, 23, null, out var hourInterval);
+        _minutes = ParseSimple(f[0], CronField.Minute, out var minuteInterval);
+        _hours = (uint)ParseSimple(f[1], CronField.Hour, out var hourInterval);
         _interval = minuteInterval || hourInterval;
 
         ParseDayOfMonth(f[2], out _days, out _lastOffsets, out _nearest, out _lastNearest);
-        _months = (ushort)ParseSimple(f[3], "month", 1, 12, MonthNames, out _, 1);
+        _months = (ushort)ParseSimple(f[3], CronField.Month, out _);
         ParseDayOfWeek(f[4], out _weekdays, out _lastWeekdayOfMonth, out _nth);
     }
 
@@ -240,18 +240,18 @@ internal sealed class CronSchedule
 
         if (body == "L" || body.StartsWith("L-", StringComparison.Ordinal))
         {
-            var offset = body == "L" ? 0 : Number(body[2..], "day-of-month", token, 1, 30);
+            var offset = body == "L" ? 0 : Number(body[2..], token, CronField.DayOfMonth with { Max = 30 });
             if (weekday) lastNearest = 1u << offset; else lastOffsets = 1u << offset;
             return;
         }
 
         if (weekday)
         {
-            nearest = 1u << Number(body, "day-of-month", token, 1, 31);
+            nearest = 1u << Number(body, token, CronField.DayOfMonth);
             return;
         }
 
-        days = (uint)ParseSimple(token, "day-of-month", 1, 31, null, out _);
+        days = (uint)ParseSimple(token, CronField.DayOfMonth, out _);
     }
 
     private const uint AllDays = 0xFFFFFFFEu;
@@ -266,7 +266,7 @@ internal sealed class CronSchedule
         if (hash >= 0)
         {
             var wd = DayValue(token[..hash], token) % 7;
-            var k = Number(token[(hash + 1)..], "day-of-week", token, 1, 5);
+            var k = Number(token[(hash + 1)..], token, CronField.DayOfWeek with { Min = 1, Max = 5 });
             nth = 1UL << (wd * 5 + k - 1);
             return;
         }
@@ -277,7 +277,7 @@ internal sealed class CronSchedule
             return;
         }
 
-        var bits = ParseSimple(token, "day-of-week", 0, 7, DayNames, out _);
+        var bits = ParseSimple(token, CronField.DayOfWeek, out _);
         if ((bits & 0x80) != 0) bits |= 1;
         weekdays = (byte)(bits & 0x7F);
     }
@@ -285,50 +285,26 @@ internal sealed class CronSchedule
     private static int DayValue(string text, string token)
     {
         var index = Array.FindIndex(DayNames, n => n.Equals(text, StringComparison.OrdinalIgnoreCase));
-        return index >= 0 ? index : Number(text, "day-of-week", token, 0, 7);
+        return index >= 0 ? index : Number(text, token, CronField.DayOfWeek);
     }
 
-    // Comma-separated list of: *, a, a-b, optionally followed by /step. `nameBase` is the value of the first name.
-    private static ulong ParseSimple(string token, string field, int min, int max, string[]? names, out bool interval, int nameBase = 0)
+    // Comma-separated list of: *, a, a-b, optionally followed by /step.
+    private static ulong ParseSimple(string token, CronField field, out bool interval)
     {
         interval = false;
         ulong mask = 0;
 
         foreach (var item in token.Split(','))
         {
-            if (item.Length == 0) throw Bad(field, $"empty list item in '{token}'");
+            if (item.Length == 0) throw Bad(field.Name, $"empty list item in '{token}'");
 
             var slash = item.IndexOf('/');
-            var range = slash >= 0 ? item[..slash] : item;
-            var step = 1;
-            if (slash >= 0)
-            {
-                step = Number(item[(slash + 1)..], field, item, 1, max, "step");
-                interval = true;
-            }
+            var hasStep = slash >= 0;
+            var range = hasStep ? item[..slash] : item;
+            var step = hasStep ? Number(item[(slash + 1)..], item, field with { Min = 1 }, "step") : 1;
 
-            int lo, hi;
-            if (range == "*")
-            {
-                (lo, hi) = (min, field == "day-of-week" ? 6 : max);
-                interval = true;
-            }
-            else
-            {
-                var dash = range.IndexOf('-');
-                if (dash >= 0)
-                {
-                    lo = Value(range[..dash], field, min, max, names, nameBase);
-                    hi = Value(range[(dash + 1)..], field, min, max, names, nameBase);
-                    if (lo > hi) throw Bad(field, $"range {range} is reversed");
-                    interval = true;
-                }
-                else
-                {
-                    lo = Value(range, field, min, max, names, nameBase);
-                    hi = slash >= 0 ? max : lo;
-                }
-            }
+            var (lo, hi, rangeInterval) = ParseRange(range, hasStep, field);
+            interval |= hasStep || rangeInterval;
 
             for (var v = lo; v <= hi; v += step) mask |= 1UL << v;
         }
@@ -336,24 +312,56 @@ internal sealed class CronSchedule
         return mask;
     }
 
-    private static int Value(string text, string field, int min, int max, string[]? names, int nameBase)
+    // One list item without its step: *, a or a-b. A single value with a step runs to the field's maximum.
+    private static (int Lo, int Hi, bool Interval) ParseRange(string range, bool hasStep, CronField field)
     {
-        if (names != null)
+        if (range == "*") return (field.Min, field.WildcardMax, true);
+
+        var dash = range.IndexOf('-');
+        if (dash < 0)
         {
-            var index = Array.FindIndex(names, n => n.Equals(text, StringComparison.OrdinalIgnoreCase));
-            if (index >= 0) return index + nameBase;
+            var value = Value(range, field);
+            return (value, hasStep ? field.Max : value, false);
         }
-        return Number(text, field, text, min, max);
+
+        var lo = Value(range[..dash], field);
+        var hi = Value(range[(dash + 1)..], field);
+        if (lo > hi) throw Bad(field.Name, $"range {range} is reversed");
+        return (lo, hi, true);
     }
 
-    private static int Number(string text, string field, string token, int min, int max, string what = "value")
+    private static int Value(string text, CronField field)
+    {
+        if (field.Names != null)
+        {
+            var index = Array.FindIndex(field.Names, n => n.Equals(text, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0) return index + field.NameBase;
+        }
+        return Number(text, text, field);
+    }
+
+    // Parses `text` (part of `token`) as a number within the field's range.
+    private static int Number(string text, string token, CronField field, string what = "value")
     {
         if (text.Length == 0 || !int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
-            throw Bad(field, $"invalid {what} '{text}' in '{token}'");
-        if (value < min || value > max)
-            throw Bad(field, $"{what} {value} is out of range {min}-{max}");
+            throw Bad(field.Name, $"invalid {what} '{text}' in '{token}'");
+        if (value < field.Min || value > field.Max)
+            throw Bad(field.Name, $"{what} {value} is out of range {field.Min}-{field.Max}");
         return value;
     }
 
     private static CronFormatException Bad(string field, string message) => new($"{field} {message}.");
+
+    /// <summary>One cron field: its name in error messages, its value range, and optional names (the first one is worth <see cref="NameBase"/>).</summary>
+    private sealed record CronField(string Name, int Min, int Max, string[]? Names = null, int NameBase = 0)
+    {
+        public static readonly CronField Minute = new("minute", 0, 59);
+        public static readonly CronField Hour = new("hour", 0, 23);
+        public static readonly CronField DayOfMonth = new("day-of-month", 1, 31);
+        public static readonly CronField Month = new("month", 1, 12, MonthNames, 1);
+        public static readonly CronField DayOfWeek = new("day-of-week", 0, 7, DayNames);
+
+        /// <summary>Upper bound of <c>*</c>: day-of-week accepts 7 for Sunday, but <c>*</c> stops at 6.</summary>
+        public int WildcardMax => Name == "day-of-week" ? 6 : Max;
+    }
 }

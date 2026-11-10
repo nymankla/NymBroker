@@ -2,30 +2,23 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
-using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
-using NymBroker.Core.Endpoint;
+using NymBroker.Core.Factory;
 using NymBroker.Core.Idempotency;
-using NymBroker.Core.Impl;
-using NymBroker.Core.Message;
-using NymBroker.Core.Serialize;
 using NymBroker.Idempotency.Postgres;
 
 namespace NymBroker.Tests;
 
 /// <summary>
-/// Tests for the PostgreSQL idempotency store. Settings and registration tests always run; database tests need
+/// Tests for the PostgreSQL idempotency store. Settings and registration tests always run; the contract tests need
 /// NYMBROKER_POSTGRES_CS set (see <see cref="PostgresEndPointTests"/>).
 /// </summary>
-public sealed class PostgresIdempotencyStoreTests : IAsyncLifetime
+public sealed class PostgresIdempotencyStoreTests : IdempotencyStoreContractTests
 {
     private const string ConnectionStringVariable = "NYMBROKER_POSTGRES_CS";
     private static readonly string? ConnectionString = Environment.GetEnvironmentVariable(ConnectionStringVariable);
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
-    private readonly string _tableName = $"nb_idem_{Guid.NewGuid():N}";
-    private readonly List<PostgresIdempotencyStore> _stores = [];
 
-    private static void RequirePostgres()
+    protected override void RequireDatabase()
         => Assert.SkipUnless(!string.IsNullOrWhiteSpace(ConnectionString),
             $"Set {ConnectionStringVariable} to run PostgreSQL integration tests.");
 
@@ -37,17 +30,34 @@ public sealed class PostgresIdempotencyStoreTests : IAsyncLifetime
     private PostgresIdempotencySettings Settings(TimeSpan? ttl = null, TimeSpan? lease = null) => new()
     {
         ConnectionString = ConnectionString!,
-        TableName = _tableName,
+        TableName = TableName,
         Ttl = ttl ?? TimeSpan.FromHours(1),
         LeaseTimeout = lease ?? TimeSpan.FromMinutes(5),
         CleanupBatchSize = 2
     };
 
-    private PostgresIdempotencyStore CreateStore(TimeSpan? ttl = null, TimeSpan? lease = null)
+    protected override IExpiringIdempotencyStore CreateStore(TimeSpan ttl, TimeSpan lease, bool shared)
+        => new PostgresIdempotencyStore(Settings(ttl, lease), NullLogger<PostgresIdempotencyStore>.Instance);
+
+    protected override NymBrokerBuilder AddStore(NymBrokerBuilder builder) => builder.AddPostgresIdempotency(Settings());
+
+    protected override async Task<long> CountRowsAsync()
     {
-        var store = new PostgresIdempotencyStore(Settings(ttl, lease), NullLogger<PostgresIdempotencyStore>.Instance);
-        _stores.Add(store);
-        return store;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM \"{TableName}\"";
+        return Convert.ToInt64(await command.ExecuteScalarAsync(Ct));
+    }
+
+    protected override async ValueTask DropTableAsync()
+    {
+        if (string.IsNullOrWhiteSpace(ConnectionString)) return;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"DROP TABLE IF EXISTS \"{TableName}\"";
+        await command.ExecuteNonQueryAsync();
     }
 
     [Fact]
@@ -131,206 +141,13 @@ public sealed class PostgresIdempotencyStoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Claim_InProgress_Complete_Duplicate()
-    {
-        RequirePostgres();
-        var store = CreateStore();
-        var id = Guid.NewGuid();
-
-        Assert.Equal(IdempotencyClaimResult.Claimed, await store.TryClaimAsync(id, Ct));
-        Assert.Equal(IdempotencyClaimResult.InProgress, await store.TryClaimAsync(id, Ct));
-        await store.CompleteAsync(id, Ct);
-        Assert.Equal(IdempotencyClaimResult.Duplicate, await store.TryClaimAsync(id, Ct));
-    }
-
-    [Fact]
-    public async Task Release_AllowsClaimAgain_ButDoesNotForgetCompletedMessage()
-    {
-        RequirePostgres();
-        var store = CreateStore();
-        var id = Guid.NewGuid();
-
-        await store.TryClaimAsync(id, Ct);
-        await store.ReleaseAsync(id, Ct);
-        Assert.Equal(IdempotencyClaimResult.Claimed, await store.TryClaimAsync(id, Ct));
-
-        await store.CompleteAsync(id, Ct);
-        await store.ReleaseAsync(id, Ct);
-        Assert.Equal(IdempotencyClaimResult.Duplicate, await store.TryClaimAsync(id, Ct));
-    }
-
-    [Fact]
-    public async Task Complete_WithoutRow_StillRecordsTheMessage()
-    {
-        RequirePostgres();
-        var store = CreateStore();
-        var id = Guid.NewGuid();
-
-        await store.CompleteAsync(id, Ct);
-
-        Assert.Equal(IdempotencyClaimResult.Duplicate, await store.TryClaimAsync(id, Ct));
-    }
-
-    [Fact]
-    public async Task ExpiredLease_CanBeTakenOver()
-    {
-        RequirePostgres();
-        var store = CreateStore(lease: TimeSpan.FromSeconds(1));
-        var id = Guid.NewGuid();
-
-        await store.TryClaimAsync(id, Ct);
-        await Task.Delay(TimeSpan.FromSeconds(1.5), Ct);
-
-        Assert.Equal(IdempotencyClaimResult.Claimed, await store.TryClaimAsync(id, Ct));
-    }
-
-    [Fact]
-    public async Task ExpiredTtl_AllowsReprocessing()
-    {
-        RequirePostgres();
-        var store = CreateStore(ttl: TimeSpan.FromSeconds(1));
-        var id = Guid.NewGuid();
-
-        await store.TryClaimAsync(id, Ct);
-        await store.CompleteAsync(id, Ct);
-        await Task.Delay(TimeSpan.FromSeconds(1.5), Ct);
-
-        Assert.Equal(IdempotencyClaimResult.Claimed, await store.TryClaimAsync(id, Ct));
-    }
-
-    [Fact]
-    public async Task DeleteExpired_RemovesOnlyExpiredRows_InBatches()
-    {
-        RequirePostgres();
-        var shortLived = CreateStore(ttl: TimeSpan.FromSeconds(1));
-        var longLived = CreateStore();
-        foreach (var _ in Enumerable.Range(0, 5))
-            await shortLived.CompleteAsync(Guid.NewGuid(), Ct);
-        var kept = Guid.NewGuid();
-        await longLived.CompleteAsync(kept, Ct);
-        await Task.Delay(TimeSpan.FromSeconds(1.5), Ct);
-
-        Assert.Equal(5, await longLived.DeleteExpiredAsync(Ct));
-        Assert.Equal(1, await CountRowsAsync());
-        Assert.Equal(IdempotencyClaimResult.Duplicate, await longLived.TryClaimAsync(kept, Ct));
-    }
-
-    [Fact]
-    public async Task AutoCreate_IsIdempotent_AcrossStores()
-    {
-        RequirePostgres();
-        var id = Guid.NewGuid();
-
-        Assert.Equal(IdempotencyClaimResult.Claimed, await CreateStore().TryClaimAsync(id, Ct));
-        Assert.Equal(IdempotencyClaimResult.InProgress, await CreateStore().TryClaimAsync(id, Ct));
-    }
-
-    [Fact]
     public async Task AutoCreate_StoresStartingAtOnce_AllCreateTheTable()
     {
-        RequirePostgres();
+        RequireDatabase();
         // Instances starting together race on creating the table; the losers must not fail.
         var results = await Task.WhenAll(Enumerable.Range(0, 8)
-            .Select(_ => CreateStore().TryClaimAsync(Guid.NewGuid(), Ct).AsTask()));
+            .Select(_ => Store().TryClaimAsync(Guid.NewGuid(), Ct).AsTask()));
 
         Assert.All(results, r => Assert.Equal(IdempotencyClaimResult.Claimed, r));
-    }
-
-    [Fact]
-    public async Task ConcurrentClaims_ExactlyOneWins()
-    {
-        RequirePostgres();
-        var stores = Enumerable.Range(0, 4).Select(_ => CreateStore()).ToList();
-        await stores[0].ReleaseAsync(Guid.NewGuid(), Ct);
-        var id = Guid.NewGuid();
-
-        var results = await Task.WhenAll(Enumerable.Range(0, 16)
-            .Select(i => Task.Run(() => stores[i % stores.Count].TryClaimAsync(id, Ct).AsTask(), Ct)));
-
-        Assert.Single(results, result => result == IdempotencyClaimResult.Claimed);
-        Assert.All(results.Where(result => result != IdempotencyClaimResult.Claimed),
-            result => Assert.Equal(IdempotencyClaimResult.InProgress, result));
-    }
-
-    [MessageName("tests.idempotency.postgres.order")]
-    public sealed class SharedOrder { public Guid Marker { get; set; } = Guid.NewGuid(); }
-
-    public sealed class SlowOrderConsumer : IConsume<SharedOrder>
-    {
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, int> Calls = new();
-        public static int CallsFor(Guid marker) => Calls.GetValueOrDefault(marker);
-
-        public async Task ConsumeAsync(SharedOrder message, IMessageContext context, CancellationToken ct = default)
-        {
-            Calls.AddOrUpdate(message.Marker, 1, (_, count) => count + 1);
-            await Task.Delay(300, ct);
-        }
-    }
-
-    [Fact]
-    public async Task TwoBrokersOnOneTable_SameMessageDeliveredToBoth_IsConsumedOnce()
-    {
-        RequirePostgres();
-        var settings = Settings();
-
-        async Task<(ServiceProvider Provider, NymBrokerImpl Broker)> BuildAsync()
-        {
-            var services = new ServiceCollection();
-            services.AddLogging();
-            services.AddNymBroker().AddConsumer<SlowOrderConsumer>().AddPostgresIdempotency(settings).Build();
-            var provider = services.BuildServiceProvider();
-            var broker = provider.GetRequiredService<NymBrokerImpl>();
-            await broker.StartAsync(Ct);
-            return (provider, broker);
-        }
-
-        var (provider1, broker1) = await BuildAsync();
-        var (provider2, broker2) = await BuildAsync();
-        try
-        {
-            var order = new SharedOrder();
-            string json;
-            using (var stream = provider1.GetRequiredService<MessageSerializerJson>().Serialize(new MessageContext<SharedOrder> { Message = order }))
-            using (var reader = new StreamReader(stream))
-                json = await reader.ReadToEndAsync(Ct);
-
-            var results = await Task.WhenAll(broker1.ProcessAsync(json, "In", Ct), broker2.ProcessAsync(json, "In", Ct));
-            var redelivered = await broker2.ProcessAsync(json, "In", Ct);
-
-            Assert.Equal(1, SlowOrderConsumer.CallsFor(order.Marker));
-            Assert.Contains(results, result => result.Outcome == ProcessOutcome.Completed);
-            Assert.Equal(ProcessOutcome.Completed, redelivered.Outcome);
-        }
-        finally
-        {
-            await broker1.StopAsync(Ct);
-            await broker2.StopAsync(Ct);
-            await provider1.DisposeAsync();
-            await provider2.DisposeAsync();
-        }
-    }
-
-    private async Task<int> CountRowsAsync()
-    {
-        await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.OpenAsync(Ct);
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT COUNT(*) FROM \"{_tableName}\"";
-        return Convert.ToInt32(await command.ExecuteScalarAsync(Ct));
-    }
-
-    public ValueTask InitializeAsync() => ValueTask.CompletedTask;
-
-    public async ValueTask DisposeAsync()
-    {
-        foreach (var store in _stores)
-            await store.DisposeAsync();
-
-        if (string.IsNullOrWhiteSpace(ConnectionString)) return;
-        await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"DROP TABLE IF EXISTS \"{_tableName}\"";
-        await command.ExecuteNonQueryAsync();
     }
 }

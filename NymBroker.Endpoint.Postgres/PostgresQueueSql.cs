@@ -130,9 +130,9 @@ internal static class PostgresQueueSql
         return $"""
             SELECT (SELECT COUNT(*) FROM {table} WHERE status = {Pending}),
                    (SELECT COUNT(*) FROM {table} WHERE status = {InProgress}),
-                   (SELECT COUNT(*) FROM {DeferredTable(tableName)}),
                    (SELECT COUNT(*) FROM {table} WHERE status = {Failed}),
-                   (SELECT COUNT(*) FROM {table} WHERE status = {Completed})
+                   (SELECT COUNT(*) FROM {table} WHERE status = {Completed}),
+                   (SELECT COUNT(*) FROM {DeferredTable(tableName)})
             """;
     }
 
