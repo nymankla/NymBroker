@@ -74,7 +74,7 @@ public sealed class RetryPolicy
     // Not async (ref param); computes the delay synchronously and returns the awaitable.
     private ValueTask WaitBeforeRetryAsync(Exception ex, int attempt, ref double prev, CancellationToken ct)
     {
-        var delay = ComputeDelay(_options.BackoffType, _options.UseJitter, _options.Delay, _maxDelay, attempt, ref prev, Random.Shared.NextDouble);
+        var delay = ComputeDelay(new DelayShape(_options.BackoffType, _options.UseJitter, _options.Delay, _maxDelay), attempt, ref prev, Random.Shared.NextDouble);
         return OnRetryThenDelayAsync(new RetryAttempt(attempt, ex, delay), ct);
     }
 
@@ -91,10 +91,9 @@ public sealed class RetryPolicy
     /// Delay before the retry following 0-based <paramref name="attempt"/>. <paramref name="prev"/> carries
     /// decorrelated-jitter state between attempts (start at 0). Result is always within [0, maxDelay].
     /// </summary>
-    internal static TimeSpan ComputeDelay(
-        RetryBackoffType backoff, bool useJitter, TimeSpan baseDelay, TimeSpan maxDelay,
-        int attempt, ref double prev, Func<double> random)
+    internal static TimeSpan ComputeDelay(DelayShape shape, int attempt, ref double prev, Func<double> random)
     {
+        var (backoff, useJitter, baseDelay, maxDelay) = shape;
         if (baseDelay == TimeSpan.Zero) return TimeSpan.Zero;
 
         double ticks;
@@ -117,6 +116,9 @@ public sealed class RetryPolicy
         if (double.IsNaN(ticks) || ticks <= 0) return TimeSpan.Zero;
         return ticks >= maxDelay.Ticks ? maxDelay : TimeSpan.FromTicks((long)ticks);
     }
+
+    /// <summary>How the delay grows (<see cref="RetryOptions"/>), with the effective cap.</summary>
+    internal readonly record struct DelayShape(RetryBackoffType Backoff, bool UseJitter, TimeSpan BaseDelay, TimeSpan MaxDelay);
 
     // "Decorrelated jitter backoff V2" (Polly.Contrib.WaitAndRetry, also used by Polly v8): exponential
     // growth with a smooth random spread, so retries from many callers don't synchronize.

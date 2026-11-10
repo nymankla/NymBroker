@@ -43,7 +43,7 @@ public sealed partial class SqliteEndPoint
 
             // Both cursor keys are integer columns here, also for the time-ordered states.
             return await QueueInspection.ReadPageAsync(command, state, limit,
-                r => (r.GetInt64(0), r.GetInt64(1)), r => ReadMessage(r, state), ct);
+                new QueueInspection.RowReader(r => (r.GetInt64(0), r.GetInt64(1)), r => ReadMessage(r, state)), ct);
         }
         finally
         {

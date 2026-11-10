@@ -32,11 +32,12 @@ internal static class SqlServerQueueSql
         var tableLiteral = Literal(table);
         var safeName = tableName.Replace('.', '_');
         var primaryKey = $"pk_{safeName}";
-        var activeIndex = $"ix_{safeName}_active";
-        var completedIndex = $"ix_{safeName}_completed";
-        var failedIndex = $"ix_{safeName}_failed";
         var deferred = DeferredTable(tableName);
         var dueIndex = $"ix_{safeName}_deferred_due";
+        var activeIndex = IndexIfMissing($"ix_{safeName}_active", tableLiteral,
+            $"ON {table}(queue_id) INCLUDE (status, locked_until_utc) WHERE status IN ({Pending}, {InProgress})");
+        var completedIndex = IndexIfMissing($"ix_{safeName}_completed", tableLiteral, $"ON {table}(completed_at_utc) WHERE status = {Completed}");
+        var failedIndex = IndexIfMissing($"ix_{safeName}_failed", tableLiteral, $"ON {table}(failed_at_utc) WHERE status = {Failed}");
 
         return $"""
             SET NOCOUNT ON;
@@ -56,18 +57,9 @@ internal static class SqlServerQueueSql
                     CONSTRAINT {QuoteSimpleIdentifier(primaryKey)} PRIMARY KEY CLUSTERED (queue_id)
                 );
             END;
-            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(activeIndex)}' AND object_id = OBJECT_ID(N'{tableLiteral}'))
-                CREATE INDEX {QuoteSimpleIdentifier(activeIndex)}
-                    ON {table}(queue_id) INCLUDE (status, locked_until_utc)
-                    WHERE status IN ({Pending}, {InProgress});
-            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(completedIndex)}' AND object_id = OBJECT_ID(N'{tableLiteral}'))
-                CREATE INDEX {QuoteSimpleIdentifier(completedIndex)}
-                    ON {table}(completed_at_utc)
-                    WHERE status = {Completed};
-            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(failedIndex)}' AND object_id = OBJECT_ID(N'{tableLiteral}'))
-                CREATE INDEX {QuoteSimpleIdentifier(failedIndex)}
-                    ON {table}(failed_at_utc)
-                    WHERE status = {Failed};
+            {activeIndex}
+            {completedIndex}
+            {failedIndex}
             IF OBJECT_ID(N'{Literal(deferred)}', N'U') IS NULL
                 CREATE TABLE {deferred} (
                     deferred_id    BIGINT IDENTITY(1,1) NOT NULL,
@@ -80,6 +72,11 @@ internal static class SqlServerQueueSql
                 CREATE INDEX {QuoteSimpleIdentifier(dueIndex)} ON {deferred}(deliver_at_utc);
             """;
     }
+
+    /// <summary>Creates index <paramref name="indexName"/> with <paramref name="definition"/> unless it exists on the table.</summary>
+    private static string IndexIfMissing(string indexName, string tableLiteral, string definition)
+        => $"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(indexName)}' AND object_id = OBJECT_ID(N'{tableLiteral}')) " +
+           $"CREATE INDEX {QuoteSimpleIdentifier(indexName)} {definition};";
 
     internal static string DeleteCompleted(string tableName) => DeleteFinished(tableName, Completed, "completed_at_utc");
 

@@ -120,7 +120,8 @@ public sealed class AzureServiceBusEndPointTests : IAsyncLifetime
         var settler = new FakeSettler();
         var logger = new CapturingLogger<AzureServiceBusEndPoint>();
 
-        await ServiceBusSettlement.SettleAsync(result, readingDeadLetterQueue, settler, logger, "Sb", "msg-1", 1, TestContext.Current.CancellationToken);
+        await ServiceBusSettlement.SettleAsync(result, new ServiceBusSettlementEndpoint(logger, "Sb", readingDeadLetterQueue),
+            new ServiceBusSettlementMessage(settler, "msg-1", 1), TestContext.Current.CancellationToken);
 
         Assert.Equal([expectedCall], settler.Calls);
         if (outcome != "completed")

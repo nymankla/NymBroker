@@ -40,7 +40,7 @@ Configuration is **builder-only**. `NymBrokerBuilder` collects endpoints, consum
 
 ## Processing a message
 
-Every listener hands received bytes to `ProcessAsync`, which never throws (except for the broker's own cancellation) and returns a `ProcessResult` telling the transport how to settle the message. The pipeline in `NymBrokerImpl.Processing.cs` is one method per stage:
+Every listener hands received bytes to `ProcessAsync`, which never throws (except for the broker's own cancellation) and returns a `ProcessResult` telling the transport how to settle the message. The pipeline is one method per stage, in `NymBrokerImpl.Processing.cs`; forwarding to routes and topics is in `NymBrokerImpl.Forwarding.cs`, dead-lettering in `NymBrokerImpl.DeadLetter.cs`, and the send path in `NymBrokerImpl.Sending.cs`:
 
 ```mermaid
 flowchart LR
@@ -76,20 +76,26 @@ The checklist for a change is in [CONTRIBUTING.md](../CONTRIBUTING.md#developmen
 
 ## Code health
 
-`NymBroker.Tests/CodeHealth/CodeHealthTests.cs` measures every method in the production code — Core, the endpoint, idempotency and scheduling packages, and `shared/` — from the syntax tree (Roslyn, no compilation) and fails when one is over a limit. Tests and samples are measured but not gated.
+`NymBroker.Tests/CodeHealth/CodeHealthTests.cs` measures the production code — Core, the endpoint, idempotency and scheduling packages, and `shared/` — from the syntax tree (Roslyn, no compilation) and fails when something is over a limit. Tests and samples are measured but not gated. The targets come from [#112](https://github.com/nymankla/NymBroker/issues/112).
 
-| Metric | What it counts | Limit |
-|---|---|---|
-| Lines | The declaration, signature to closing brace | 63 |
-| Cyclomatic complexity | 1 + each `if`, loop, `case`, switch arm, `catch`, `?:`, `&&`, `\|\|`, `??`, `?.` | 16 |
-| Cognitive complexity | Sonar-style: each branch or loop costs 1 plus its nesting depth; `else` and each run of `&&` / `\|\|` cost 1 | 20 |
-| Nesting | Deepest control-flow nesting | 4 |
-| Parameters | Declared parameters | 8 |
+| Metric | What it counts | Good | Acceptable | Limit |
+|---|---|---|---|---|
+| Method lines | The declaration, signature to closing brace | 1–15 | 16–30 | 50 |
+| Cyclomatic complexity | 1 + each `if`, loop, `case`, switch arm, `catch`, `?:`, `&&`, `\|\|`, `??`, `?.` | 1–5 | 6–10 | 10 |
+| Cognitive complexity | Sonar-style: each branch or loop costs 1 plus its nesting depth; `else` and each run of `&&` / `\|\|` cost 1 | 1–5 | 6–15 | 15 |
+| Nesting | Deepest control-flow nesting; the method body is level 0, so an `if` in a loop is 2 | 1 | 2 | 3 |
+| Parameters | Declared parameters | 0–3 | 4 | 5 |
+| Type size | Lines of one type declaration; each file of a partial class counts on its own | < 200 | 200–500 | 500 |
+| Duplication | Production code lines inside a 10-line block that also appears elsewhere | 0 % | < 3 % | 3 % |
 
-**The limits are a ratchet.** They were set to the worst production method when the gate was added (November 2026, after the hotspot refactor). If a change pushes a method over a limit, split the method; do not raise the limit. When a refactor lowers the worst value, lower the limit in `CodeHealthTests` with it.
+Above "acceptable" is the warning band: refactor. Ways out, in the order to try them: guard clauses and early returns for nesting; extract a well-named method for length and complexity; a small record (parameter object) for parameters that travel together; a partial-class file per concern, or a new type, for size; `shared/` or a base class for duplication.
+
+Not gated on parameters: constructors (the DI container fills them) and public API whose signature can't change without a breaking release (`EndpointHandler.InvokeAsync`, `HealthCheckResult.FromProbeAsync`, `INymBroker.PostBatchAsync`; the list is `ParameterExceptions` in the test).
+
+**The limits are a ratchet.** If a change pushes something over a limit, split it; never raise the limit. When the worst value drops, lower the limit towards the top of the acceptable band. As of November 2026 every limit holds; the worst values are 47 lines, cyclomatic 10, cognitive 14, nesting 3, and a 437-line type, with 0.95 % duplication.
 
 Running it:
 
 - It runs with every `dotnet test`. To run it alone: `dotnet test --project NymBroker.Tests -- --filter-class "*CodeHealthTests"`.
-- In CI it also appends a summary (worst value per metric and the ten most complex methods) to the job summary.
+- In CI it appends a summary to the job summary: for each metric, how many methods are good, acceptable or in the warning band, the worst one, and the limit; then the ten most complex methods.
 - For a full report, set `NYMBROKER_CODE_HEALTH_REPORT` to a file path; the test writes every method, type, file and duplicated block as JSON. The `code-health` agent skill (`.claude/skills/code-health`) does this, summarizes it and ranks refactoring candidates.

@@ -132,40 +132,16 @@ public abstract class LeasedQueueListener
     {
         // Outcomes of handled messages not written yet; written together with the next claim.
         var outcomes = new List<QueueMessageOutcome>();
-        var nextPromotion = 0L;
+        _nextPromotion = 0;
         try
         {
             while (!token.IsCancellationRequested)
             {
-                var claimedCount = 0;
-                try
-                {
-                    if (Environment.TickCount64 >= nextPromotion)
-                        nextPromotion = await PromoteAndGetNextTimeAsync(token);
-
-                    var batch = await FinalizeAndClaimAsync(outcomes, token);
-                    outcomes.Clear();   // committed together with the claim
-                    claimedCount = batch.Count;
-
-                    foreach (var message in batch)
-                    {
-                        var result = await EndpointHandler.InvokeAsync(handler, message.Payload, Logger, EndpointName, token);
-                        outcomes.Add(ToOutcome(message, result));
-                    }
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    break;   // stopping mid-batch: unhandled messages are left to lease expiry
-                }
-                catch (Exception ex)
-                {
-                    // Rolled back, so 'outcomes' is written on the next attempt. If the leases expire first, the
-                    // attempt-count guard in the finalize statement turns that late write into a no-op.
-                    Logger.LogError(ex, "Poll error on endpoint '{Name}'", EndpointName);
-                }
+                var claimed = await PollOnceAsync(handler, outcomes, token);
+                if (claimed is null) break;
 
                 // Drain without waiting while there is work; wait only when idle (or after an error).
-                if (claimedCount == 0)
+                if (claimed == 0)
                     await WaitWhenIdleAsync(token);
             }
         }
@@ -175,6 +151,50 @@ public abstract class LeasedQueueListener
             Logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", EndpointName);
         }
 
+        await ExitLoopAsync(outcomes);
+    }
+
+    /// <summary>When the next promotion of due deferred messages is due (<see cref="Environment.TickCount64"/>); only the loop uses it.</summary>
+    private long _nextPromotion;
+
+    /// <summary>
+    /// One pass: promote due deferred messages, write the previous outcomes and claim a batch in one call, then handle
+    /// the batch. Returns how many were claimed (0 after a logged error), or null when stopping.
+    /// </summary>
+    private async Task<int?> PollOnceAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler,
+        List<QueueMessageOutcome> outcomes, CancellationToken token)
+    {
+        try
+        {
+            if (Environment.TickCount64 >= _nextPromotion)
+                _nextPromotion = await PromoteAndGetNextTimeAsync(token);
+
+            var batch = await FinalizeAndClaimAsync(outcomes, token);
+            outcomes.Clear();   // committed together with the claim
+
+            foreach (var message in batch)
+            {
+                var result = await EndpointHandler.InvokeAsync(handler, message.Payload, Logger, EndpointName, token);
+                outcomes.Add(ToOutcome(message, result));
+            }
+            return batch.Count;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return null;   // stopping mid-batch: unhandled messages are left to lease expiry
+        }
+        catch (Exception ex)
+        {
+            // Rolled back, so 'outcomes' is written on the next attempt. If the leases expire first, the
+            // attempt-count guard in the finalize statement turns that late write into a no-op.
+            Logger.LogError(ex, "Poll error on endpoint '{Name}'", EndpointName);
+            return 0;
+        }
+    }
+
+    /// <summary>Releases what the loop used, then writes the outcomes of messages already handled.</summary>
+    private async Task ExitLoopAsync(List<QueueMessageOutcome> outcomes)
+    {
         try
         {
             await OnLoopExitAsync();

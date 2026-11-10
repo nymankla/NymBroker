@@ -119,44 +119,14 @@ public sealed partial class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPo
         await using var conn = await OpenConnectionAsync(ct);
         try
         {
-            var ids = new List<long>();
-            await using (var lockCmd = new MySqlCommand(_finalizeAndLockSql, conn))
-            {
-                AddItemsParameter(lockCmd, outcomes);
-                lockCmd.Parameters.AddWithValue("@batchSize", _settings.BatchSize);
-                await using var reader = await lockCmd.ExecuteReaderAsync(ct);
-                do
-                {
-                    while (await reader.ReadAsync(ct))
-                        ids.Add(reader.GetInt64(0));
-                } while (await reader.NextResultAsync(ct));
-            }
-
+            var ids = await FinalizeAndLockAsync(conn, outcomes, ct);
             if (ids.Count == 0)
             {
                 await using var commit = new MySqlCommand("COMMIT;", conn);
                 await commit.ExecuteNonQueryAsync(ct);
                 return [];
             }
-
-            var claimed = new List<QueueMessage>(ids.Count);
-            await using (var claimCmd = new MySqlCommand(MySqlQueueSql.Claim(_table, ids), conn))
-            {
-                claimCmd.Parameters.AddWithValue("@leaseTimeout", LeasedQueueListener.GetLeaseTimeoutSeconds(_settings));
-                await using var reader = await claimCmd.ExecuteReaderAsync(ct);
-                do
-                {
-                    while (await reader.ReadAsync(ct))
-                    {
-                        claimed.Add(new QueueMessage(
-                            QueueId: reader.GetInt64(0),
-                            AttemptCount: reader.GetInt32(3),
-                            Payload: reader.GetFieldValue<byte[]>(2),
-                            MessageId: new Guid(reader.GetFieldValue<byte[]>(1))));
-                    }
-                } while (await reader.NextResultAsync(ct));   // drain, so a COMMIT error surfaces here
-            }
-            return claimed;
+            return await ClaimLockedAsync(conn, ids, ct);
         }
         catch
         {
@@ -164,6 +134,43 @@ public sealed partial class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPo
             await RollbackQuietlyAsync(conn);
             throw;
         }
+    }
+
+    /// <summary>Starts the transaction: writes the outcomes and locks the next batch's rows, returning their ids.</summary>
+    private async Task<List<long>> FinalizeAndLockAsync(MySqlConnection conn, IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
+    {
+        var ids = new List<long>();
+        await using var lockCmd = new MySqlCommand(_finalizeAndLockSql, conn);
+        AddItemsParameter(lockCmd, outcomes);
+        lockCmd.Parameters.AddWithValue("@batchSize", _settings.BatchSize);
+        await using var reader = await lockCmd.ExecuteReaderAsync(ct);
+        do
+        {
+            while (await reader.ReadAsync(ct))
+                ids.Add(reader.GetInt64(0));
+        } while (await reader.NextResultAsync(ct));
+        return ids;
+    }
+
+    /// <summary>Claims the locked rows and commits the transaction, returning the claimed messages.</summary>
+    private async Task<List<QueueMessage>> ClaimLockedAsync(MySqlConnection conn, List<long> ids, CancellationToken ct)
+    {
+        var claimed = new List<QueueMessage>(ids.Count);
+        await using var claimCmd = new MySqlCommand(MySqlQueueSql.Claim(_table, ids), conn);
+        claimCmd.Parameters.AddWithValue("@leaseTimeout", LeasedQueueListener.GetLeaseTimeoutSeconds(_settings));
+        await using var reader = await claimCmd.ExecuteReaderAsync(ct);
+        do
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                claimed.Add(new QueueMessage(
+                    QueueId: reader.GetInt64(0),
+                    AttemptCount: reader.GetInt32(3),
+                    Payload: reader.GetFieldValue<byte[]>(2),
+                    MessageId: new Guid(reader.GetFieldValue<byte[]>(1))));
+            }
+        } while (await reader.NextResultAsync(ct));   // drain, so a COMMIT error surfaces here
+        return claimed;
     }
 
     private async Task<int> PromoteDueAsync(CancellationToken ct)

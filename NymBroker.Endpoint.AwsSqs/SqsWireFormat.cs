@@ -62,34 +62,44 @@ internal static class SqsWireFormat
     /// </summary>
     internal static (string GroupId, string DeduplicationId) FifoIds(byte[] bytes, string? configuredGroupId)
     {
+        var (id, correlationId) = ReadIds(bytes);
+        return (configuredGroupId ?? NonEmpty(correlationId) ?? DefaultMessageGroupId,
+                NonEmpty(id) ?? Convert.ToHexString(SHA256.HashData(bytes)));
+    }
+
+    /// <summary>The envelope's top-level <c>id</c> and <c>correlationId</c>; null for what isn't there, or isn't JSON.</summary>
+    private static (string? Id, string? CorrelationId) ReadIds(byte[] bytes)
+    {
         string? id = null, correlationId = null;
         try
         {
             var reader = new Utf8JsonReader(bytes);
-            if (reader.Read() && reader.TokenType == JsonTokenType.StartObject)
-            {
-                while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
-                {
-                    var isId = reader.ValueTextEquals("id"u8);
-                    var isCorrelation = !isId && reader.ValueTextEquals("correlationId"u8);
-                    reader.Read();
-                    if ((isId || isCorrelation) && reader.TokenType == JsonTokenType.String)
-                    {
-                        if (isId) id = reader.GetString();
-                        else correlationId = reader.GetString();
-                    }
-                    else
-                        reader.Skip();
-                }
-            }
+            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return (null, null);
+
+            while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+                ReadIdProperty(ref reader, ref id, ref correlationId);
         }
         catch (JsonException)
         {
-            // Not JSON: fall through to the hash and the default group.
+            // Not JSON: the caller falls back to the hash and the default group.
+        }
+        return (id, correlationId);
+    }
+
+    /// <summary>Reads one property's value, keeping it if it is the string <c>id</c> or <c>correlationId</c>.</summary>
+    private static void ReadIdProperty(ref Utf8JsonReader reader, ref string? id, ref string? correlationId)
+    {
+        var isId = reader.ValueTextEquals("id"u8);
+        var isCorrelation = !isId && reader.ValueTextEquals("correlationId"u8);
+        reader.Read();
+        if (!(isId || isCorrelation) || reader.TokenType != JsonTokenType.String)
+        {
+            reader.Skip();
+            return;
         }
 
-        return (configuredGroupId ?? NonEmpty(correlationId) ?? DefaultMessageGroupId,
-                NonEmpty(id) ?? Convert.ToHexString(SHA256.HashData(bytes)));
+        if (isId) id = reader.GetString();
+        else correlationId = reader.GetString();
     }
 
     private static string? NonEmpty(string? value)

@@ -50,7 +50,17 @@ internal sealed record CodeHealthReport(
     [property: JsonPropertyName("methods")] IReadOnlyList<MethodMetrics> Methods,
     [property: JsonPropertyName("types")] IReadOnlyList<TypeMetrics> Types,
     [property: JsonPropertyName("files")] IReadOnlyList<FileMetrics> Files,
-    [property: JsonPropertyName("duplicates")] IReadOnlyList<DuplicateGroup> Duplicates);
+    [property: JsonPropertyName("duplicates")] IReadOnlyList<DuplicateGroup> Duplicates,
+    [property: JsonPropertyName("duplicatedLines")] int DuplicatedLines)
+{
+    /// <summary>Production code lines (non-blank, non-comment) in the measured files.</summary>
+    [JsonPropertyName("productionCodeLines")]
+    public int ProductionCodeLines => Files.Where(f => CodeMetrics.IsProduction(f.Area)).Sum(f => f.Code);
+
+    /// <summary>Share of production code lines that are part of a block duplicated elsewhere, in percent.</summary>
+    [JsonPropertyName("duplicationPercent")]
+    public double DuplicationPercent => ProductionCodeLines == 0 ? 0 : 100.0 * DuplicatedLines / ProductionCodeLines;
+}
 
 /// <summary>
 /// Roslyn syntax metrics for the code-health test and the code-health skill (docs/architecture.md#code-health).
@@ -78,7 +88,7 @@ internal static class CodeMetrics
         var methods = new List<MethodMetrics>();
         var types = new List<TypeMetrics>();
         var files = new List<FileMetrics>();
-        var windows = new Dictionary<string, List<(string File, int Line)>>();
+        var windows = new Dictionary<string, List<Window>>();
 
         foreach (var path in SourceFiles(root))
         {
@@ -97,8 +107,13 @@ internal static class CodeMetrics
             methods.AddRange(MeasureMethods(syntaxRoot, rel, area));
         }
 
-        return new CodeHealthReport(methods, types, files, GroupDuplicates(windows));
+        var duplicated = windows.Values.Where(v => v.Count > 1).SelectMany(v => v)
+            .SelectMany(w => w.Lines.Select(line => (w.File, line))).Distinct().Count();
+        return new CodeHealthReport(methods, types, files, GroupDuplicates(windows), duplicated);
     }
+
+    /// <summary>A run of <see cref="DuplicateWindow"/> code lines in one file, by their line numbers.</summary>
+    private sealed record Window(string File, int[] Lines);
 
     /// <summary>Measures the methods in one source text (used by the analyzer's own tests).</summary>
     public static IReadOnlyList<MethodMetrics> MeasureMethods(string source, string file = "Test.cs")
@@ -234,7 +249,7 @@ internal static class CodeMetrics
         }
     }
 
-    private static void AddWindows(Dictionary<string, List<(string File, int Line)>> windows, string file, string[] lines)
+    private static void AddWindows(Dictionary<string, List<Window>> windows, string file, string[] lines)
     {
         var code = lines.Select((l, i) => (Text: l.Trim(), Line: i + 1))
             .Where(x => x.Text.Length > 2 && !x.Text.StartsWith("//", StringComparison.Ordinal)
@@ -243,19 +258,20 @@ internal static class CodeMetrics
             .ToList();
         for (var i = 0; i + DuplicateWindow <= code.Count; i++)
         {
-            var block = string.Join("\n", code.Skip(i).Take(DuplicateWindow).Select(x => x.Text));
+            var window = code.Skip(i).Take(DuplicateWindow).ToList();
+            var block = string.Join("\n", window.Select(x => x.Text));
             var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(block)));
             if (!windows.TryGetValue(key, out var list)) windows[key] = list = [];
-            list.Add((file, code[i].Line));
+            list.Add(new Window(file, window.Select(x => x.Line).ToArray()));
         }
     }
 
     /// <summary>Windows seen more than once, grouped by the set of files they occur in.</summary>
-    private static List<DuplicateGroup> GroupDuplicates(Dictionary<string, List<(string File, int Line)>> windows)
+    private static List<DuplicateGroup> GroupDuplicates(Dictionary<string, List<Window>> windows)
         => windows.Values.Where(v => v.Count > 1)
             .GroupBy(v => string.Join("|", v.Select(x => x.File).Order(StringComparer.Ordinal)))
             .Select(g => new DuplicateGroup(g.Key.Split('|').Distinct().ToArray(), g.Count(),
-                g.First().Select(x => $"{x.File}:{x.Line}").ToArray()))
+                g.First().Select(x => $"{x.File}:{x.Lines[0]}").ToArray()))
             .OrderByDescending(g => g.Windows)
             .ToList();
 }

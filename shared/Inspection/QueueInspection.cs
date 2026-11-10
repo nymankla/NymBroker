@@ -40,9 +40,8 @@ internal static class QueueInspection
     /// Runs <paramref name="command"/> (which asks for <paramref name="limit"/> + 1 rows) and builds the page: the extra
     /// row tells whether another page exists, and the cursor is the key of the last row actually returned.
     /// </summary>
-    internal static async Task<QueuePage> ReadPageAsync(
-        DbCommand command, QueueInspectionState state, int limit,
-        Func<DbDataReader, (long, long)> readKey, Func<DbDataReader, QueueMessageInfo> readMessage, CancellationToken ct)
+    internal static async Task<QueuePage> ReadPageAsync(DbCommand command, QueueInspectionState state, int limit, RowReader read,
+        CancellationToken ct)
     {
         var messages = new List<QueueMessageInfo>(limit);
         string? next = null;
@@ -55,11 +54,14 @@ internal static class QueueInspection
                 next = CursorOf(state, lastKey);
                 break;
             }
-            lastKey = readKey(reader);
-            messages.Add(readMessage(reader));
+            lastKey = read.Key(reader);
+            messages.Add(read.Message(reader));
         }
         return new QueuePage(messages, next);
     }
+
+    /// <summary>How one listed row is read: its cursor key, and the message.</summary>
+    internal sealed record RowReader(Func<DbDataReader, (long, long)> Key, Func<DbDataReader, QueueMessageInfo> Message);
 
     /// <summary>Key of a row whose first column is the queue id (pending, in progress) or a timestamp followed by the id.</summary>
     internal static (long, long) ReadTimestampKey(DbDataReader reader, QueueInspectionState state)

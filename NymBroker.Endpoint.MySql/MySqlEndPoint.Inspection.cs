@@ -46,8 +46,8 @@ public sealed partial class MySqlEndPoint
         }
 
         // MessageId is BINARY(16).
-        return await QueueInspection.ReadPageAsync(command, state, limit,
+        return await QueueInspection.ReadPageAsync(command, state, limit, new QueueInspection.RowReader(
             r => QueueInspection.ReadTimestampKey(r, state),
-            r => QueueInspection.ReadMessage(r, state, new Guid(r.GetFieldValue<byte[]>(2)).ToString()), ct);
+            r => QueueInspection.ReadMessage(r, state, new Guid(r.GetFieldValue<byte[]>(2)).ToString())), ct);
     }
 }

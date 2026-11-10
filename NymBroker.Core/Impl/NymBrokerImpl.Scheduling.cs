@@ -151,25 +151,30 @@ internal sealed partial class NymBrokerImpl
         {
             if (beforeFirst is not null)
                 await beforeFirst(token);
-
-            DateTimeOffset? lastOccurrence = null;
-            while (!token.IsCancellationRequested)
-            {
-                // Compute from the last occurrence when the timer woke up early, so one occurrence never runs twice.
-                var now = DateTimeOffset.Now;
-                var from = lastOccurrence > now ? lastOccurrence.Value : now;
-                var nextOccurrence = timing.Next(from);
-                if (nextOccurrence == null)
-                    break;
-
-                await DelayUntilAsync(nextOccurrence.Value, token);
-
-                lastOccurrence = nextOccurrence;
-                await runOccurrence(nextOccurrence.Value, token);
-            }
+            await RunOccurrencesAsync(timing, runOccurrence, token);
         }, token), token);
 
         return new ScheduledActionHandle(linkedCts, task, _logger);
+    }
+
+    /// <summary>Waits for each occurrence of <paramref name="timing"/> and runs it, until stopped or there is no next one.</summary>
+    private static async Task RunOccurrencesAsync(ScheduleTiming timing, Func<DateTimeOffset, CancellationToken, Task> runOccurrence,
+        CancellationToken token)
+    {
+        DateTimeOffset? lastOccurrence = null;
+        while (!token.IsCancellationRequested)
+        {
+            // Compute from the last occurrence when the timer woke up early, so one occurrence never runs twice.
+            var now = DateTimeOffset.Now;
+            var from = lastOccurrence > now ? lastOccurrence.Value : now;
+            if (timing.Next(from) is not { } nextOccurrence)
+                break;
+
+            await DelayUntilAsync(nextOccurrence, token);
+
+            lastOccurrence = nextOccurrence;
+            await runOccurrence(nextOccurrence, token);
+        }
     }
 
     /// <summary>Waits until <paramref name="due"/>, in steps of at most <see cref="MaxScheduleDelay"/> so a far occurrence (e.g. <c>@yearly</c>) works.</summary>

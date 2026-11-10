@@ -47,15 +47,18 @@ public sealed class MySqlIdempotencyStore : IExpiringIdempotencyStore
         do
         {
             if (await reader.ReadAsync(ct))
-            {
-                return reader.GetInt64(1) == 1 ? IdempotencyClaimResult.Claimed
-                    : reader.GetInt32(0) == MySqlIdempotencySql.Completed ? IdempotencyClaimResult.Duplicate
-                    : IdempotencyClaimResult.InProgress;
-            }
+                return ToClaimResult(reader);
         } while (await reader.NextResultAsync(ct));
 
         // The row vanished between the upsert and the read: let the transport retry.
         return IdempotencyClaimResult.InProgress;
+    }
+
+    /// <summary>The claim row read back: column 1 says whether this call took the claim, column 0 is the row's status.</summary>
+    private static IdempotencyClaimResult ToClaimResult(MySqlDataReader reader)
+    {
+        if (reader.GetInt64(1) == 1) return IdempotencyClaimResult.Claimed;
+        return reader.GetInt32(0) == MySqlIdempotencySql.Completed ? IdempotencyClaimResult.Duplicate : IdempotencyClaimResult.InProgress;
     }
 
     public async ValueTask CompleteAsync(Guid messageId, CancellationToken ct = default)

@@ -58,25 +58,37 @@ public sealed class AwsSqsSettings
     /// <summary>Throws <see cref="InvalidOperationException"/> describing the first invalid setting.</summary>
     internal void Validate(string endpointName)
     {
-        void Fail(string message) => throw new InvalidOperationException($"AWS SQS endpoint '{endpointName}': {message}");
+        var problem = AddressProblem() ?? LimitsProblem()
+            ?? (MessageGroupId is not null && !IsFifo ? "MessageGroupId only applies to FIFO queues (.fifo)." : null);
+        if (problem is not null)
+            throw new InvalidOperationException($"AWS SQS endpoint '{endpointName}': {problem}");
+    }
 
+    /// <summary>The first problem with the queue and service addresses, or null.</summary>
+    private string? AddressProblem()
+    {
         if (string.IsNullOrWhiteSpace(QueueUrl) == string.IsNullOrWhiteSpace(QueueName))
-            Fail("set either QueueUrl or QueueName, not both or neither.");
+            return "set either QueueUrl or QueueName, not both or neither.";
         if (QueueUrl is not null && !Uri.TryCreate(QueueUrl, UriKind.Absolute, out _))
-            Fail($"QueueUrl '{QueueUrl}' is not an absolute URL.");
+            return $"QueueUrl '{QueueUrl}' is not an absolute URL.";
         if (ServiceUrl is not null && !Uri.TryCreate(ServiceUrl, UriKind.Absolute, out _))
-            Fail($"ServiceUrl '{ServiceUrl}' is not an absolute URL.");
+            return $"ServiceUrl '{ServiceUrl}' is not an absolute URL.";
+        return null;
+    }
+
+    /// <summary>The first setting outside the range SQS accepts, or null.</summary>
+    private string? LimitsProblem()
+    {
         if (WaitTimeSeconds is < 0 or > 20)
-            Fail("WaitTimeSeconds must be between 0 and 20.");
+            return "WaitTimeSeconds must be between 0 and 20.";
         if (MaxNumberOfMessages is < 1 or > 10)
-            Fail("MaxNumberOfMessages must be between 1 and 10.");
+            return "MaxNumberOfMessages must be between 1 and 10.";
         if (VisibilityTimeout is { } v && (v < TimeSpan.Zero || v > TimeSpan.FromHours(12)))
-            Fail("VisibilityTimeout must be between 0 and 12 hours.");
+            return "VisibilityTimeout must be between 0 and 12 hours.";
         if (RetryDelay < TimeSpan.Zero || RetryDelay > TimeSpan.FromHours(12))
-            Fail("RetryDelay must be between 0 and 12 hours.");
+            return "RetryDelay must be between 0 and 12 hours.";
         if (MaxConcurrentCalls < 1)
-            Fail("MaxConcurrentCalls must be at least 1.");
-        if (MessageGroupId is not null && !IsFifo)
-            Fail("MessageGroupId only applies to FIFO queues (.fifo).");
+            return "MaxConcurrentCalls must be at least 1.";
+        return null;
     }
 }

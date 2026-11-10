@@ -204,8 +204,8 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IDeferredEnd
             // Not args.CancellationToken: stopping the processor cancels it, and a handled message must still be settled —
             // otherwise a stop right after the handler finished would leave it in the queue to be delivered again.
             // StopProcessingAsync waits for this handler (settlement included), and the SDK's TryTimeout bounds the call.
-            await ServiceBusSettlement.SettleAsync(result, _settings.ReadDeadLetterQueue, new ProcessMessageEventArgsSettler(args),
-                _logger, _name, message.MessageId, message.DeliveryCount, CancellationToken.None);
+            await ServiceBusSettlement.SettleAsync(result, new ServiceBusSettlementEndpoint(_logger, _name, _settings.ReadDeadLetterQueue),
+                new ServiceBusSettlementMessage(new ProcessMessageEventArgsSettler(args), message.MessageId, message.DeliveryCount), CancellationToken.None);
         }
         catch (Exception ex)
         {

@@ -20,11 +20,14 @@ public class RouteContext
     public IRouteCondition? Condition { get; set; }
 
     public virtual bool Evaluate(Type messageType, IMessageContext context, JsonElement messageElement)
-    {
-        if (MessageType != typeof(IAnyMessage) && MessageType != messageType) return false;
-        if (SourceEndpoint != null && !string.Equals(SourceEndpoint, context.Address?.From, StringComparison.OrdinalIgnoreCase)) return false;
-        if (ExcludedSourceEndpoint != null && string.Equals(ExcludedSourceEndpoint, context.Address?.From, StringComparison.OrdinalIgnoreCase)) return false;
-        if (Condition != null && !Condition.Evaluate(context, messageElement)) return false;
-        return true;
-    }
+        => MatchesType(messageType)
+           && MatchesSource(context.Address?.From)
+           && (Condition == null || Condition.Evaluate(context, messageElement));
+
+    private bool MatchesType(Type messageType) => MessageType == typeof(IAnyMessage) || MessageType == messageType;
+
+    /// <summary>The source filter: <see cref="SourceEndpoint"/> must match, <see cref="ExcludedSourceEndpoint"/> must not.</summary>
+    private bool MatchesSource(string? from)
+        => (SourceEndpoint == null || string.Equals(SourceEndpoint, from, StringComparison.OrdinalIgnoreCase))
+           && (ExcludedSourceEndpoint == null || !string.Equals(ExcludedSourceEndpoint, from, StringComparison.OrdinalIgnoreCase));
 }

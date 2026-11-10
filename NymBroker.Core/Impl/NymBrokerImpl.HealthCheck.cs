@@ -26,50 +26,14 @@ internal sealed partial class NymBrokerImpl
         var options = _healthCheckOptions;
         var total = Stopwatch.StartNew();
         var started = Volatile.Read(ref _started);
-        var endpoints = _endpoints.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase).ToList();
 
-        // All endpoints are checked in parallel, so the total time is about the slowest one. Task.Run keeps an
-        // endpoint that only has the synchronous HealthCheck() (the default HealthCheckAsync) from blocking the caller.
-        var checks = new Task<(EndpointHealth Health, string? FailureReason)>[endpoints.Count];
-        var modes = new EndpointMode[endpoints.Count];
-        for (var i = 0; i < endpoints.Count; i++)
-        {
-            var (name, endpoint) = (endpoints[i].Key, endpoints[i].Value);
-            modes[i] = SafeMode(name, endpoint);
-            var mode = modes[i];
-            var critical = options.IsCritical(name);
-            checks[i] = Task.Run(() => CheckEndpointAsync(name, endpoint, mode, critical, ct), CancellationToken.None);
-        }
+        var checks = StartEndpointChecks(options, ct);
+        await WaitForChecksAsync(checks, options.Timeout, ct).ConfigureAwait(false);
 
-        if (checks.Length > 0)
-        {
-            using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var all = Task.WhenAll(checks);
-            var delay = Task.Delay(options.Timeout, delayCts.Token);
-            await Task.WhenAny(all, delay).ConfigureAwait(false);
-            await delayCts.CancelAsync().ConfigureAwait(false);   // stop the timer when the checks won
-            ct.ThrowIfCancellationRequested();
-        }
-
-        var results = new EndpointHealth[checks.Length];
-        var failureReasons = new string?[checks.Length];
-        for (var i = 0; i < checks.Length; i++)
-        {
-            if (checks[i].IsCompletedSuccessfully)
-            {
-                (results[i], failureReasons[i]) = checks[i].Result;
-                continue;
-            }
-
-            failureReasons[i] = HealthFailureTimeout;
-
-            // Still running: report it and leave the task to finish in the background (CheckEndpointAsync never throws).
-            var name = endpoints[i].Key;
-            var message = $"Health check timed out after {options.Timeout}";
-            _logger.LogWarning("Health check of endpoint '{Name}' did not answer within {Timeout}", name, options.Timeout);
-            results[i] = new EndpointHealth(name, BrokerHealthStatus.Unhealthy, message, modes[i], total.Elapsed,
-                options.IsCritical(name));
-        }
+        var results = new EndpointHealth[checks.Count];
+        var failureReasons = new string?[checks.Count];
+        for (var i = 0; i < checks.Count; i++)
+            (results[i], failureReasons[i]) = ResultOrTimeout(checks[i], options, total.Elapsed);
 
         var (status, summary) = Aggregate(started, results);
         var report = new BrokerHealthReport(status, started, results, total.Elapsed, summary);
@@ -80,6 +44,49 @@ internal sealed partial class NymBrokerImpl
                 status.ToString(), total.Elapsed.TotalMilliseconds, summary ?? "all healthy");
 
         return report;
+    }
+
+    /// <summary>One endpoint's running check, with what is needed to report it if it doesn't finish in time.</summary>
+    private sealed record EndpointCheck(string Name, EndpointMode Mode, Task<(EndpointHealth Health, string? FailureReason)> Task);
+
+    /// <summary>
+    /// Starts every endpoint's check in parallel, ordered by name, so the total time is about the slowest one. Task.Run
+    /// keeps an endpoint that only has the synchronous HealthCheck() (the default HealthCheckAsync) from blocking the caller.
+    /// </summary>
+    private List<EndpointCheck> StartEndpointChecks(BrokerHealthCheckOptions options, CancellationToken ct)
+        => _endpoints.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(kvp =>
+            {
+                var (name, endpoint) = (kvp.Key, kvp.Value);
+                var mode = SafeMode(name, endpoint);
+                var critical = options.IsCritical(name);
+                return new EndpointCheck(name, mode,
+                    Task.Run(() => CheckEndpointAsync(name, endpoint, mode, critical, ct), CancellationToken.None));
+            })
+            .ToList();
+
+    /// <summary>Waits until every check has finished or the timeout has passed; only the caller's cancellation throws.</summary>
+    private static async Task WaitForChecksAsync(List<EndpointCheck> checks, TimeSpan timeout, CancellationToken ct)
+    {
+        if (checks.Count == 0) return;
+
+        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var all = Task.WhenAll(checks.Select(c => c.Task));
+        var delay = Task.Delay(timeout, delayCts.Token);
+        await Task.WhenAny(all, delay).ConfigureAwait(false);
+        await delayCts.CancelAsync().ConfigureAwait(false);   // stop the timer when the checks won
+        ct.ThrowIfCancellationRequested();
+    }
+
+    /// <summary>The check's result, or Unhealthy "timed out" if it is still running (it finishes in the background; CheckEndpointAsync never throws).</summary>
+    private (EndpointHealth Health, string? FailureReason) ResultOrTimeout(EndpointCheck check, BrokerHealthCheckOptions options, TimeSpan elapsed)
+    {
+        if (check.Task.IsCompletedSuccessfully)
+            return check.Task.Result;
+
+        _logger.LogWarning("Health check of endpoint '{Name}' did not answer within {Timeout}", check.Name, options.Timeout);
+        return (new EndpointHealth(check.Name, BrokerHealthStatus.Unhealthy, $"Health check timed out after {options.Timeout}",
+            check.Mode, elapsed, options.IsCritical(check.Name)), HealthFailureTimeout);
     }
 
     public Endpoint.Queue.IQueueInspector? GetQueueInspector(string endpointName)

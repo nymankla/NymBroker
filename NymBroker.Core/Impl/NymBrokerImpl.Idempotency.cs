@@ -31,11 +31,11 @@ internal sealed partial class NymBrokerImpl
     /// <item>The store fails to claim → <c>Retry</c> (fail closed: never process without the duplicate check).</item>
     /// </list>
     /// </summary>
-    private async Task<ProcessResult> ProcessIdempotentlyAsync(IIdempotencyStore store, byte[] raw, RawMessageContext context, Type? messageType,
+    private async Task<ProcessResult> ProcessIdempotentlyAsync(byte[] raw, RawMessageContext context, Type? messageType,
         ProcessingRun run, CancellationToken ct)
     {
+        var store = _idempotencyStore!;   // set at configuration time; the caller checked it
         var messageId = context.Id;
-        var sourceEndpoint = run.Source;
         if (messageId == Guid.Empty)
         {
             // No ID to deduplicate on (e.g. an input transformer that does not set one).
@@ -55,17 +55,8 @@ internal sealed partial class NymBrokerImpl
             return ProcessResult.Retry(ex);
         }
 
-        switch (claim)
-        {
-            case IdempotencyClaimResult.Duplicate:
-                LogDuplicate(messageId, sourceEndpoint);
-                NymBrokerDiagnostics.MessagesDuplicate.Add(1, new TagList { { "source", sourceEndpoint ?? "unknown" } });
-                return ProcessResult.Completed;
-
-            case IdempotencyClaimResult.InProgress:
-                _logger.LogInformation("Message {MessageId} is already being processed; returning Retry", messageId);
-                return ProcessResult.Retry(description: $"Message {messageId} is already being processed.");
-        }
+        if (UnclaimedResult(claim, messageId, run.Source) is { } unclaimed)
+            return unclaimed;
 
         ProcessResult result;
         try
@@ -80,6 +71,25 @@ internal sealed partial class NymBrokerImpl
 
         await SettleClaimAsync(store, messageId, complete: result.Outcome != ProcessOutcome.Retry);
         return result;
+    }
+
+    /// <summary>The result for a message this delivery did not claim (a duplicate, or another delivery is running it); null when claimed.</summary>
+    private ProcessResult? UnclaimedResult(IdempotencyClaimResult claim, Guid messageId, string? sourceEndpoint)
+    {
+        switch (claim)
+        {
+            case IdempotencyClaimResult.Duplicate:
+                LogDuplicate(messageId, sourceEndpoint);
+                NymBrokerDiagnostics.MessagesDuplicate.Add(1, new TagList { { "source", sourceEndpoint ?? "unknown" } });
+                return ProcessResult.Completed;
+
+            case IdempotencyClaimResult.InProgress:
+                _logger.LogInformation("Message {MessageId} is already being processed; returning Retry", messageId);
+                return ProcessResult.Retry(description: $"Message {messageId} is already being processed.");
+
+            default:
+                return null;
+        }
     }
 
     [LoggerMessage(LogLevel.Debug, "Message has no ID; idempotency check skipped")]

@@ -37,8 +37,8 @@ public sealed partial class PostgresEndPoint
         });
         cmd.Parameters.Add(new NpgsqlParameter<int>("limit", NpgsqlDbType.Integer) { TypedValue = limit + 1 });
 
-        return await QueueInspection.ReadPageAsync(cmd, state, limit,
+        return await QueueInspection.ReadPageAsync(cmd, state, limit, new QueueInspection.RowReader(
             r => QueueInspection.ReadTimestampKey(r, state),
-            r => QueueInspection.ReadMessage(r, state, r.GetGuid(2).ToString()), ct);
+            r => QueueInspection.ReadMessage(r, state, r.GetGuid(2).ToString())), ct);
     }
 }

@@ -25,14 +25,14 @@ The report has every method (`lines`, `cc`, `cognitive`, `nesting`, `parameters`
 
 Report production code (Core, endpoints, stores, `shared/`) separately from `NymBroker.Tests` and `samples/`; only production drives recommendations.
 
-- **Gate limits** (`CodeHealthTests` constants): a method over one fails the build — name it first.
-- **Watch** list for planning: cognitive > 15, cyclomatic > 10, > 50 lines, nesting ≥ 4, ≥ 6 parameters (DI constructors excepted).
-- Give the distribution (p50/p90/p99/max, counts over the watch levels): it shows whether a problem is a few hotspots or spread out. Compare with the baselines below.
+- **Target bands and gate limits** are the `MethodMetrics` table and constants in `CodeHealthTests` (good / acceptable / limit per metric, type size, duplication %, parameter exceptions; explained in docs/architecture.md#code-health). Anything over a limit fails the build — name it first.
+- **Warning band** (above "acceptable", under the limit): the refactoring candidates. Count per metric how many methods are good / acceptable / warning; that shows whether a problem is a few hotspots or spread out. Compare with the baselines below.
 
-| When | Methods | Max lines | Max cc | Max cognitive | cog > 15 | Duplicate groups |
-|---|---|---|---|---|---|---|
-| 0.22.1 (Nov 2026) | 761 | 119 | 36 | 38 (`RouteAndDispatchAsync`) | 10 | 8 |
-| After the Nov 2026 refactor (gate added) | 781 | 63 | 16 | 20 (`CronSchedule.FindNext`) | 4 | 5 |
+| When | Methods | Max lines | Max cc | Max cognitive | Max nesting | Largest type | Duplication |
+|---|---|---|---|---|---|---|---|
+| 0.22.1 (Nov 2026) | 761 | 119 | 36 | 38 (`RouteAndDispatchAsync`) | 4 | 868 | 8 blocks |
+| Hotspot refactor, gate added (Nov 2026) | 781 | 63 | 16 | 20 (`CronSchedule.FindNext`) | 4 | 868 | 5 blocks |
+| Targets of #112 (Nov 2026) | 821 | 47 | 10 | 14 (`CronSchedule.GetNextOccurrence`) | 3 | 437 | 0.95 % |
 
 ## 3. Read before recommending
 

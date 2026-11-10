@@ -118,14 +118,28 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         _stopping = true;
 
         var channel = _consumeChannel;
-        if (channel?.IsOpen == true && _consumerTag is not null)
-        {
-            try { await channel.BasicCancelAsync(_consumerTag); }
-            catch (Exception ex) { _logger.LogWarning(ex, "RabbitMQ [{Name}] could not cancel the consumer cleanly", _name); }
-        }
-
+        await CancelConsumerAsync(channel);
         _listeningCts?.Cancel();   // the running handler sees the stop; the reconnect loop ends
+        await FlushAcksOnStopAsync(channel);
 
+        await _loop;
+        _loop = null;
+        _listeningCts?.Dispose();
+        _listeningCts = null;
+
+        await CloseConsumeChannelAsync();
+    }
+
+    private async Task CancelConsumerAsync(IChannel? channel)
+    {
+        if (channel?.IsOpen != true || _consumerTag is null) return;
+        try { await channel.BasicCancelAsync(_consumerTag); }
+        catch (Exception ex) { _logger.LogWarning(ex, "RabbitMQ [{Name}] could not cancel the consumer cleanly", _name); }
+    }
+
+    /// <summary>Waits for the message being handled, then acks the pending batch.</summary>
+    private async Task FlushAcksOnStopAsync(IChannel? channel)
+    {
         await _deliveryLock.WaitAsync();
         try
         {
@@ -139,70 +153,75 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         {
             _deliveryLock.Release();
         }
+    }
 
-        await _loop;
-        _loop = null;
-        _listeningCts?.Dispose();
-        _listeningCts = null;
-
-        if (_consumeChannel is not null)
-        {
-            try { await _consumeChannel.CloseAsync(); }
-            catch (Exception ex) { _logger.LogWarning(ex, "RabbitMQ [{Name}] could not close the consume channel cleanly", _name); }
-            await _consumeChannel.DisposeAsync();
-            _consumeChannel = null;
-        }
+    private async Task CloseConsumeChannelAsync()
+    {
+        if (_consumeChannel is null) return;
+        try { await _consumeChannel.CloseAsync(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "RabbitMQ [{Name}] could not close the consume channel cleanly", _name); }
+        await _consumeChannel.DisposeAsync();
+        _consumeChannel = null;
     }
 
     private async Task RunListenerAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token)
     {
         try
         {
-            await _reconnectPolicy.ExecuteAsync(async t =>
-            {
-                var channel = await PrepareConsumeChannelAsync(t);
-                await channel.QueueDeclareAsync(_settings.ReadQueueName, durable: true,
-                    exclusive: false, autoDelete: false, cancellationToken: t);
-                await channel.BasicQosAsync(0, (ushort)_settings.PrefetchCount, global: false, t);
-
-                var lost = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                Task OnChannelShutdown(object sender, ShutdownEventArgs args)
-                {
-                    // A lost connection closes the channel too, but the client library recovers both, with the consumer.
-                    // Subscribing here as well would leave two consumers.
-                    if (!_stopping && _connection?.IsOpen == true)
-                        lost.TrySetResult($"the server closed the channel: {args.ReplyText}");
-                    return Task.CompletedTask;
-                }
-
-                channel.ChannelShutdownAsync += OnChannelShutdown;
-                try
-                {
-                    var consumer = new AsyncEventingBasicConsumer(channel);
-                    consumer.ReceivedAsync += (_, ea) => OnDeliveryAsync(channel, ea, handler, token);
-                    consumer.UnregisteredAsync += (_, _) =>
-                    {
-                        if (!_stopping) lost.TrySetResult("the server cancelled the consumer");
-                        return Task.CompletedTask;
-                    };
-
-                    _consumerTag = await channel.BasicConsumeAsync(_settings.ReadQueueName, autoAck: false, consumer: consumer, cancellationToken: t);
-                    if (!channel.IsOpen && !_stopping && _connection?.IsOpen == true)
-                        lost.TrySetResult("the server closed the channel");   // closed before the handler was attached
-
-                    // The policy logs this as a warning and subscribes again after its delay.
-                    throw new InvalidOperationException(await lost.Task.WaitAsync(t));
-                }
-                finally
-                {
-                    channel.ChannelShutdownAsync -= OnChannelShutdown;
-                }
-            }, token);
+            await _reconnectPolicy.ExecuteAsync(t => new ValueTask(ConsumeUntilLostAsync(handler, token, t)), token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
             _logger.LogCritical(ex, "RabbitMQ [{Name}] listener loop terminated unexpectedly", _name);
+        }
+    }
+
+    /// <summary>
+    /// One subscription: opens the consume channel and consumes until the server closes the channel or cancels the
+    /// consumer, then throws so the reconnect policy logs it and subscribes again after its delay.
+    /// </summary>
+    /// <param name="token">The listener's stop token, passed to handlers.</param>
+    /// <param name="attemptToken">The reconnect policy's token for this attempt.</param>
+    private async Task ConsumeUntilLostAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token,
+        CancellationToken attemptToken)
+    {
+        var channel = await PrepareConsumeChannelAsync(attemptToken);
+        await channel.QueueDeclareAsync(_settings.ReadQueueName, durable: true,
+            exclusive: false, autoDelete: false, cancellationToken: attemptToken);
+        await channel.BasicQosAsync(0, (ushort)_settings.PrefetchCount, global: false, attemptToken);
+
+        var lost = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task OnChannelShutdown(object sender, ShutdownEventArgs args)
+        {
+            // A lost connection closes the channel too, but the client library recovers both, with the consumer.
+            // Subscribing here as well would leave two consumers.
+            if (!_stopping && _connection?.IsOpen == true)
+                lost.TrySetResult($"the server closed the channel: {args.ReplyText}");
+            return Task.CompletedTask;
+        }
+
+        channel.ChannelShutdownAsync += OnChannelShutdown;
+        try
+        {
+            var consumer = new AsyncEventingBasicConsumer(channel);
+            consumer.ReceivedAsync += (_, ea) => OnDeliveryAsync(channel, ea, handler, token);
+            consumer.UnregisteredAsync += (_, _) =>
+            {
+                if (!_stopping) lost.TrySetResult("the server cancelled the consumer");
+                return Task.CompletedTask;
+            };
+
+            _consumerTag = await channel.BasicConsumeAsync(_settings.ReadQueueName, autoAck: false, consumer: consumer, cancellationToken: attemptToken);
+            if (!channel.IsOpen && !_stopping && _connection?.IsOpen == true)
+                lost.TrySetResult("the server closed the channel");   // closed before the handler was attached
+
+            // The policy logs this as a warning and subscribes again after its delay.
+            throw new InvalidOperationException(await lost.Task.WaitAsync(attemptToken));
+        }
+        finally
+        {
+            channel.ChannelShutdownAsync -= OnChannelShutdown;
         }
     }
 

@@ -21,22 +21,23 @@ internal sealed class ProcessMessageEventArgsSettler(ProcessMessageEventArgs arg
         => args.DeadLetterMessageAsync(args.Message, reason, description, ct);
 }
 
+/// <summary>The endpoint a message is settled for: where to log, and whether it reads the dead-letter queue.</summary>
+internal sealed record ServiceBusSettlementEndpoint(ILogger Logger, string Name, bool ReadingDeadLetterQueue);
+
+/// <summary>One received message to settle.</summary>
+internal readonly record struct ServiceBusSettlementMessage(IServiceBusMessageSettler Settler, string? MessageId, int DeliveryCount);
+
 /// <summary>Maps a <see cref="ProcessResult"/> to a Service Bus settlement.</summary>
 internal static class ServiceBusSettlement
 {
     /// <summary>Service Bus limits the dead-letter reason and description properties to 4 KB each.</summary>
     internal const int MaxDeadLetterPropertyLength = 4096;
 
-    internal static async Task SettleAsync(
-        ProcessResult result,
-        bool readingDeadLetterQueue,
-        IServiceBusMessageSettler settler,
-        ILogger logger,
-        string endpointName,
-        string? messageId,
-        int deliveryCount,
+    internal static async Task SettleAsync(ProcessResult result, ServiceBusSettlementEndpoint endpoint, ServiceBusSettlementMessage message,
         CancellationToken ct)
     {
+        var (logger, endpointName, readingDeadLetterQueue) = endpoint;
+        var (settler, messageId, deliveryCount) = message;
         switch (result.Outcome)
         {
             case ProcessOutcome.Completed:

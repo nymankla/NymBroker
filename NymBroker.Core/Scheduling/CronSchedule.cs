@@ -132,35 +132,62 @@ internal sealed class CronSchedule
     // First matching local wall-clock minute at or after `start`.
     private DateTime? FindNext(DateTime start)
     {
-        int year = start.Year, month = start.Month, day = start.Day, hour = start.Hour, minute = start.Minute;
+        var c = new CronCursor { Year = start.Year, Month = start.Month, Day = start.Day, Hour = start.Hour, Minute = start.Minute };
 
-        while (year <= MaxYear)
+        while (c.Year <= MaxYear)
         {
-            var m = NextBit(_months, month, 12);
-            if (m < 0) { year++; month = 1; day = 1; hour = 0; minute = 0; continue; }
-            if (m != month) { month = m; day = 1; hour = 0; minute = 0; }
+            if (!FitMonth(ref c) || !FitDay(ref c) || !FitHour(ref c)) continue;
 
-            var dayMask = day > 31 ? 0u : MonthDays(year, month) & (uint.MaxValue << day);
-            if (dayMask == 0)
-            {
-                if (++month > 12) { month = 1; year++; }
-                day = 1; hour = 0; minute = 0;
-                continue;
-            }
-            var d = System.Numerics.BitOperations.TrailingZeroCount(dayMask);
-            if (d != day) { day = d; hour = 0; minute = 0; }
+            var mi = NextBit(_minutes, c.Minute, 59);
+            if (mi < 0) { c.Hour++; c.Minute = 0; continue; }
 
-            var h = NextBit(_hours, hour, 23);
-            if (h < 0) { day++; hour = 0; minute = 0; continue; }
-            if (h != hour) { hour = h; minute = 0; }
-
-            var mi = NextBit(_minutes, minute, 59);
-            if (mi < 0) { hour++; minute = 0; continue; }
-
-            return new DateTime(year, month, day, hour, mi, 0, DateTimeKind.Unspecified);
+            return new DateTime(c.Year, c.Month, c.Day, c.Hour, mi, 0, DateTimeKind.Unspecified);
         }
 
         return null;
+    }
+
+    /// <summary>The candidate time <see cref="FindNext"/> moves forward, field by field.</summary>
+    private struct CronCursor
+    {
+        public int Year, Month, Day, Hour, Minute;
+
+        public void StartOfMonth() { Day = 1; Hour = 0; Minute = 0; }
+
+        public void StartOfDay() { Hour = 0; Minute = 0; }
+    }
+
+    // Each Fit* moves the cursor to the first matching value of its field at or after the current one and returns true,
+    // or, when the field has none left, moves it to the start of the next larger unit and returns false (start over).
+
+    private bool FitMonth(ref CronCursor c)
+    {
+        var m = NextBit(_months, c.Month, 12);
+        if (m < 0) { c.Year++; c.Month = 1; c.StartOfMonth(); return false; }
+        if (m != c.Month) { c.Month = m; c.StartOfMonth(); }
+        return true;
+    }
+
+    private bool FitDay(ref CronCursor c)
+    {
+        var dayMask = c.Day > 31 ? 0u : MonthDays(c.Year, c.Month) & (uint.MaxValue << c.Day);
+        if (dayMask == 0)
+        {
+            if (++c.Month > 12) { c.Month = 1; c.Year++; }
+            c.StartOfMonth();
+            return false;
+        }
+        var d = System.Numerics.BitOperations.TrailingZeroCount(dayMask);
+        if (d != c.Day) { c.Day = d; c.StartOfDay(); }
+        return true;
+    }
+
+    private bool FitHour(ref CronCursor c)
+    {
+        var h = NextBit(_hours, c.Hour, 23);
+        if (h < 0) { c.Day++; c.StartOfDay(); return false; }
+        if (h != c.Hour) { c.Hour = h; c.Minute = 0; }
+        return true;
     }
 
     private static int NextBit(ulong mask, int from, int max)
@@ -175,8 +202,16 @@ internal sealed class CronSchedule
     {
         var dim = DateTime.DaysInMonth(year, month);
         var firstWeekday = (int)new DateTime(year, month, 1).DayOfWeek;
-        var all = (uint)((1UL << (dim + 1)) - 2);
+        var dom = DayOfMonthMask(dim, firstWeekday);
 
+        if (_weekdays == 0x7F && _lastWeekdayOfMonth == 0 && _nth == 0) return dom;
+        return dom & DayOfWeekMask(dim, firstWeekday);
+    }
+
+    // Days matching the day-of-month field: plain days, L-n (from the end), nW and LW (nearest weekday).
+    private uint DayOfMonthMask(int dim, int firstWeekday)
+    {
+        var all = (uint)((1UL << (dim + 1)) - 2);
         var dom = _days & all;
         for (var bits = _lastOffsets; bits != 0; bits &= bits - 1)
         {
@@ -193,9 +228,12 @@ internal sealed class CronSchedule
             var d = dim - System.Numerics.BitOperations.TrailingZeroCount(bits);
             if (d >= 1) dom |= 1u << NearestWeekday(d, dim, firstWeekday);
         }
+        return dom;
+    }
 
-        if (_weekdays == 0x7F && _lastWeekdayOfMonth == 0 && _nth == 0) return dom;
-
+    // Days matching the day-of-week field: plain weekdays, nL (last weekday n) and n#k (k-th weekday n).
+    private uint DayOfWeekMask(int dim, int firstWeekday)
+    {
         uint dow = 0;
         for (var d = 1; d <= dim; d++)
         {
@@ -205,7 +243,7 @@ internal sealed class CronSchedule
                 || (_nth >> (wd * 5 + (d - 1) / 7) & 1) != 0)
                 dow |= 1u << d;
         }
-        return dom & dow;
+        return dow;
     }
 
     private static int NearestWeekday(int day, int dim, int firstWeekday)

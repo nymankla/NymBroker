@@ -35,8 +35,8 @@ public sealed partial class SqlServerEndPoint
         command.Parameters.Add("@since", SqlDbType.DateTime2).Value = since;
         command.Parameters.Add("@limit", SqlDbType.Int).Value = limit + 1;
 
-        return await QueueInspection.ReadPageAsync(command, state, limit,
+        return await QueueInspection.ReadPageAsync(command, state, limit, new QueueInspection.RowReader(
             r => QueueInspection.ReadTimestampKey(r, state),
-            r => QueueInspection.ReadMessage(r, state, r.GetGuid(2).ToString()), ct);
+            r => QueueInspection.ReadMessage(r, state, r.GetGuid(2).ToString())), ct);
     }
 }

@@ -96,7 +96,7 @@ public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndP
         {
             var (conn, commands) = await EnsureConnectionAsync(ct);
             await using var tx = BeginImmediate(conn);
-            commands.Insert.Transaction = tx;
+            commands.Insert.Command.Transaction = tx;
             try
             {
                 foreach (var message in messages)
@@ -105,7 +105,7 @@ public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndP
             }
             finally
             {
-                commands.Insert.Transaction = null;
+                commands.Insert.Command.Transaction = null;
             }
         }
         finally
@@ -138,10 +138,10 @@ public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndP
         try
         {
             var (_, commands) = await EnsureConnectionAsync(ct);
-            commands.InsertDeferredDeliverAt.Value = deliverAtMs;
-            commands.InsertDeferredMessageId.Value = Guid.NewGuid().ToByteArray();
-            commands.InsertDeferredPayload.Value = message;
-            await commands.InsertDeferred.ExecuteNonQueryAsync(ct);
+            commands.InsertDeferred.DeliverAt.Value = deliverAtMs;
+            commands.InsertDeferred.MessageId.Value = Guid.NewGuid().ToByteArray();
+            commands.InsertDeferred.Payload.Value = message;
+            await commands.InsertDeferred.Command.ExecuteNonQueryAsync(ct);
         }
         finally
         {
@@ -227,20 +227,20 @@ public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndP
         {
             var (conn, commands) = await EnsureConnectionAsync(ct);
             await using var tx = BeginImmediate(conn);
-            commands.CopyDue.Transaction = commands.DeleteDue.Transaction = tx;
+            commands.CopyDue.Command.Transaction = commands.DeleteDue.Command.Transaction = tx;
             try
             {
-                commands.CopyDueNow.Value = commands.DeleteDueNow.Value = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                commands.CopyDueBatchSize.Value = commands.DeleteDueBatchSize.Value = _settings.BatchSize;
-                var moved = await commands.CopyDue.ExecuteNonQueryAsync(ct);
+                commands.CopyDue.Now.Value = commands.DeleteDue.Now.Value = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                commands.CopyDue.BatchSize.Value = commands.DeleteDue.BatchSize.Value = _settings.BatchSize;
+                var moved = await commands.CopyDue.Command.ExecuteNonQueryAsync(ct);
                 if (moved > 0)
-                    await commands.DeleteDue.ExecuteNonQueryAsync(ct);
+                    await commands.DeleteDue.Command.ExecuteNonQueryAsync(ct);
                 await tx.CommitAsync(ct);
                 return moved;
             }
             finally
             {
-                commands.CopyDue.Transaction = commands.DeleteDue.Transaction = null;
+                commands.CopyDue.Command.Transaction = commands.DeleteDue.Command.Transaction = null;
             }
         }
         finally
@@ -257,8 +257,8 @@ public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndP
         {
             var (_, commands) = await EnsureConnectionAsync(ct);
             var (command, olderThan, batchSize) = status == QueueMessageStatus.Completed
-                ? (commands.DeleteCompleted, commands.DeleteCompletedOlderThan, commands.DeleteCompletedBatchSize)
-                : (commands.DeleteFailed, commands.DeleteFailedOlderThan, commands.DeleteFailedBatchSize);
+                ? commands.DeleteCompleted
+                : commands.DeleteFailed;
             olderThan.Value = olderThanSeconds;
             batchSize.Value = _settings.CleanupBatchSize;
             return await command.ExecuteNonQueryAsync(ct);
@@ -271,18 +271,18 @@ public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndP
 
     private static async Task ExecuteInsertAsync(PreparedCommands commands, byte[] message, CancellationToken ct)
     {
-        commands.InsertMessageId.Value = Guid.NewGuid().ToByteArray();
-        commands.InsertPayload.Value = message;
-        await commands.Insert.ExecuteNonQueryAsync(ct);
+        commands.Insert.MessageId.Value = Guid.NewGuid().ToByteArray();
+        commands.Insert.Payload.Value = message;
+        await commands.Insert.Command.ExecuteNonQueryAsync(ct);
     }
 
     private async Task<List<QueueMessage>> ExecuteClaimAsync(PreparedCommands commands, CancellationToken ct)
     {
-        commands.ClaimLeaseSeconds.Value = LeasedQueueListener.GetLeaseTimeoutSeconds(_settings);
-        commands.ClaimBatchSize.Value = _settings.BatchSize;
+        commands.Claim.LeaseSeconds.Value = LeasedQueueListener.GetLeaseTimeoutSeconds(_settings);
+        commands.Claim.BatchSize.Value = _settings.BatchSize;
 
         var claimed = new List<QueueMessage>(_settings.BatchSize);
-        await using (var reader = await commands.Claim.ExecuteReaderAsync(ct))
+        await using (var reader = await commands.Claim.Command.ExecuteReaderAsync(ct))
         {
             while (await reader.ReadAsync(ct))
                 claimed.Add(new QueueMessage(
@@ -301,9 +301,9 @@ public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndP
     {
         var (command, id, attempt, error) = outcome.Status switch
         {
-            QueueMessageStatus.Completed => (commands.MarkCompleted, commands.CompletedId, commands.CompletedAttempt, null),
-            QueueMessageStatus.Failed => (commands.MarkFailed, commands.FailedId, commands.FailedAttempt, commands.FailedError),
-            _ => (commands.MarkPending, commands.PendingId, commands.PendingAttempt, commands.PendingError)
+            QueueMessageStatus.Completed => commands.MarkCompleted,
+            QueueMessageStatus.Failed => commands.MarkFailed,
+            _ => commands.MarkPending
         };
 
         id.Value = outcome.Message.QueueId;
@@ -450,140 +450,5 @@ public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndP
 
         protected override Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
             => owner.DeleteFinishedAsync(status, olderThanSeconds, ct);
-    }
-
-    /// <summary>Every statement prepared once on the endpoint's connection; only parameter values change per call.</summary>
-    private sealed class PreparedCommands : IDisposable
-    {
-        public required SqliteCommand Insert { get; init; }
-        public required SqliteParameter InsertMessageId { get; init; }
-        public required SqliteParameter InsertPayload { get; init; }
-
-        public required SqliteCommand InsertDeferred { get; init; }
-        public required SqliteParameter InsertDeferredDeliverAt { get; init; }
-        public required SqliteParameter InsertDeferredMessageId { get; init; }
-        public required SqliteParameter InsertDeferredPayload { get; init; }
-
-        public required SqliteCommand CopyDue { get; init; }
-        public required SqliteParameter CopyDueNow { get; init; }
-        public required SqliteParameter CopyDueBatchSize { get; init; }
-
-        public required SqliteCommand DeleteDue { get; init; }
-        public required SqliteParameter DeleteDueNow { get; init; }
-        public required SqliteParameter DeleteDueBatchSize { get; init; }
-
-        public required SqliteCommand Claim { get; init; }
-        public required SqliteParameter ClaimLeaseSeconds { get; init; }
-        public required SqliteParameter ClaimBatchSize { get; init; }
-
-        public required SqliteCommand MarkCompleted { get; init; }
-        public required SqliteParameter CompletedId { get; init; }
-        public required SqliteParameter CompletedAttempt { get; init; }
-
-        public required SqliteCommand MarkFailed { get; init; }
-        public required SqliteParameter FailedId { get; init; }
-        public required SqliteParameter FailedAttempt { get; init; }
-        public required SqliteParameter FailedError { get; init; }
-
-        public required SqliteCommand MarkPending { get; init; }
-        public required SqliteParameter PendingId { get; init; }
-        public required SqliteParameter PendingAttempt { get; init; }
-        public required SqliteParameter PendingError { get; init; }
-
-        public required SqliteCommand DeleteCompleted { get; init; }
-        public required SqliteParameter DeleteCompletedOlderThan { get; init; }
-        public required SqliteParameter DeleteCompletedBatchSize { get; init; }
-
-        public required SqliteCommand DeleteFailed { get; init; }
-        public required SqliteParameter DeleteFailedOlderThan { get; init; }
-        public required SqliteParameter DeleteFailedBatchSize { get; init; }
-
-        public static PreparedCommands Create(SqliteConnection conn, string table)
-        {
-            var insert = Command(conn, SqliteQueueSql.Insert(table));
-            var insertDeferred = Command(conn, SqliteQueueSql.InsertDeferred(table));
-            var copyDue = Command(conn, SqliteQueueSql.CopyDue(table));
-            var deleteDue = Command(conn, SqliteQueueSql.DeleteDue(table));
-            var claim = Command(conn, SqliteQueueSql.Claim(table));
-            var completed = Command(conn, SqliteQueueSql.MarkCompleted(table));
-            var failed = Command(conn, SqliteQueueSql.MarkFailed(table));
-            var pending = Command(conn, SqliteQueueSql.MarkPending(table));
-            var deleteCompleted = Command(conn, SqliteQueueSql.DeleteCompleted(table));
-            var deleteFailed = Command(conn, SqliteQueueSql.DeleteFailed(table));
-
-            var commands = new PreparedCommands
-            {
-                Insert = insert,
-                InsertMessageId = Parameter(insert, "$messageId", SqliteType.Blob),
-                InsertPayload = Parameter(insert, "$payload", SqliteType.Blob),
-                InsertDeferred = insertDeferred,
-                InsertDeferredDeliverAt = Parameter(insertDeferred, "$deliverAt", SqliteType.Integer),
-                InsertDeferredMessageId = Parameter(insertDeferred, "$messageId", SqliteType.Blob),
-                InsertDeferredPayload = Parameter(insertDeferred, "$payload", SqliteType.Blob),
-                CopyDue = copyDue,
-                CopyDueNow = Parameter(copyDue, "$now", SqliteType.Integer),
-                CopyDueBatchSize = Parameter(copyDue, "$batchSize", SqliteType.Integer),
-                DeleteDue = deleteDue,
-                DeleteDueNow = Parameter(deleteDue, "$now", SqliteType.Integer),
-                DeleteDueBatchSize = Parameter(deleteDue, "$batchSize", SqliteType.Integer),
-                Claim = claim,
-                ClaimLeaseSeconds = Parameter(claim, "$leaseSeconds", SqliteType.Integer),
-                ClaimBatchSize = Parameter(claim, "$batchSize", SqliteType.Integer),
-                MarkCompleted = completed,
-                CompletedId = Parameter(completed, "$id", SqliteType.Integer),
-                CompletedAttempt = Parameter(completed, "$attempt", SqliteType.Integer),
-                MarkFailed = failed,
-                FailedId = Parameter(failed, "$id", SqliteType.Integer),
-                FailedAttempt = Parameter(failed, "$attempt", SqliteType.Integer),
-                FailedError = Parameter(failed, "$error", SqliteType.Text),
-                MarkPending = pending,
-                PendingId = Parameter(pending, "$id", SqliteType.Integer),
-                PendingAttempt = Parameter(pending, "$attempt", SqliteType.Integer),
-                PendingError = Parameter(pending, "$error", SqliteType.Text),
-                DeleteCompleted = deleteCompleted,
-                DeleteCompletedOlderThan = Parameter(deleteCompleted, "$olderThanSeconds", SqliteType.Integer),
-                DeleteCompletedBatchSize = Parameter(deleteCompleted, "$batchSize", SqliteType.Integer),
-                DeleteFailed = deleteFailed,
-                DeleteFailedOlderThan = Parameter(deleteFailed, "$olderThanSeconds", SqliteType.Integer),
-                DeleteFailedBatchSize = Parameter(deleteFailed, "$batchSize", SqliteType.Integer)
-            };
-
-            // Not the deferred statements: a table created by hand may not have <table>_deferred yet, which must only
-            // affect deferred messages. SQLite prepares them when they first run.
-            foreach (var command in commands.All.Except([commands.InsertDeferred, commands.CopyDue, commands.DeleteDue]))
-                command.Prepare();
-            return commands;
-        }
-
-        private IEnumerable<SqliteCommand> All => [Insert, InsertDeferred, CopyDue, DeleteDue, Claim, MarkCompleted, MarkFailed, MarkPending, DeleteCompleted, DeleteFailed];
-
-        public void SetTransaction(SqliteTransaction? tx)
-        {
-            foreach (var command in new[] { Insert, Claim, MarkCompleted, MarkFailed, MarkPending })
-                command.Transaction = tx;
-        }
-
-        public void Dispose()
-        {
-            foreach (var command in All)
-                command.Dispose();
-        }
-
-        private static SqliteCommand Command(SqliteConnection conn, string sql)
-        {
-            var command = conn.CreateCommand();
-            command.CommandText = sql;
-            return command;
-        }
-
-        private static SqliteParameter Parameter(SqliteCommand command, string name, SqliteType type)
-        {
-            var parameter = command.CreateParameter();
-            parameter.ParameterName = name;
-            parameter.SqliteType = type;
-            parameter.Value = DBNull.Value;
-            command.Parameters.Add(parameter);
-            return parameter;
-        }
     }
 }

@@ -58,12 +58,27 @@ internal static class HttpRequestFactory
         };
         request.Content.Headers.ContentType = new MediaTypeHeaderValue(isEnvelope || LooksLikeJson(body) ? "application/json" : "application/octet-stream");
 
-        foreach (var (name, value) in settings.Headers)
+        AddConfiguredHeaders(request, settings.Headers);
+        AddEnvelopeHeaders(request, envelope);
+
+        if (settings.SigningSecret is { } secret)
+            request.Headers.TryAddWithoutValidation(SignatureHeader, Sign(secret, now.ToUnixTimeSeconds(), body));
+
+        return request;
+    }
+
+    private static void AddConfiguredHeaders(HttpRequestMessage request, IEnumerable<KeyValuePair<string, string>> headers)
+    {
+        foreach (var (name, value) in headers)
         {
             if (!request.Headers.TryAddWithoutValidation(name, value))
-                request.Content.Headers.TryAddWithoutValidation(name, value);   // e.g. a custom Content-* header
+                request.Content!.Headers.TryAddWithoutValidation(name, value);   // e.g. a custom Content-* header
         }
+    }
 
+    /// <summary>The envelope's id (also as <c>Idempotency-Key</c>), type and correlation id, where present.</summary>
+    private static void AddEnvelopeHeaders(HttpRequestMessage request, EnvelopeInfo envelope)
+    {
         if (envelope.Id is { } id)
         {
             request.Headers.TryAddWithoutValidation(MessageIdHeader, id);
@@ -73,11 +88,6 @@ internal static class HttpRequestFactory
             request.Headers.TryAddWithoutValidation(MessageTypeHeader, type);
         if (envelope.CorrelationId is { } correlation)
             request.Headers.TryAddWithoutValidation(CorrelationIdHeader, correlation);
-
-        if (settings.SigningSecret is { } secret)
-            request.Headers.TryAddWithoutValidation(SignatureHeader, Sign(secret, now.ToUnixTimeSeconds(), body));
-
-        return request;
     }
 
     /// <summary><c>t=&lt;timestamp&gt;,v1=&lt;lowercase hex HMAC-SHA256(secret, "&lt;timestamp&gt;." + body)&gt;</c>.</summary>

@@ -108,7 +108,7 @@ public class RetryPolicyTests
     private static TimeSpan Delay(RetryBackoffType backoff, bool jitter, int attempt, TimeSpan? max = null, Func<double>? random = null)
     {
         var prev = 0d;
-        return RetryPolicy.ComputeDelay(backoff, jitter, TimeSpan.FromMilliseconds(25), max ?? TimeSpan.FromDays(1),
+        return RetryPolicy.ComputeDelay(new RetryPolicy.DelayShape(backoff, jitter, TimeSpan.FromMilliseconds(25), max ?? TimeSpan.FromDays(1)),
             attempt, ref prev, random ?? (static () => 0.5));
     }
 
@@ -135,8 +135,8 @@ public class RetryPolicyTests
     {
         var prev = 0d;
         var delays = Enumerable.Range(0, 6)
-            .Select(i => RetryPolicy.ComputeDelay(RetryBackoffType.Exponential, true, TimeSpan.FromMilliseconds(25),
-                TimeSpan.FromDays(1), i, ref prev, Random.Shared.NextDouble))
+            .Select(i => RetryPolicy.ComputeDelay(new RetryPolicy.DelayShape(RetryBackoffType.Exponential, true, TimeSpan.FromMilliseconds(25),
+                TimeSpan.FromDays(1)), i, ref prev, Random.Shared.NextDouble))
             .ToList();
 
         Assert.All(delays, d => Assert.True(d > TimeSpan.Zero));
