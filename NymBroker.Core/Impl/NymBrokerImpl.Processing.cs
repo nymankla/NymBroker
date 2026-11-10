@@ -394,7 +394,7 @@ internal sealed partial class NymBrokerImpl
     }
 
     /// <summary>Sends the envelope to every matching route's destination; a failed send throws (the caller returns Retry).</summary>
-    private async Task<bool> RouteToDestinationsAsync(RawMessageContext context, Type? messageType, CancellationToken ct)
+    private async ValueTask<bool> RouteToDestinationsAsync(RawMessageContext context, Type? messageType, CancellationToken ct)
     {
         var msgElement = context.RawMessage;
         var messageTypeName = context.MessageType ?? messageType?.FullName ?? typeof(IAnyMessage).FullName!;
@@ -440,7 +440,7 @@ internal sealed partial class NymBrokerImpl
     /// Pub/sub: delivers to every matching topic. A failed topic is settled and the remaining topics are still
     /// delivered to; <c>Failure</c> is the first failure's result (null if all succeeded or were dead-lettered).
     /// </summary>
-    private async Task<(bool FannedOut, ProcessResult? Failure)> FanOutToTopicsAsync(
+    private async ValueTask<(bool FannedOut, ProcessResult? Failure)> FanOutToTopicsAsync(
         byte[] raw, RawMessageContext context, Type? messageType, ProcessingRun run, CancellationToken ct)
     {
         var msgElement = context.RawMessage;
@@ -479,7 +479,7 @@ internal sealed partial class NymBrokerImpl
     }
 
     /// <summary>Dispatches to the message type's consumer; a failing consumer is settled by <see cref="SettlementFor"/>.</summary>
-    private async Task<ProcessResult> DispatchToConsumerAsync(byte[] raw, RawMessageContext context, Type messageType, ProcessingRun run, CancellationToken ct)
+    private async ValueTask<ProcessResult> DispatchToConsumerAsync(byte[] raw, RawMessageContext context, Type messageType, ProcessingRun run, CancellationToken ct)
     {
         var message = MessageSerializerJson.DeserializeMessageObject(context, messageType);
         if (message == null) return ProcessResult.Completed;
@@ -514,7 +514,7 @@ internal sealed partial class NymBrokerImpl
         }
     }
 
-    /// <summary>How a failed topic delivery or consumer is settled (the table in the root CLAUDE.md).</summary>
+    /// <summary>How a failed topic delivery or consumer is settled (the table in docs/writing-an-endpoint.md, "Native dead-lettering").</summary>
     private enum FailureSettlement
     {
         /// <summary>Native dead letter and retry is off: the transport dead-letters it now.</summary>
