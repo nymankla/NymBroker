@@ -41,7 +41,7 @@ On the wire every message is a JSON envelope:
 |---|---|
 | `id` | Unique per message. Used by the idempotent receiver to drop duplicates. |
 | `correlationId` | Groups related messages. New per message by default; `PostBatchAsync` can set one for a whole batch. |
-| `address.to` / `address.from` | The endpoint it was posted to / the endpoint it was received from (set by the broker on arrival). |
+| `address.to` / `address.from` | The endpoint the envelope was sent to / the endpoint the broker received it on before forwarding it. A route or topic that forwards a message writes a new address for each destination, so an envelope in a queue always names that queue and the hop it came from (`from` is empty for a message published with `PublishAsync`). Whatever a sender writes in `from` is replaced on arrival. |
 | `messageType` | The type name described above. |
 | `created` | UTC creation time; used for message expiry (TTL) and age-based routes. |
 | `message` | Your message. |
@@ -96,7 +96,7 @@ Every consumer and subscriber call receives the envelope's metadata:
 | `Created` | `DateTime` | UTC creation time |
 | `DeadLetter` | `DeadLetterInfo?` | Set only when the message was dead-lettered — useful when consuming from a dead-letter endpoint |
 
-`context.Address.From` is how one consumer can behave differently depending on where a message came from — for example a consumer that also reads from a dead-letter endpoint.
+`context.Address.From` is how one consumer can behave differently depending on where a message came from — for example a consumer that also reads from a dead-letter endpoint. It is always the endpoint the broker received the message on, never a value from the sender, and `null` for a message published with `PublishAsync`, which no endpoint received.
 
 ## Database transactions in a consumer
 

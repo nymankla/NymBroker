@@ -47,6 +47,7 @@ The `NymBroker` package: broker engine, serializer, routing, topics, consumers, 
 - Predicates receive the **payload** element, not the envelope. `IAnyMessage` routes match every type.
 - Chained content conditions (`When`, `WhenMessageIsOlderThan`, `And`, `Or`, topics' `When`) are AND-ed via `RouteConditions.Combine`, also with a `Condition` preset on a factory-created `RouteContext`. `WhenFrom` / `WhenNotFrom` are single fields.
 - **Loop hazard**: routing to an event-driven endpoint the broker listens on re-evaluates all routes — infinite loop without `WhenFrom` / `WhenNotFrom`.
+- **Address**: `StampReceived` overwrites `Address.From` with the receiving endpoint (`run.Source`; null for `PublishAsync`), so senders can't spoof the source the `WhenFrom` / `WhenNotFrom` guards rely on. Forwarding (routes, topic subscriber endpoints) serializes the envelope **per destination** through `SerializeForwarded`, with `to` = that destination and `from` = the source, and restores the context's own address afterwards. One serialization per destination is deliberate: a shared envelope carried the original `to` into every queue. Metrics and logs take the source from the explicit `source` parameter, not from the context.
 
 ## Consumers and topics
 

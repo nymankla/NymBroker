@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+
+- A message forwarded by a route or to a topic's subscriber endpoint now carries its own address: `address.to` is the endpoint it was sent to and `address.from` the endpoint the broker received it on (empty for `PublishAsync`). Before, every copy kept the original `to`, so an envelope in a queue, a dead letter or an HTTP request named the wrong endpoint. The broker itself ignores the incoming address, so routing is unchanged; anything that reads `address` from stored envelopes now sees the actual destination. The envelope is serialized once per destination instead of once per message.
+
 ## [0.22.2] - 2026-11-10
 
 ### Changed

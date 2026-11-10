@@ -61,8 +61,8 @@ services.AddNymBroker()
 
 | Method | Matches when |
 |---|---|
-| `.WhenFrom(endpoint)` | the message was received on that endpoint |
-| `.WhenNotFrom(endpoint)` | the message was received on any other endpoint |
+| `.WhenFrom(endpoint)` | the message was received on that endpoint (never true for a `PublishAsync`, which no endpoint received) |
+| `.WhenNotFrom(endpoint)` | the message was received on any other endpoint, or was published with `PublishAsync` |
 | `.When(json => …)` | the predicate returns true for the **message payload** (a `JsonElement`, camelCase property names) |
 | `.WhenMessageIsOlderThan(age)` | `created` is more than `age` ago |
 | `.And(a, b)` / `.Or(a, b)` | both / either of two condition objects match |

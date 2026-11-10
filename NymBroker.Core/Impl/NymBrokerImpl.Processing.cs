@@ -77,7 +77,7 @@ internal sealed partial class NymBrokerImpl
     public async Task PublishAsync<T>(string topicName, T message, CancellationToken ct = default) where T : class
     {
         var context = NewContext(message);   // before the topic lookup, so bytes are rejected even without a topic
-        await FanOutTopicAsync(ResolveTopic(topicName), message, context, ct);
+        await FanOutTopicAsync(ResolveTopic(topicName), message, context, source: null, ct);
     }
 
     public async Task PostBatchAsync<T>(string endpointName, IEnumerable<T> messages, CancellationToken ct = default,
@@ -114,7 +114,7 @@ internal sealed partial class NymBrokerImpl
         var topic = ResolveTopic(topicName);
         if (batch.Count == 0) return;
 
-        await DeliverToTopicEndpointsAsync(topic, contexts, MessageTypeName.Get(typeof(T)), ct);
+        await DeliverToTopicEndpointsAsync(topic, contexts, MessageTypeName.Get(typeof(T)), source: null, ct);
 
         // Subscribers receive the messages one by one.
         if (topic.SubscriberDispatchers.Count > 0)
@@ -378,7 +378,7 @@ internal sealed partial class NymBrokerImpl
     /// <summary>Routes, fans out to topics and dispatches to the consumer — the part of processing an idempotency claim covers.</summary>
     private async Task<ProcessResult> RouteAndDispatchAsync(byte[] raw, RawMessageContext context, Type? messageType, ProcessingRun run, CancellationToken ct)
     {
-        var wasRouted = await RouteToDestinationsAsync(context, messageType, ct);
+        var wasRouted = await RouteToDestinationsAsync(context, messageType, run.Source, ct);
         var (wasFannedOut, topicFailure) = await FanOutToTopicsAsync(raw, context, messageType, run, ct);
 
         if (wasRouted || wasFannedOut)
@@ -394,13 +394,12 @@ internal sealed partial class NymBrokerImpl
     }
 
     /// <summary>Sends the envelope to every matching route's destination; a failed send throws (the caller returns Retry).</summary>
-    private async ValueTask<bool> RouteToDestinationsAsync(RawMessageContext context, Type? messageType, CancellationToken ct)
+    private async ValueTask<bool> RouteToDestinationsAsync(RawMessageContext context, Type? messageType, string? source, CancellationToken ct)
     {
         var msgElement = context.RawMessage;
         var messageTypeName = context.MessageType ?? messageType?.FullName ?? typeof(IAnyMessage).FullName!;
 
         var wasRouted = false;
-        byte[]? routedEnvelope = null;   // identical for every route, so serialized at most once
         foreach (var route in _routes)
         {
             if (!route.Evaluate(messageType ?? typeof(IAnyMessage), context, msgElement)) continue;
@@ -411,10 +410,10 @@ internal sealed partial class NymBrokerImpl
                 continue;
             }
 
-            routedEnvelope ??= MessageSerializerJson.SerializeToBytes(context);
+            var routedEnvelope = SerializeForwarded(context, route.DestinationEndpoint, source);
             var tags = new TagList
             {
-                { "source", context.Address?.From ?? "unknown" },
+                { "source", source ?? "unknown" },
                 { "destination", route.DestinationEndpoint },
                 { "message_type", messageTypeName },
                 { "via", "route" }
@@ -429,7 +428,7 @@ internal sealed partial class NymBrokerImpl
                 RecordRouted(tags, 1, "failure");
                 throw;
             }
-            LogRouted(messageTypeName, context.Address?.From, route.DestinationEndpoint);
+            LogRouted(messageTypeName, source, route.DestinationEndpoint);
             wasRouted = true;
         }
 
@@ -457,7 +456,7 @@ internal sealed partial class NymBrokerImpl
 
             try
             {
-                await FanOutTopicAsync(topic, deserializedMessage, context, ct);
+                await FanOutTopicAsync(topic, deserializedMessage, context, run.Source, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
@@ -619,14 +618,16 @@ internal sealed partial class NymBrokerImpl
         _ => "dead_letter"
     };
 
+    /// <param name="source">The endpoint the message was received on; null for a publish.</param>
     private async Task FanOutTopicAsync(
         TopicContext topic,
         object? message,
         IMessageContext context,
+        string? source,
         CancellationToken ct)
     {
         await DeliverToTopicEndpointsAsync(topic, [context],
-            context.MessageType ?? (message != null ? MessageTypeName.Get(message.GetType()) : "unknown"), ct);
+            context.MessageType ?? (message != null ? MessageTypeName.Get(message.GetType()) : "unknown"), source, ct);
 
         if (message != null && topic.SubscriberDispatchers.Count > 0)
             await _subscriberDispatcher.DispatchAsync(topic.SubscriberDispatchers, message, context, ct);
@@ -637,9 +638,8 @@ internal sealed partial class NymBrokerImpl
     /// one <see cref="IEndPoint.PostBatchAsync"/> per endpoint for several. The routed counter is recorded per message.
     /// </summary>
     private async Task DeliverToTopicEndpointsAsync(TopicContext topic, IReadOnlyList<IMessageContext> contexts,
-        string messageType, CancellationToken ct)
+        string messageType, string? source, CancellationToken ct)
     {
-        List<byte[]>? wire = null;   // the same envelopes go to every endpoint, so serialized at most once
         foreach (var endpointName in topic.SubscriberEndpoints)
         {
             if (!_endpoints.TryGetValue(endpointName, out var endpoint))
@@ -653,16 +653,13 @@ internal sealed partial class NymBrokerImpl
                 continue;
             }
 
-            if (wire == null)
-            {
-                wire = new List<byte[]>(contexts.Count);
-                foreach (var context in contexts)
-                    wire.Add(MessageSerializerJson.SerializeToBytes(context));
-            }
+            var wire = new List<byte[]>(contexts.Count);
+            foreach (var context in contexts)
+                wire.Add(SerializeForwarded(context, endpointName, source));
 
             var tags = new TagList
             {
-                { "source", contexts[0].Address?.From ?? "unknown" },
+                { "source", source ?? "unknown" },
                 { "destination", endpointName },
                 { "message_type", messageType },
                 { "via", "topic" },
@@ -682,6 +679,26 @@ internal sealed partial class NymBrokerImpl
                 throw;
             }
             LogTopicDelivered(topic.TopicName, wire.Count, endpointName);
+        }
+    }
+
+    /// <summary>
+    /// Serializes the envelope for one forwarding destination (a route or a topic's subscriber endpoint): <c>address.to</c>
+    /// is that destination and <c>address.from</c> the endpoint the broker received the message on (null for a publish),
+    /// so an envelope in a queue says where it is and where it came from. The context's own address is left unchanged
+    /// for the subscribers and consumers that see it afterwards.
+    /// </summary>
+    private static byte[] SerializeForwarded(IMessageContext context, string destination, string? source)
+    {
+        var original = context.Address;
+        context.Address = EndpointAddress.Create(destination, source);
+        try
+        {
+            return MessageSerializerJson.SerializeToBytes(context);
+        }
+        finally
+        {
+            context.Address = original;
         }
     }
 

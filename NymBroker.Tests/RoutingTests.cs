@@ -225,6 +225,60 @@ public sealed class RoutingTests
         Assert.Single(items); // only the 150 message
     }
 
+    private static async Task<List<(string? To, string? From)>> ReadAddressesAsync(MemoryQueueEndPoint endpoint)
+    {
+        var addresses = new List<(string? To, string? From)>();
+        await foreach (var json in endpoint.ReadAsync(TestContext.Current.CancellationToken))
+        {
+            using var doc = JsonDocument.Parse(json);
+            var address = doc.RootElement.GetProperty("address");
+            addresses.Add((address.GetProperty("to").GetString(),
+                address.TryGetProperty("from", out var from) ? from.GetString() : null));
+        }
+        return addresses;
+    }
+
+    [Fact]
+    public async Task RoutedEnvelope_IsAddressedToEachDestination_FromTheEndpointItWasReceivedOn()
+    {
+        var (broker, dest, _) = BuildBroker();
+        var archive = new MemoryQueueEndPoint("Archive");
+        broker.AddEndpoint("Archive", archive);
+        broker.Route<PriceMessage>().To("Dest").Build();
+        broker.Route<PriceMessage>().To("Archive").Build();
+
+        // The sender's address is replaced: "from" can't be spoofed, "to" names the queue the copy is in.
+        var ctx = new MessageContext<PriceMessage>
+        {
+            Message = new PriceMessage { Price = 1m },
+            Address = EndpointAddress.Create("Orders", "Spoofed")
+        };
+        await broker.ProcessAsync(MessageSerializerJson.SerializeToBytes(ctx), "Inbox", TestContext.Current.CancellationToken);
+
+        Assert.Equal([("Dest", "Inbox")], await ReadAddressesAsync(dest));
+        Assert.Equal([("Archive", "Inbox")], await ReadAddressesAsync(archive));
+    }
+
+    [Fact]
+    public async Task TopicEnvelope_IsAddressedToEachSubscriberEndpoint_WithNoSourceForAPublish()
+    {
+        var (broker, dest, _) = BuildBroker();
+        var audit = new MemoryQueueEndPoint("Audit");
+        broker.AddEndpoint("Audit", audit);
+        broker.AddTopic(new TopicContext
+        {
+            TopicName = "prices",
+            MessageType = typeof(PriceMessage),
+            SubscriberEndpoints = ["Dest", "Audit"]
+        });
+
+        await broker.PublishAsync("prices", new PriceMessage { Price = 1m }, TestContext.Current.CancellationToken);
+        await broker.PublishBatchAsync("prices", [new PriceMessage { Price = 2m }], TestContext.Current.CancellationToken);
+
+        Assert.Equal([("Dest", null), ("Dest", null)], await ReadAddressesAsync(dest));
+        Assert.Equal([("Audit", null), ("Audit", null)], await ReadAddressesAsync(audit));
+    }
+
     [Fact]
     public async Task Routed_Message_IsNotConsumed()
     {
