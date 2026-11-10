@@ -24,7 +24,9 @@ jobs:
           test "${GITHUB_REF_NAME#v}" = "$version"
       # Builds the samples too; the test and pack steps below build only what they need.
       - run: dotnet build NymBroker.slnx --configuration Release -p:ContinuousIntegrationBuild=true
-      - run: dotnet test NymBroker.Tests/NymBroker.Tests.csproj --configuration Release -p:ContinuousIntegrationBuild=true
+      # Includes the code-health gate (CodeHealthTests, docs/architecture.md#code-health), which also writes its
+      # summary of the worst methods to the job summary.
+      - run: NYMBROKER_CODE_HEALTH_SUMMARY="$GITHUB_STEP_SUMMARY" dotnet test NymBroker.Tests/NymBroker.Tests.csproj --configuration Release -p:ContinuousIntegrationBuild=true
       - run: pwsh ./scripts/pack.ps1 -OutputDir artifacts/nupkg
       - run: test "$(find artifacts/nupkg -name '*.snupkg' | wc -l)" -eq 17
       - run: test -f artifacts/nymbroker-skills.zip

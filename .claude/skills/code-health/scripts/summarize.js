@@ -1,4 +1,4 @@
-// usage: node summarize.js <health.json>  — prints production/test/sample stats, hotspots, largest types/files, per-area averages, duplicates
+// usage: node summarize.js <report.json>  — report written by CodeHealthTests (NYMBROKER_CODE_HEALTH_REPORT); prints production/test/sample stats, hotspots, largest types/files, per-area averages, duplicates
 const d = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
 const prod = m => !['NymBroker.Tests','samples'].includes(m.area);
 const pct = (a,p) => { const s=[...a].sort((x,y)=>x-y); return s[Math.min(s.length-1,Math.floor(p*s.length))]; };
