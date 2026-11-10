@@ -4,6 +4,12 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-11-10
+
+### Changed
+
+- Documentation: new [Architecture](docs/architecture.md) page for contributors; corrected several pages against the code (the order of duplicate detection in the pipeline, SQS dead-lettering, batch sending on RabbitMQ and SQS, where `RetryPolicy` is used) and replaced repeated sections with links.
+
 ### Fixed
 
 - The XML documentation of `INymBroker.PostDeferredAsync` and `PostRawDeferredAsync` named a `WithMaxMessageAge` method that doesn't exist; it now links to `DiscardMessagesOlderThan`.
