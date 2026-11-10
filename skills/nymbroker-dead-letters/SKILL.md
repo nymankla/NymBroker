@@ -58,6 +58,8 @@ WHERE status = 3 AND last_error LIKE 'ConsumerFailed%';
 UPDATE NymBrokerMessages SET Status = 0, AttemptCount = 0, LastError = NULL, FailedAtUtc = NULL WHERE Status = 3;
 ```
 
+From code (an admin page or tool), list them without SQL: `broker.GetQueueInspector("Orders")` returns an `IQueueInspector` for every SQL endpoint; `GetMessagesAsync(QueueInspectionState.Failed, limit, cursor, failedSince)` pages through failed messages with id, attempts, failure time, last error and payload (https://github.com/nymankla/NymBroker/blob/master/docs/observability.md#queue-inspection). Replay still goes through the `UPDATE` above or a re-post.
+
 `last_error` starts with the reason for dead-lettered rows (`"{Reason}: {Description}"`); for retry exhaustion it holds the last exception. A listener deletes old rows by itself: `FailedRetention` (default 90 days) and `CompletedRetention` (default 30 days) on the endpoint's settings, `TimeSpan.Zero` keeps them forever. Replay failed rows within that time, and don't write your own cleanup `DELETE`.
 
 ### Azure Service Bus

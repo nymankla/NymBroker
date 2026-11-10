@@ -88,38 +88,22 @@ created_at_utc  timestamp      NOT NULL DEFAULT now
 
 ## 4. Tests: `NymBroker.Tests/<Db>IdempotencyStoreTests.cs`
 
-Copy `SqlServerIdempotencyStoreTests`.
+Derive from `IdempotencyStoreContractTests`, like `SqlServerIdempotencyStoreTests`. It holds the database behaviour every store must have — claim → InProgress → complete → Duplicate; release and reclaim (never forgetting a completed row); complete without a row; lease takeover; TTL expiry; `DeleteExpiredAsync` in batches; auto-create across stores; exactly one winner among concurrent claims; two brokers on one table consuming a message once — so you only implement:
 
-**Gating:**
-- Server databases are env-gated with the existing variable (`NYMBROKER_POSTGRES_CS`, …) via `Assert.SkipUnless`.
-- Use a unique table per test instance (`nb_idem_<guid>`), dropped in `DisposeAsync`.
-- SQLite with `:memory:` always runs.
+- `RequireDatabase()`: `Assert.SkipUnless` on the existing variable (`NYMBROKER_POSTGRES_CS`, …); empty for SQLite, which always runs.
+- `CreateStore(ttl, lease, shared)`: a unique table per test instance (`nb_idem_<guid>`); `shared` = a store other instances can reach (SQLite: a temp file instead of `:memory:`).
+- `AddStore(builder)`, `CountRowsAsync()`, `DropTableAsync()`.
 
-**Always-run tests:**
-- Settings validation, including at registration.
-- Seconds rounding, if used.
-- Table-name quoting.
-- The extension registers the store as `IIdempotencyStore` plus the cleanup service; `CleanupInterval = Zero` registers no service.
-
-**Database tests:**
-- claim → InProgress → complete → Duplicate;
-- release then reclaim, and release doesn't forget a completed row;
-- complete without a row still records the ID;
-- lease expiry takeover (1 s lease, wait 1.5 s);
-- TTL expiry;
-- `DeleteExpiredAsync` deletes only expired rows, in batches (`CleanupBatchSize = 2`);
-- auto-create works across two stores;
-- 16 concurrent claims across 4 store instances give exactly one `Claimed`, all others `InProgress`;
-- **two brokers on one table**: the same message processed concurrently by both reaches a slow consumer exactly once, and a later redelivery is dropped.
+Add to the subclass only what is specific to the database: settings validation (also at registration), seconds rounding if used, table-name quoting, the registration of `IIdempotencyStore` plus the cleanup service (`CleanupInterval = Zero` registers none), and for a server database, 8 stores auto-creating one fresh table at once.
 
 Core's broker flow is already covered by `IdempotentReceiverTests` (in-memory store); don't re-test it per database.
 
 ## 5. Docs
 
-- `docs/reliability.md` (Duplicate detection): add the database to the store list and remove the "planned" link.
-- `README.md`: solution-layout row and the Idempotent Receiver section.
-- Root `CLAUDE.md`: solution-layout row.
-- `docs/pipeline-extensions.md`, if the extension list names the stores.
+- `docs/reliability.md` (Duplicate detection): add the database to the store list.
+- The package tables in `README.md` and `docs/getting-started.md`.
+- Root `CLAUDE.md`: the `NymBroker.Idempotency.*` solution-layout row.
+- `skills/` that list the stores (`grep -l Idempotency skills`).
 
 ## 6. Done when
 

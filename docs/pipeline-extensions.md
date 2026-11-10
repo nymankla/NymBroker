@@ -21,12 +21,9 @@ services.AddNymBroker()
     .Build();
 ```
 
-Built-in filters, added on the builder:
+`AddMessageLoggingFilter()` adds a built-in filter that logs every message (id, type, source, created, payload) at `Debug` level.
 
-| Builder method | What it does |
-|---|---|
-| `AddIdempotentReceiver(ttl)` | drops messages whose `id` was already processed within `ttl` (in memory, per process; `AddSqlServerIdempotency` / `AddPostgresIdempotency` / `AddMySqlIdempotency` for a durable store shared by all instances; `AddSqliteIdempotency` for a restart-safe store on one host) — claimed before routing, completed or released (on `Retry`) after — see [Reliability](reliability.md#duplicate-detection) |
-| `AddMessageLoggingFilter()` | logs every message (id, type, source, created, payload) at `Debug` level |
+Duplicate detection is not a filter: it runs after the filters (and after a split message is reassembled), so a filter that drops a message never claims its id. See [Duplicate detection](reliability.md#duplicate-detection).
 
 ## Input transformers
 

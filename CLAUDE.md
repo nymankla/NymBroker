@@ -46,14 +46,7 @@ Local infrastructure (Docker Desktop) is in `scripts/docker-compose.yml` (every 
 
 ## Key abstractions
 
-The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't `WriteOnly` and wires it to `ProcessAsync`, which never throws (except for the broker's own cancellation) and returns how to settle the message:
-
-| Situation | Source with `UsesNativeDeadLetter` (SQL tables, RabbitMQ, Service Bus) | Otherwise (Memory, File, SQS, opt-out, `PublishAsync`) |
-|---|---|---|
-| Handled, filtered, or no consumer | `Completed` | `Completed` |
-| Undecodable / expired / unknown compression | `DeadLetter(reason)` | posted to the `WithDeadLetterEndpoint` endpoint, `Completed` (`Retry` if that post fails) |
-| Consumer or topic subscriber throws | `Retry(ex)` — the transport redelivers, then dead-letters; `DeadLetter(ConsumerFailed)` for a consumer added with `RetryOnFailure = false` | posted to the dead-letter endpoint, `Completed` (`Retry` if that post fails) |
-| A route's destination throws, or anything unexpected | `Retry(ex)` | `Retry(ex)` |
+The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't `WriteOnly` and wires it to `ProcessAsync`, which never throws (except for the broker's own cancellation) and returns a `ProcessResult` (`Completed` / `Retry` / `DeadLetter`) that the endpoint settles by. Which result each situation gets depends on `UsesNativeDeadLetter` (SQL tables, RabbitMQ, Service Bus: yes; Memory, File, SQS: no) — the table is in [docs/writing-an-endpoint.md](docs/writing-an-endpoint.md#native-dead-lettering-usesnativedeadletter); the pipeline stages are in [docs/architecture.md](docs/architecture.md#processing-a-message).
 
 ## Where the details are
 
@@ -64,6 +57,7 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 | HTTP | `NymBroker.Endpoint.Http/CLAUDE.md` |
 | RabbitMQ / Service Bus / SQS | `NymBroker.Endpoint.RabbitMq/`, `.AzureServiceBus/`, `.AwsSqs/` `CLAUDE.md` |
 | A new endpoint or idempotency store | `.claude/skills/write-endpoint`, `.claude/skills/write-idempotency-store`, [docs/writing-an-endpoint.md](docs/writing-an-endpoint.md) |
+| Architecture overview, quality gates, code-health limits | [docs/architecture.md](docs/architecture.md); measure and rank hotspots with `.claude/skills/code-health` |
 | User-facing behaviour | `docs/` — the docs describe the public contract; keep them in step with the code |
 | Production configuration (TLS, secrets, permissions) | [docs/security.md](docs/security.md) |
 | Release history and why things changed | [CHANGELOG.md](CHANGELOG.md), GitHub issues referenced as `#NN` |
@@ -86,7 +80,7 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 Before saying a change is finished:
 
 - [ ] `dotnet build` — **0 warnings, 0 errors** (RS0026 and nullable warnings count).
-- [ ] Tests added or updated for the behaviour; `dotnet test` passes. If an endpoint, idempotency store or the broker pipeline changed: `./scripts/test-all.ps1` passes too. For a bug fix, the new test fails without the fix.
+- [ ] Tests added or updated for the behaviour; `dotnet test` passes — it includes `CodeHealthTests`: a method over a code-health limit is split, never the limit raised; when the worst value drops, lower the limit ([docs/architecture.md](docs/architecture.md#code-health)). If an endpoint, idempotency store or the broker pipeline changed: `./scripts/test-all.ps1` passes too. For a bug fix, the new test fails without the fix.
 - [ ] Public API changed → `PublicAPI.Unshipped.txt` of that project (removals as `*REMOVED*<line>`); never delete lines from `PublicAPI.Shipped.txt` by hand.
 - [ ] `CHANGELOG.md` → entry under `[Unreleased]` (Added / Changed / Fixed / Removed; mark breaking changes **Breaking** with the migration).
 - [ ] User-visible behaviour → `docs/` updated; public API or setup the client skills describe → `skills/*/SKILL.md` updated; the project's folder `CLAUDE.md` updated if its internals changed.

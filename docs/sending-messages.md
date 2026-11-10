@@ -63,9 +63,11 @@ sequenceDiagram
 |---|---|---|
 | SQL Server, PostgreSQL, MySQL, SQLite | one insert in one transaction | yes |
 | Azure Service Bus | as few Service Bus batches as fit (256 KB each on Standard) | per Service Bus batch |
-| RabbitMQ, File, Memory | one message at a time | no |
+| RabbitMQ | all published together, then all confirms awaited | no |
+| Amazon SQS | requests of up to 10 messages and 256 KB | no |
+| File, Memory | one message at a time | no |
 
-Measured on local containers, batches of 100 raised throughput from about 540 to 9 000 messages/s on PostgreSQL and from about 320 to 5 400 on SQL Server.
+Batches of 100 raise throughput 10–20× on the SQL endpoints and RabbitMQ; see the [benchmark](benchmarks.md) to measure your own setup.
 
 - Order is preserved. An empty batch does nothing; a `null` element throws `ArgumentException` before anything is sent.
 - If a non-atomic batch fails partway, some messages may already be sent. Retrying is safe if receivers use the [idempotent receiver](reliability.md#duplicate-detection).
@@ -89,7 +91,7 @@ public async Task ConsumeAsync(FetchPage job, IMessageContext context, Cancellat
 
 - **Timing.** The message is delivered at or after `deliverAt`; a time in the past means now. It can come somewhat later: on the SQL endpoints a listener checks for due messages about four times a second (and at least once per `PollInterval`), and the message then joins the back of any backlog. Other messages on the endpoint are not held up, and the order of deferred messages relative to others is not kept.
 - **Retries.** The first delivery is the first attempt, so the wait uses up no retries. Posting a new message as above gives it a new id and a fresh retry count. If the process crashes between the post and the acknowledgement, the job runs twice, as with any at-least-once delivery.
-- **Message age.** The envelope's `created` is set to `deliverAt` if that is later than now, so `WithMaxMessageAge`, age routes and the `nymbroker.message.age` metric count from the time the message becomes due. `PostRawDeferredAsync` leaves the bytes unchanged, so an envelope posted that way keeps its `created`.
+- **Message age.** The envelope's `created` is set to `deliverAt` if that is later than now, so `DiscardMessagesOlderThan`, age routes and the `nymbroker.message.age` metric count from the time the message becomes due. `PostRawDeferredAsync` leaves the bytes unchanged, so an envelope posted that way keeps its `created`.
 - **Replay.** A dead letter you post again with `PostRawAsync` is delivered at once.
 - **Size.** Deferred messages cannot be split. On a transport with a size limit, keep them under it.
 - **Endpoints that cannot defer.** On RabbitMQ, HTTP, any custom endpoint without `IDeferredEndPoint`, SQS FIFO queues and SQS deferrals over 15 minutes, the broker holds the message in memory and sends it when it is due; a time in the past sends it at once. **The message is not durable:** it is lost if the process stops or crashes first. A consumer that re-defers its message and returns has settled the original, so nothing redelivers it. Use an endpoint with durable deferral if that matters. A warning is logged for each such endpoint when it is added, also if you never post a deferred message to it, except a read-only one. On SQS, that includes every standard queue, because of deferrals over 15 minutes.

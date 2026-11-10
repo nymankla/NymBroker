@@ -2,7 +2,7 @@
 
 NymBroker moves typed .NET messages between parts of your system — in-process queues, files, databases, RabbitMQ, Azure Service Bus or Amazon SQS — and hands each one to the right piece of your code. You post a message to a named **endpoint**; the broker receives it there, decides what should happen to it (**route** it to another endpoint, **publish** it to topic subscribers, or **consume** it), and tells the transport whether it succeeded so failed messages are retried or dead-lettered.
 
-This guide is for application developers using the broker. If you want to add a new transport, see [Writing an endpoint](writing-an-endpoint.md).
+This guide is for application developers using the broker. If you want to add a new transport, see [Writing an endpoint](writing-an-endpoint.md); for how the broker itself is built and the quality gates for changing it, see [Architecture](architecture.md).
 
 ## How it fits together
 
@@ -49,7 +49,7 @@ flowchart LR
 | [Endpoints and configuration](endpoints-and-configuration.md) | Every endpoint type, endpoint modes, configuring in code or from `queuesettings.json` |
 | [Delivery guarantees](delivery-guarantees.md) | At-least-once limits, ordering, crash behavior and endpoint capabilities |
 | [Reliability](reliability.md) | Retries, dead-lettering (native and broker), the dead-letter reason, TTL, wire tap, duplicate detection |
-| [Retry policy](resilience.md) | `RetryPolicy` options, backoff and jitter, how the File and RabbitMQ endpoints use it |
+| [Retry policy](resilience.md) | `RetryPolicy` options, backoff and jitter, and where NymBroker uses it |
 | [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, output transformers |
 | [Scheduling](scheduling.md) | Interval and cron scheduled actions; named actions that run once across instances and catch up missed runs (schedule stores) |
 | [Observability](observability.md) | Metrics, tracing, logging and health checks |
@@ -57,6 +57,7 @@ flowchart LR
 | [Samples](samples.md) | The runnable sample apps, what each shows, and the local infrastructure they need |
 | [MediatR patterns](mediatr-comparison.md) | Commands, notifications, queries and pipeline behaviors as in MediatR, CQRS with NymBroker, and when to use which |
 | [Benchmarks](benchmarks.md) | Running the throughput benchmark, its scenarios, and how to read the results |
+| [Versioning and API compatibility](versioning-and-api-compatibility.md) | How versions are numbered, what may break in a minor version, deprecation |
 
 ## Minimal example
 

@@ -9,4 +9,4 @@ assembly, so tests reach them through a forwarding member on the package's own S
 | `Postgres`, `SqlServer`, `MySql` | every project for that database |
 | `Stores/Postgres`, `Stores/Sqlite`, `Stores/Pooled` | the idempotency and schedule stores for that database (`Pooled`: SQL Server and MySQL) |
 | `Idempotency` | every idempotency store |
-| `Inspection` | the four queue-table endpoints (`IQueueInspector`: argument checks, cursor format, counts, page loop; the SQL and parameter binding stay in each endpoint) |
+| `Inspection` | the four queue-table endpoints (`IQueueInspector`: argument checks, cursor format, counts, page loop; the SQL and parameter binding stay in each endpoint). Every endpoint's `InspectCounts` must return the columns in the order pending, in progress, failed, completed, deferred |

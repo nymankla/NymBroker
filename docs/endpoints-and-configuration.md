@@ -112,7 +112,7 @@ Each endpoint's settings type defines its available options and defaults. The mo
 
 The default connection settings, and the connection strings in the samples, match the local Docker containers — plaintext RabbitMQ, `TrustServerCertificate=True` for SQL Server, well-known passwords. For production, see [Production security](security.md).
 
-Local Docker setups for PostgreSQL, SQL Server, MySQL, RabbitMQ, the Service Bus emulator and ElasticMQ (SQS-compatible) are in `scripts/` (`setup-postgres.ps1`, `setup-sqlserver.ps1`, `setup-mysql.ps1`, `setup-rabbitmq.ps1`, `setup-servicebus.ps1`, `setup-sqs.ps1`).
+Local Docker containers for every transport: [Local infrastructure](samples.md#local-infrastructure).
 
 ### Amazon SQS notes
 

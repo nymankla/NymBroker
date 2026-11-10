@@ -17,4 +17,4 @@
 
 Integration tests: `PostgresEndPointTests` (`NYMBROKER_POSTGRES_CS`, `./scripts/setup-postgres.ps1`).
 
-**Queue inspection** (`PostgresEndPoint.Inspection.cs`) implements Core's `IQueueInspector` using read-only SQL. Counts are one statement/snapshot; each message page is one statement. Active pages use queue-id order, failed pages use `(failed_at_utc, queue_id)`, and deferred pages use `(deliver_at_utc, deferred_id)` keyset cursors. Completed rows are count-only. Inspection does not claim or lease rows.
+**Queue inspection** (`PostgresEndPoint.Inspection.cs`) implements Core's `IQueueInspector` using read-only SQL. Counts are one statement/snapshot; each message page is one statement. Active pages use queue-id order, failed pages use `(failed_at_utc, queue_id)`, and deferred pages use `(deliver_at_utc, deferred_id)` keyset cursors. Completed rows are count-only. Inspection does not claim or lease rows. Shared parts (argument checks, cursor format, reading the counts, the page loop) are in `shared/Inspection` ([shared/README.md](../shared/README.md)).

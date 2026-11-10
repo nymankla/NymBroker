@@ -40,25 +40,10 @@ dotnet add package NymBroker
 dotnet add package Microsoft.Extensions.Hosting
 ```
 
-Then add only the optional packages for the transports, idempotency stores and [schedule stores](scheduling.md#named-actions-run-once-across-instances-catch-up-missed-runs) you use:
+Then add only the packages from the table above for the transports, idempotency stores and [schedule stores](scheduling.md#named-actions-run-once-across-instances-catch-up-missed-runs) you use, for example:
 
 ```bash
-dotnet add package NymBroker.Endpoint.Sqlite            # SQLite queue
-dotnet add package NymBroker.Endpoint.Postgres          # PostgreSQL queue
-dotnet add package NymBroker.Endpoint.SqlServer         # SQL Server queue
-dotnet add package NymBroker.Endpoint.MySql             # MySQL / MariaDB queue
-dotnet add package NymBroker.Endpoint.RabbitMq          # RabbitMQ
-dotnet add package NymBroker.Endpoint.AzureServiceBus   # Azure Service Bus
-dotnet add package NymBroker.Endpoint.AwsSqs            # Amazon SQS
-dotnet add package NymBroker.Endpoint.Http              # HTTP / webhooks (send)
-dotnet add package NymBroker.Idempotency.Sqlite         # durable duplicate detection, one host
-dotnet add package NymBroker.Idempotency.Postgres       # durable duplicate detection, shared
-dotnet add package NymBroker.Idempotency.SqlServer      # durable duplicate detection, shared
-dotnet add package NymBroker.Idempotency.MySql          # durable duplicate detection, shared
-dotnet add package NymBroker.Scheduling.Sqlite          # scheduled actions catch up missed runs, one host
-dotnet add package NymBroker.Scheduling.Postgres        # scheduled actions once per cluster + catch-up
-dotnet add package NymBroker.Scheduling.SqlServer       # scheduled actions once per cluster + catch-up
-dotnet add package NymBroker.Scheduling.MySql           # scheduled actions once per cluster + catch-up
+dotnet add package NymBroker.Endpoint.Sqlite
 ```
 
 Or in the project file:

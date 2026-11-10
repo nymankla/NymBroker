@@ -34,7 +34,7 @@ Tests that require PostgreSQL, SQL Server, MySQL, Azure Service Bus, RabbitMQ or
 Before submitting a pull request:
 
 1. Add or update tests for behavior changes. For a bug fix, the test should fail without the fix.
-2. `dotnet build` with no warnings, and `dotnet test`. If you changed an endpoint, an idempotency store or the broker pipeline, also run `./scripts/test-all.ps1`.
+2. `dotnet build` with no warnings, and `dotnet test`. That includes the [code-health gate](docs/architecture.md#code-health): if a method goes over a limit, split it rather than raising the limit. If you changed an endpoint, an idempotency store or the broker pipeline, also run `./scripts/test-all.ps1`; if you changed a hot path, compare the [benchmark](docs/benchmarks.md) before and after.
 3. If the public API changed, update the project's `PublicAPI.Unshipped.txt` (the build fails otherwise; removals as `*REMOVED*<line>`).
 4. Add an entry under `[Unreleased]` in `CHANGELOG.md`; mark breaking changes and describe the migration.
 5. Update `docs/` when user-visible behavior or configuration changes, and `skills/` when the API or setup they describe changes.

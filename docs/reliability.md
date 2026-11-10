@@ -2,7 +2,7 @@
 
 [← User guide](user-guide.md)
 
-At-least-once delivery applies only to transports that can redeliver and are configured to do so. Memory and File do not retry a message after handing it to the broker; a crash or failure at that point can prevent automatic recovery. See [Delivery guarantees](delivery-guarantees.md) for endpoint-specific consume/settlement boundaries, ordering and durability. This page explains what happens when handling fails, where failed messages end up, and the tools for expiry, auditing and duplicates.
+This page explains what happens when handling fails, where failed messages end up, and the tools for expiry, auditing and duplicates. Which endpoints can redeliver at all, when each one settles a message, and what a crash or shutdown means for it are in [Delivery guarantees](delivery-guarantees.md).
 
 ## The processing pipeline
 
@@ -11,8 +11,10 @@ flowchart LR
     A["Received bytes"] --> B["Wire taps<br/>(raw copy)"]
     B --> C["Deserialize<br/>(or input transformer)"]
     C --> D["Expiry check<br/>(TTL)"]
-    D --> E["Filters<br/>(incl. duplicate detection)"]
-    E --> F["Routes · topics · consumer"]
+    D --> E["Filters"]
+    E --> S["Reassemble split<br/>messages"]
+    S --> I["Duplicate check<br/>(idempotent receiver)"]
+    I --> F["Routes · topics · consumer"]
     F --> G["Result to the endpoint:<br/>Completed · Retry · DeadLetter"]
 ```
 
@@ -35,7 +37,7 @@ flowchart TD
     R --> L{"retry limit<br/>reached?"}
     L -- no --> AGAIN["processed again"]
     L -- yes --> NDL["transport's dead-letter queue<br/>(DLX, Service Bus DLQ, Failed row)"]
-    N -- "no: Memory, File,<br/>or UseNativeDeadLetter = false" --> BDL["broker posts it to the<br/>WithDeadLetterEndpoint endpoint<br/>and completes the original"]
+    N -- "no: Memory, File, Amazon SQS,<br/>or UseNativeDeadLetter = false" --> BDL["broker posts it to the<br/>WithDeadLetterEndpoint endpoint<br/>and completes the original"]
 ```
 
 ### Per endpoint
@@ -45,6 +47,7 @@ flowchart TD
 | SQLite, PostgreSQL, SQL Server, MySQL | row back to `Pending` | row `Failed`, reason in the error column | `MaxRetryCount` (default 5) |
 | RabbitMQ | nack with requeue | nack without requeue → the queue's dead-letter exchange, if configured | one redelivery (`RejectRedeliveredFailures`) |
 | Azure Service Bus | abandon | the queue's / subscription's dead-letter queue, with reason and description | the entity's `MaxDeliveryCount` |
+| Amazon SQS | visible again after `RetryDelay` (for a failed route destination; consumer failures go to the dead-letter endpoint) | broker dead-letter endpoint; messages redelivered too often go to the queue's redrive dead-letter queue | the redrive policy's `maxReceiveCount` ([SQS notes](endpoints-and-configuration.md#amazon-sqs-notes)) |
 | Memory, File | — (cannot redeliver) | broker dead-letter endpoint | none: failures go straight to the dead-letter endpoint |
 
 Set `UseNativeDeadLetter = false` on a RabbitMQ, Service Bus or SQL endpoint to make it behave like Memory/File: no retries, failures go to the broker's dead-letter endpoint.
@@ -203,7 +206,3 @@ services.AddNymBroker()
 ```
 
 Taps see everything, including messages that are later filtered, expired or dead-lettered. A failing tap is logged and does not affect processing.
-
-## Shutdown
-
-When the host stops, endpoints stop receiving and allow in-flight work to settle where supported. Messages claimed but not yet started by lease/lock-based transports are delivered again after lease or lock expiry. Memory and File cannot redeliver an item already taken from the channel or renamed to `.processed`; graceful shutdown cannot guarantee recovery from abrupt termination or make consumer side effects atomic with settlement.

@@ -31,7 +31,7 @@ Meter `NymBroker`:
 | `nymbroker.health.status` | gauge | aggregate status of the latest health check: `0` healthy, `1` degraded, `2` unhealthy | — |
 | `nymbroker.health.endpoint.healthy` | gauge | health of each endpoint in the latest check: `1` healthy, `0` unhealthy | `endpoint`, `critical` |
 
-Meter `NymBroker.Resilience`: `nymbroker.retries` — retry attempts by the File and RabbitMQ endpoints' [retry policy](resilience.md). `RetryPolicy` now lives in `NymBroker.Core`; the meter keeps its original name so existing setups keep working.
+Meter `NymBroker.Resilience`: `nymbroker.retries` — retry attempts of every [retry policy](resilience.md#how-nymbroker-uses-it) (transport reconnects, HTTP requests, broker-held deferred sends). The meter keeps its original name from when `RetryPolicy` was a separate package.
 
 Tag values are endpoint, topic, type and consumer names, so the number of series stays small.
 
@@ -43,7 +43,7 @@ Useful views:
 - **Latency** — `processing.duration` p95 by `source`; `result = retry` shows transient trouble.
 - **Health** — alert on `health.checks` with `status = unhealthy` (or `degraded`) increasing, or on `health.status > 0`; `health.endpoint.failures` by `endpoint` and `reason` shows which endpoint fails and whether it is down (`unhealthy`), hanging (`timeout`) or broken (`error`: its check threw). The health metrics are only recorded when `CheckHealthAsync` runs — for example on each `/health` probe — so their resolution is the probe interval.
 - **Backlog** — alert on `message.age` p95 or max by `source`: when consumers fall behind, messages wait longer and the age rises. It is measured against the sender's clock, so clock skew between hosts shifts it (negative values are recorded as 0). The broker does not count queued messages; take depth from the transport:
-  - SQL queue tables (SQLite, PostgreSQL, SQL Server, MySQL): `SELECT COUNT(*), MIN(created_at_utc) FROM <table> WHERE status IN (0, 1)` — covered by the active-rows index.
+  - SQL queue tables (SQLite, PostgreSQL, SQL Server, MySQL): `GetCountsAsync` of the [queue inspector](#queue-inspection).
   - RabbitMQ: the queue's `messages_ready` (management API or the Prometheus plugin).
   - Azure Service Bus: `ActiveMessages` in Azure Monitor, or `ActiveMessageCount` from `ServiceBusAdministrationClient` (needs Manage rights).
   - Amazon SQS: CloudWatch `ApproximateNumberOfMessagesVisible` and `ApproximateAgeOfOldestMessage`.
@@ -131,7 +131,7 @@ Health checks contact external systems, so don't run them on a hot path; a probe
 
 ## Queue inspection
 
-returns an `IQueueInspector`, or `null` when the endpoint's transport doesn't offer one. The queue-table endpoints offer it: **SQLite, PostgreSQL, SQL Server and MySQL**. RabbitMQ, Azure Service Bus, Amazon SQS, Memory, File and HTTP return `null`: they cannot list messages and tell their states apart without receiving them, which would change what is being inspected. It throws `InvalidOperationException` for an unknown endpoint. It is read-only and safe to call while the broker runs.
+`INymBroker.GetQueueInspector(endpointName)` counts and lists the messages in an endpoint's queue, for dashboards, support tools and replay. It returns an `IQueueInspector` (namespace `NymBroker.Core.Endpoint.Queue`), or `null` when the endpoint's transport doesn't offer one. The queue-table endpoints offer it: **SQLite, PostgreSQL, SQL Server and MySQL**. RabbitMQ, Azure Service Bus, Amazon SQS, Memory, File and HTTP return `null`: they cannot list messages and tell their states apart without receiving them, which would change what is being inspected. It throws `InvalidOperationException` for an unknown endpoint. It is read-only and safe to call while the broker runs.
 
 ```csharp
 var inspector = broker.GetQueueInspector("Orders") ?? throw new NotSupportedException();

@@ -2,10 +2,7 @@
 
 [← User guide](user-guide.md)
 
-`RetryPolicy` (namespace `NymBroker.Core.Resilience`, in the `NymBroker` package) is a small retry policy with no package dependencies. It replaced Polly in NymBroker and is used by:
-
-- `FileEndPoint`, to retry file reads that fail with `IOException` while a writer still has the file open or hasn't flushed it.
-- `RabbitMqEndPoint`, to reconnect forever when the broker connection drops.
+`RetryPolicy` (namespace `NymBroker.Core.Resilience`, in the `NymBroker` package) is a small retry policy with no package dependencies. It replaced Polly in NymBroker; [How NymBroker uses it](#how-nymbroker-uses-it) lists where. It retries transient failures of the transport itself; what happens when a *consumer* fails is in [Reliability](reliability.md).
 
 It only retries. There is no circuit breaker, timeout, fallback or hedging.
 
@@ -92,18 +89,12 @@ The jitter formulas follow the ones Polly v8 uses (± 25 % for constant, "decorr
 | Endpoint | Settings | Behaviour |
 |---|---|---|
 | `FileEndPoint` | `MaxRetryAttempts = 4`, `Delay = 25 ms`, `Exponential`, `UseJitter = true`, `ShouldHandle = ex is IOException`; logs at `Debug` | Retries a file that is still locked or empty when the watcher event fires. After the last attempt the endpoint logs a warning and skips the file, which keeps its original name and is not renamed to `.processed`. |
-| `RabbitMqEndPoint` | `MaxRetryAttempts = int.MaxValue`, `Delay = RabbitMqSettings.ReconnectDelaySeconds`, `Constant`, default `ShouldHandle`; logs at `Warning` | Keeps reconnecting and re-subscribing until the listener is cancelled. |
+| `RabbitMqEndPoint` | `MaxRetryAttempts = int.MaxValue`, `Delay = RabbitMqSettings.ReconnectDelaySeconds`, `Constant`, default `ShouldHandle`; logs at `Warning` | Keeps reconnecting and re-subscribing until the listener is cancelled. A channel closed or a consumer cancelled by the server (consumer timeout, protocol error, queue deleted) is handled the same way; the listener first waits for a handler still running, and unacknowledged messages are redelivered, so that message is handled twice. |
+| `HttpEndPoint` | `HttpSettings.MaxRetryAttempts` (default 3) and `RetryDelay` (default 1 s), `Exponential`, `UseJitter = true`, `MaxDelay = 30 s`; only timeouts, network errors, 408, 429 and 5xx | Retries one request; then `PostAsync` throws ([HTTP notes](endpoints-and-configuration.md#http-notes)). |
+| `AwsSqsEndPoint` | `MaxRetryAttempts = int.MaxValue`, `Delay = 1 s`, `Exponential`, `UseJitter = true`, `MaxDelay = 30 s`; logs at `Error` | Keeps receiving after a failed receive call until the listener is cancelled. |
+| Deferred posts held by the broker | `MaxRetryAttempts = 10`, `Delay = 1 s`, `Exponential`, `MaxDelay = 1 min` (about 5 minutes in all); logs at `Warning` | Retries the send of a due message on an endpoint that cannot defer itself ([Deferring a message](sending-messages.md#deferring-a-message)). |
 
-## Failure semantics by transport
-
-| Failure kind | Behaviour |
-|---|---|
-| Transient (locked file, lost RabbitMQ connection) | Retried with `RetryPolicy` (backoff, jitter, cancellation-aware); every retry is logged. |
-| Handler failure (SQLite/PostgreSQL) | Message returns to `Pending` until `AttemptCount >= MaxRetryCount`, then becomes `Failed` (terminal), keeping `LastError`/`FailedAtUtc`; a warning with the message id is logged. Reprocess by resetting `Status` to `0` and `AttemptCount` to `0`, before `FailedRetention` (default 90 days) deletes the row. |
-| RabbitMQ channel closed or consumer cancelled by the server (consumer timeout, protocol error, queue deleted) | Logged as a warning; the listener subscribes again after `ReconnectDelaySeconds`. The listener first waits for a handler still running, and unacknowledged messages are redelivered, so that message is handled twice. |
-| Handler failure (RabbitMQ) | Requeued once; failing again after redelivery is a poison message, nacked with `requeue: false` (dead-lettered if a DLX exists) and logged. |
-| Retries exhausted (File) | Warning logged; file is skipped and left in place. |
-| Cancellation | Always treated as clean shutdown, never retried or logged as an error. |
+Cancellation is always a clean shutdown: never retried, never logged as an error.
 
 ## Testing
 

@@ -86,11 +86,12 @@ The handler returns a `ProcessResult` that says what to do with the message you 
 
 If your transport has its own dead-letter queue (a dead-letter exchange, a DLQ sub-queue, a `Failed` state in a table), return `true` from `UsesNativeDeadLetter`, driven by a `UseNativeDeadLetter` setting that defaults to `true`. That changes what the broker returns for failures:
 
-| Failure | `UsesNativeDeadLetter = true` | `false` (the default for the interface) |
+| Situation | `UsesNativeDeadLetter = true` | `false` (the default for the interface; also `PublishAsync`) |
 |---|---|---|
-| Consumer or topic delivery throws | `Retry`: your transport redelivers and dead-letters at its delivery limit | the broker posts the bytes to its dead-letter endpoint (`WithDeadLetterEndpoint`) and returns `Completed` |
-| Undecodable, expired, unknown compression | `DeadLetter(reason)`: dead-letter it now | the broker posts to its dead-letter endpoint and returns `Completed` |
-| A route's destination throws | `Retry` | `Retry` |
+| Handled, filtered, or no consumer | `Completed` | `Completed` |
+| Consumer or topic delivery throws | `Retry`: your transport redelivers and dead-letters at its delivery limit; `DeadLetter(ConsumerFailed)` for a consumer added with `RetryOnFailure = false` | the broker posts the bytes to its dead-letter endpoint (`WithDeadLetterEndpoint`) and returns `Completed` (`Retry` if that post fails) |
+| Undecodable, expired, unknown compression | `DeadLetter(reason)`: dead-letter it now | the broker posts to its dead-letter endpoint and returns `Completed` (`Retry` if that post fails) |
+| A route's destination throws, or anything unexpected | `Retry` | `Retry` |
 
 When your endpoint *reads* a native dead-letter queue, call `DeadLetterEnvelope.Annotate(body, new DeadLetterInfo(reason, description, null, sourceEndpoint, deadLetteredAt, deliveryCount))` on each received body before handing it to the broker. The block (`context.DeadLetter`) is then the same whether the message came from the broker's dead-letter endpoint or the transport's own queue.
 
@@ -461,16 +462,16 @@ What this sample adds beyond Sample B:
 - **Retry with `RetryPolicy`.** Use `RetryPolicy` (`NymBroker.Core.Resilience`) for transient send and reconnect failures. Build one policy per endpoint and reuse it; `OnRetry` must log. Don't add Polly. See [Retry policy](resilience.md) for every option. If the client SDK already retries transient faults (the Azure SDKs do, as in `AzureServiceBusEndPoint`), don't wrap it in a second retry loop.
 - **Keep the health check bounded and asynchronous.** A probe that contacts the server belongs in `HealthCheckAsync`, through `HealthCheckResult.FromProbeAsync`: it adds the 5 s timeout, logs a failure and never throws. Implement `HealthCheck()` by waiting for it.
 - **Drain back to back.** Wait `PollInterval` only after a poll that returned nothing. Waiting after every batch caps throughput at `BatchSize / PollInterval`: about 100 msg/s with the defaults.
-- **For a database-backed queue, batch the round trips.** The SQL endpoints in this repo (`SqliteEndPoint`, `PostgresEndPoint`, `SqlServerEndPoint`) all use the same patterns:
+- **For a database-backed queue, batch the round trips.** The SQL endpoints in this repo (`SqliteEndPoint`, `PostgresEndPoint`, `SqlServerEndPoint`, `MySqlEndPoint`) all use the same patterns:
   - claim a batch in one statement;
   - write the outcomes of batch N in the **same transaction** as the claim of batch N+1, which costs one commit per batch instead of one per message;
   - guard each outcome update with the attempt number it was claimed with, so a poller whose lease expired can't overwrite a row that was claimed again;
   - prepare statements once;
   - use literal (not parameterized) status values when the table has a filtered or partial index.
 
-  When the loop stops, write the outcomes of messages already handled with a fresh token. Measured gains were 10× to 1 000× over a per-message design; see the `CLAUDE.md` in the SQLite, PostgreSQL and SQL Server endpoint folders.
+  When the loop stops, write the outcomes of messages already handled with a fresh token. Measured gains were 10× to 1 000× over a per-message design; see the `CLAUDE.md` in each SQL endpoint folder.
 
-  **Don't write that loop yourself:** derive from `LeasedQueueListener` (`NymBroker.Core.Endpoint.Queue`), which the three SQL endpoints use. It runs the drain/idle loop, calls the handler, maps each `ProcessResult` to a row outcome (`Completed`; `DeadLetter` → `Failed`; `Retry` → `Pending`, or `Failed` at `MaxRetryCount`) with the standard log messages, and writes the handled outcomes on shutdown. You supply the data access; your settings class implements `ILeasedQueueSettings`:
+  **Don't write that loop yourself:** derive from `LeasedQueueListener` (`NymBroker.Core.Endpoint.Queue`), which the four SQL endpoints use. It runs the drain/idle loop, calls the handler, maps each `ProcessResult` to a row outcome (`Completed`; `DeadLetter` → `Failed`; `Retry` → `Pending`, or `Failed` at `MaxRetryCount`) with the standard log messages, and writes the handled outcomes on shutdown. You supply the data access; your settings class implements `ILeasedQueueSettings`:
 
   ```csharp
   private sealed class Listener(MyQueueEndPoint owner) : LeasedQueueListener(owner._name, owner._settings, owner._logger)
@@ -490,6 +491,10 @@ What this sample adds beyond Sample B:
       // CleanupInterval, when your settings also implement CompletedRetention, FailedRetention, CleanupInterval and
       // CleanupBatchSize (all off by default). See SqlServerEndPoint.
       // protected override Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct) => ...;
+
+      // Optional, for an endpoint that implements IDeferredEndPoint: make due deferred rows claimable, and return how
+      // many. Called before a claim at most every 250 ms. See any SQL endpoint.
+      // protected override Task<int> PromoteDueAsync(CancellationToken ct) => ...;
   }
 
   // In the endpoint: StartListeningAsync → _listener.Start(handler, ct); StopListeningAsync → _listener.StopAsync().

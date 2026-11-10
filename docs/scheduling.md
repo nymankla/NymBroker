@@ -25,6 +25,12 @@ services.AddNymBroker()
     .Build();
 ```
 
+- Actions are asynchronous: `(IServiceProvider services, CancellationToken ct) => Task`. A run is awaited before the schedule waits for the next one, so runs of one action never overlap. Pass `ct` on; it is cancelled when the broker stops.
+- Actions start with `StartAsync`, stop with `StopAsync`, and start again with a later `StartAsync`. They can't be added after the broker is built.
+- An interval must be positive; it throws `ArgumentOutOfRangeException` otherwise.
+- A cron action whose next occurrence is months away (`@yearly`) waits for it (up to 0.14.0, its loop stopped with an error when the wait was over about 49 days).
+- A run that throws is logged at `Error` and the schedule continues with the next occurrence. `StopAsync` never throws because of an action.
+
 ### Cron syntax
 
 Five fields, `minute hour day-of-month month day-of-week`, separated by whitespace; seconds are always 0. Expressions are evaluated in the machine's local time zone. The parser is built in and is compatible with Cronos `CronFormat.Standard`, which was used before.
@@ -43,12 +49,6 @@ Five fields, `minute hour day-of-month month day-of-week`, separated by whitespa
 - An expression with no future occurrence (such as `0 0 30 2 *`) never fires.
 - Daylight saving time: an occurrence in the spring-forward gap fires at the transition; in the fall-back overlap, fixed-time expressions fire once (first pass) and interval-style expressions (`*`, ranges or steps in the minute or hour field, e.g. `*/15 * * * *`) fire in both offsets.
 - An invalid expression throws a `FormatException` when the action is added.
-
-- Actions are asynchronous: `(IServiceProvider services, CancellationToken ct) => Task`. A run is awaited before the schedule waits for the next one, so runs of one action never overlap. Pass `ct` on; it is cancelled when the broker stops.
-- Actions start with `StartAsync`, stop with `StopAsync`, and start again with a later `StartAsync`. They can't be added after the broker is built.
-- An interval must be positive; it throws `ArgumentOutOfRangeException` otherwise.
-- A cron action whose next occurrence is months away (`@yearly`) waits for it (up to 0.14.0, its loop stopped with an error when the wait was over about 49 days).
-- A run that throws is logged at `Error` and the schedule continues with the next occurrence. `StopAsync` never throws because of an action.
 
 ## Named actions: run once across instances, catch up missed runs
 

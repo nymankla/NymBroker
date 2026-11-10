@@ -44,11 +44,11 @@ Start from the matching sample in the guide. Then verify every item in the guide
 - Override `PostBatchAsync(IReadOnlyList<byte[]>)` when the transport can batch (one statement / transaction / client batch); keep order and one envelope per message, and document atomicity. Otherwise rely on the default (sequential `PostAsync`).
 - Deferred posts: implement `IDeferredEndPoint` if the transport can hold a message until a time; a time in the past means now, and never deliver early. If it cannot honour one message or time, throw `NotSupportedException`: the broker then holds the message in memory. In that case also log a warning when the endpoint is created, as `AwsSqsEndPoint` does, because the broker warns only about endpoints without the interface. A plain `IEndPoint` needs nothing.
 - A SQL endpoint builds its statements once, in the constructor, not per call. Identifier quoting for PostgreSQL, SQL Server and MySQL is in `shared/` (`shared/README.md`), compiled into each project for that database.
+- A queue-table endpoint also implements `IQueueInspector` (returned by `GetQueueInspector`) on top of `shared/Inspection`: write only the counts and list SQL and the parameter binding (`docs/observability.md#queue-inspection`; copy any `*EndPoint.Inspection.cs`).
 - Create tables or other one-time setup with `AsyncOnce` (`NymBroker.Core.Endpoint`): `_schema.RunAsync((Owner: this, Conn: conn), static (s, ct) => s.Owner.CreateSchemaAsync(s.Conn, ct), ct)`. Never hand-roll a semaphore and flag.
 - Health: a check that contacts the server goes in `HealthCheckAsync(CancellationToken cancellationToken = default) => HealthCheckResult.FromProbeAsync(kind, name, logger, ct => …, cancellationToken: cancellationToken)` (5 s timeout, never throws); `HealthCheck() => HealthCheckAsync().GetAwaiter().GetResult()`. A check of in-memory state (connection open, loop alive) can stay in `HealthCheck()` alone. The broker only calls `HealthCheckAsync`.
 - Retries use `NymBroker.Core.Resilience.RetryPolicy` (one per endpoint, `OnRetry` logs; options in `docs/resilience.md`). **Never add Polly.**
 - Constructor: `(string name, TSettings settings, ILogger<T> logger, EndpointMode mode = EndpointMode.ReadWrite)`.
-- Use `RetryPolicy` (`NymBroker.Core.Resilience`) if applicable
 - Always try to use best practices when implementing the endpoint. If implementing a new transport, follow the patterns established in the existing ones. 
 - Optimize for performance and reliability, using best practices for underlying transport and infrastructure.
 - Ensure proper disposal of resources and handle exceptions gracefully to maintain system stability.
@@ -84,11 +84,11 @@ Make all tests parallel-safe with unique names, ports and tables. Cover:
 4. After `StopListeningAsync` returns, the handler is never called again.
 5. `HealthCheckAsync()` reports a failed client as unhealthy without throwing.
 
-Then run `dotnet build` (must have 0 warnings) and `dotnet test`, both without the env var and, if you added integration tests, with it set. Also build every sample, since some are excluded from the solution's Debug build.
+Then run `dotnet build` (must have 0 warnings; it builds the samples too) and `dotnet test` (including the code-health gate), both without the env var and, if you added integration tests, with it set (`./scripts/test-all.ps1`).
 
 ## 6. Document
 
-- Add the project to the root `CLAUDE.md` solution-layout table, and create `<project>/CLAUDE.md` with its internals: settlement, connections, stop/shutdown, error logging, and why each non-obvious choice was made (see the existing endpoint folders).
-- Add a usage snippet to `docs/endpoints-and-configuration.md` and to `README.md` (its Endpoints section and its "Solution layout" table).
-- Add the package to the package table in `docs/getting-started.md`, and a section for it in `docs/endpoints-and-configuration.md`.
+- Create `<project>/CLAUDE.md` with its internals: settlement, connections, stop/shutdown, error logging, and why each non-obvious choice was made (see the existing endpoint folders). Add the transport to the endpoint list and the "Where the details are" table in the root `CLAUDE.md`, and to the package list in `docs/architecture.md`.
+- Add the package to the package tables in `README.md` and `docs/getting-started.md`.
+- In `docs/endpoints-and-configuration.md`: a row in "Choosing an endpoint", a usage snippet, its settings, and a notes section if it has limits. Add it to the capability matrix in `docs/delivery-guarantees.md`, the per-endpoint table in `docs/reliability.md`, and `docs/security.md`.
 - If the endpoint revealed something the guide doesn't cover, update `docs/writing-an-endpoint.md` too.
