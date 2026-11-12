@@ -11,6 +11,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Changed
 
 - Broker configuration and dead-letter metadata use source-generated JSON metadata.
+- Deferred messages held in memory (by the broker for an endpoint that cannot defer, and by `MemoryQueueEndPoint`) now wait in one time-ordered list served by a single background loop, instead of one delayed task per message. A due message is still sent on its own task, so a slow or retrying send holds up no other (#117).
 
 ### Fixed
 

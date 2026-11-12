@@ -10,15 +10,19 @@ namespace NymBroker.Core.Endpoint.Memory;
 /// <summary>In-process endpoint backed by a bounded Channel. Useful for testing and inter-component routing.</summary>
 public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoint
 {
-    // Task.Delay rejects longer waits (about 49 days), so a longer deferral waits in steps.
-    private static readonly TimeSpan MaxDelayStep = TimeSpan.FromDays(1);
     // A handler that never returns must not keep the broker from stopping.
     private static readonly TimeSpan DrainTimeout = TimeSpan.FromSeconds(30);
+    // A channel write cancelled by the stop ends at once; this only bounds a surprise.
+    private static readonly TimeSpan DeferredStopTimeout = TimeSpan.FromSeconds(10);
+
+    private readonly record struct DeferredMessage(byte[] Message, DateTimeOffset DeliverAt);
 
     private readonly int _capacity;
     private readonly ILogger<MemoryQueueEndPoint> _logger;
     private readonly string _name;
-    private CancellationTokenSource _stopped = new();
+    // One loop for every waiting message (#117).
+    private readonly DeferredQueue<DeferredMessage> _deferred;
+    private volatile bool _stopped;
     private Channel<byte[]> _channel;
     private CancellationTokenSource? _listeningCts;
     private Task? _loop;
@@ -32,6 +36,7 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoin
         _capacity = capacity;
         _logger = logger ?? NullLogger<MemoryQueueEndPoint>.Instance;
         _channel = NewChannel();
+        _deferred = new DeferredQueue<DeferredMessage>(DeliverDueAsync, LogDropped, _logger, name);
     }
 
     private Channel<byte[]> NewChannel() => Channel.CreateBounded<byte[]>(new BoundedChannelOptions(_capacity)
@@ -53,31 +58,30 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoin
     {
         ct.ThrowIfCancellationRequested();
         if (deliverAt <= DateTimeOffset.UtcNow) return PostAsync(message, ct);
-        if (_stopped.IsCancellationRequested)
+        if (!_deferred.TryAdd(new DeferredMessage(message, deliverAt), deliverAt))
             throw new ChannelClosedException($"Memory endpoint '{_name}' has stopped.");
 
-        _ = DeliverWhenDueAsync(message, deliverAt, _channel, _stopped.Token);
         return Task.CompletedTask;
     }
 
-    private async Task DeliverWhenDueAsync(byte[] message, DateTimeOffset deliverAt, Channel<byte[]> channel, CancellationToken stopped)
+    private async Task DeliverDueAsync(DeferredMessage deferred, CancellationToken stopped)
     {
         try
         {
-            for (var wait = deliverAt - DateTimeOffset.UtcNow; wait > TimeSpan.Zero; wait = deliverAt - DateTimeOffset.UtcNow)
-                await Task.Delay(wait < MaxDelayStep ? wait : MaxDelayStep, stopped);
-
-            await channel.Writer.WriteAsync(message, stopped);
+            await _channel.Writer.WriteAsync(deferred.Message, stopped);
         }
         catch (Exception ex) when (ex is OperationCanceledException or ChannelClosedException)
         {
-            _logger.LogWarning("A deferred message for {DeliverAt} on endpoint '{Name}' was dropped because the endpoint stopped", deliverAt, _name);
+            LogDropped(deferred);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "A deferred message for {DeliverAt} on endpoint '{Name}' was lost", deliverAt, _name);
+            _logger.LogError(ex, "A deferred message for {DeliverAt} on endpoint '{Name}' was lost", deferred.DeliverAt, _name);
         }
     }
+
+    private void LogDropped(DeferredMessage deferred)
+        => _logger.LogWarning("A deferred message for {DeliverAt} on endpoint '{Name}' was dropped because the endpoint stopped", deferred.DeliverAt, _name);
 
     /// <summary>Starts reading on the thread pool and returns. After a stop, listening again takes up where it left off.</summary>
     /// <exception cref="InvalidOperationException">The endpoint is already listening.</exception>
@@ -86,7 +90,7 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoin
         if (_loop is not null)
             throw new InvalidOperationException($"Memory endpoint '{_name}' is already listening.");
 
-        if (_stopped.IsCancellationRequested)
+        if (_stopped)
             Reopen();
 
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -105,8 +109,8 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoin
             channel.Writer.TryWrite(message);
 
         _channel = channel;
-        _stopped.Dispose();
-        _stopped = new CancellationTokenSource();
+        _stopped = false;
+        _deferred.Restart();
     }
 
     private async Task RunListenerAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, ChannelReader<byte[]> reader, CancellationToken token)
@@ -136,7 +140,9 @@ public sealed class MemoryQueueEndPoint : IEndPointEventDriven, IDeferredEndPoin
     /// </summary>
     public async Task StopListeningAsync()
     {
-        await _stopped.CancelAsync();
+        _stopped = true;
+        if (!await _deferred.StopAsync(DeferredStopTimeout))
+            _logger.LogWarning("Memory endpoint '{Name}' was still queueing a deferred message {Timeout} after it began to stop", _name, DeferredStopTimeout);
         _channel.Writer.TryComplete();
 
         if (_loop is null) return;
