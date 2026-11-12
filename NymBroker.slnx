@@ -6,6 +6,7 @@
   <Project Path="NymBroker.Idempotency.MySql/NymBroker.Idempotency.MySql.csproj" />
   <Folder Name="/samples/">
     <Project Path="samples/NymBroker.AotSample/NymBroker.AotSample.csproj" />
+    <Project Path="samples/NymBroker.TracingSample/NymBroker.TracingSample.csproj" />
   </Folder>
   <Project Path="NymBroker.Core/NymBroker.Core.csproj" />
   <Project Path="NymBroker.Endpoint.RabbitMq/NymBroker.Endpoint.RabbitMq.csproj" />

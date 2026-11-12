@@ -16,6 +16,7 @@ dotnet run --project samples/<SampleName>
 |---|---|---|---|
 | [NymBroker.AotSample](../samples/NymBroker.AotSample) | Native AOT publish-and-run check for generated message metadata and explicit consumer dispatch | `NymBroker` | Native AOT-capable .NET SDK and C++ toolchain |
 | [NymBroker.Sample](../samples/NymBroker.Sample) | Memory + File endpoints, a consumer for two message types, a content-based route, interval and cron scheduled actions | `NymBroker` | — |
+| [NymBroker.TracingSample](../samples/NymBroker.TracingSample/README.md) | W3C distributed trace context propagated from a producer to a consumer in separate processes through a SQLite queue | `NymBroker`, `NymBroker.Endpoint.Sqlite` | Local temporary SQLite file; no setup |
 | [NymBroker.ConfigSample](../samples/NymBroker.ConfigSample) | Endpoints loaded from `queuesettings.json` with `LoadConfiguration`; routes and consumers in code | `NymBroker` | — |
 | [NymBroker.CsvSample](../samples/NymBroker.CsvSample) | An input transformer that turns CSV lines into typed messages (invalid lines are dropped), and an output transformer that writes them as XML | `NymBroker` | — |
 | [NymBroker.RoutingSample](../samples/NymBroker.RoutingSample) | Routing from an inbox to VIP / Standard queues, a topic with two subscribers and an endpoint subscription, source guards against routing loops | `NymBroker`, `NymBroker.Endpoint.Sqlite` | — (in-memory SQLite) |
@@ -54,6 +55,7 @@ These credentials are for local development only.
 - Choosing a durable queue: **NymBroker.SqlSample** (no setup), then the PostgreSQL, SQL Server, RabbitMQ, Service Bus or SQS sample for your transport.
 - Separate producer and worker processes: **NymBroker.ProducerSample** with **NymBroker.ConsumerSample**.
 - Calling or receiving webhooks: **NymBroker.WebhookSample**.
+- Distributed traces across producer and consumer processes: **NymBroker.TracingSample**, and [Observability](observability.md#traces).
 - Dead-lettering and retries: **NymBroker.AzureServiceBusSample** (native dead-letter queue), **NymBroker.AwsSqsSample** (broker dead-letter endpoint on a queue), and [Reliability](reliability.md).
 - Non-JSON input or output (CSV in, XML out): **NymBroker.CsvSample**, and [Pipeline extensions](pipeline-extensions.md).
 - Interval and cron jobs: **NymBroker.Sample**, and [Scheduling](scheduling.md).
