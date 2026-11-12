@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using NymBroker.Shared;
 
 namespace NymBroker.Idempotency.SqlServer;
@@ -27,8 +29,7 @@ internal static class SqlServerIdempotencySql
     /// <summary>
     /// Clustered on <c>message_id</c>: every operation is a single-row seek by ID, and rows are narrow, so the page
     /// splits of random-GUID inserts stay cheap. A second index on <c>expires_at_utc</c> serves the cleanup.
-    /// Safe when several instances start at once: the loser of a concurrent CREATE gets error 2714 (table) or 1913
-    /// (index), which is ignored.
+    /// A transaction-owned application lock serializes schema checks and DDL across store instances.
     /// </summary>
     internal static string CreateSchema(string tableName)
     {
@@ -37,28 +38,39 @@ internal static class SqlServerIdempotencySql
         var safeName = string.Join('_', tableName.Split('.', StringSplitOptions.TrimEntries));
         var primaryKey = $"pk_{safeName}";
         var expiresIndex = $"ix_{safeName}_expires";
+        var lockHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tableName.ToUpperInvariant())));
+        var lockResource = $"NymBroker:IdempotencySchema:{lockHash}";
 
         return $"""
             SET NOCOUNT ON;
-            IF OBJECT_ID(N'{tableLiteral}', N'U') IS NULL
+            SET XACT_ABORT ON;
             BEGIN TRY
-                CREATE TABLE {table} (
-                    message_id     UNIQUEIDENTIFIER NOT NULL,
-                    status         TINYINT          NOT NULL CHECK (status IN ({InProgress}, {Completed})),
-                    expires_at_utc DATETIME2(7)     NOT NULL,
-                    created_at_utc DATETIME2(7)     NOT NULL DEFAULT SYSUTCDATETIME(),
-                    CONSTRAINT {QuoteSimpleIdentifier(primaryKey)} PRIMARY KEY CLUSTERED (message_id)
-                );
+                BEGIN TRANSACTION;
+                DECLARE @lockResult int;
+                EXEC @lockResult = sys.sp_getapplock
+                    @Resource = N'{lockResource}',
+                    @LockMode = N'Exclusive',
+                    @LockOwner = N'Transaction';
+                IF @lockResult < 0
+                    THROW 51000, 'Could not acquire the idempotency schema lock.', 1;
+
+                IF OBJECT_ID(N'{tableLiteral}', N'U') IS NULL
+                    CREATE TABLE {table} (
+                        message_id     UNIQUEIDENTIFIER NOT NULL,
+                        status         TINYINT          NOT NULL CHECK (status IN ({InProgress}, {Completed})),
+                        expires_at_utc DATETIME2(7)     NOT NULL,
+                        created_at_utc DATETIME2(7)     NOT NULL DEFAULT SYSUTCDATETIME(),
+                        CONSTRAINT {QuoteSimpleIdentifier(primaryKey)} PRIMARY KEY CLUSTERED (message_id)
+                    );
+
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(expiresIndex)}' AND object_id = OBJECT_ID(N'{tableLiteral}'))
+                    CREATE INDEX {QuoteSimpleIdentifier(expiresIndex)} ON {table}(expires_at_utc);
+
+                COMMIT TRANSACTION;
             END TRY
             BEGIN CATCH
-                IF ERROR_NUMBER() <> 2714 THROW;
-            END CATCH;
-            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(expiresIndex)}' AND object_id = OBJECT_ID(N'{tableLiteral}'))
-            BEGIN TRY
-                CREATE INDEX {QuoteSimpleIdentifier(expiresIndex)} ON {table}(expires_at_utc);
-            END TRY
-            BEGIN CATCH
-                IF ERROR_NUMBER() <> 1913 THROW;
+                IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+                THROW;
             END CATCH;
             """;
     }
