@@ -56,7 +56,7 @@ public sealed class TracePropagationTests : IAsyncDisposable
             _listener = new ActivityListener
             {
                 ShouldListenTo = source => source.Name == NymBrokerActivitySource.InstrumentationName,
-                Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+                Sample = (ref _) => ActivitySamplingResult.AllDataAndRecorded,
                 ActivityStopped = Stopped.Enqueue
             };
             ActivitySource.AddActivityListener(_listener);
@@ -145,16 +145,15 @@ public sealed class TracePropagationTests : IAsyncDisposable
         var endpoint = new RecordingEndPoint();
         var broker = Broker(("Out", endpoint));
 
-        using (var request = new Activity("request").Start())
-        {
-            await broker.PostAsync("Out", new Order { Id = 7 }, Ct);
-            var send = Assert.Single(collector.Named("nymbroker.send"));
-            Assert.Equal(ActivityKind.Producer, send.Kind);
-            Assert.Equal(request.SpanId, send.ParentSpanId);
-            Assert.Equal("Out", send.GetTagItem("messaging.destination.name"));
-            Assert.Equal("send", send.GetTagItem("messaging.operation.type"));
-            Assert.Equal(send.Id, Field(Assert.Single(endpoint.Posts), "traceParent"));
-        }
+        using var request = new Activity("request").Start();
+        await broker.PostAsync("Out", new Order { Id = 7 }, Ct);
+
+        var send = Assert.Single(collector.Named("nymbroker.send"));
+        Assert.Equal(ActivityKind.Producer, send.Kind);
+        Assert.Equal(request.SpanId, send.ParentSpanId);
+        Assert.Equal("Out", send.GetTagItem("messaging.destination.name"));
+        Assert.Equal("send", send.GetTagItem("messaging.operation.type"));
+        Assert.Equal(send.Id, Field(Assert.Single(endpoint.Posts), "traceParent"));
     }
 
     [Fact]

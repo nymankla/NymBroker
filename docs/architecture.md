@@ -60,6 +60,8 @@ flowchart LR
     RD --> CN[DispatchToConsumerAsync<br/>only if not routed or published]
 ```
 
+`ProcessAsync` decodes the bytes before it starts the `nymbroker.process` activity, so the activity can continue the W3C trace context the envelope carries ([Observability](observability.md#trace-context-across-messages)); the stages above then use that decoded result, the wire tap still first. Sends start `nymbroker.send` activities (`NymBrokerImpl.Tracing.cs`).
+
 Which result each situation gets depends on whether the source endpoint dead-letters natively (the SQL tables, RabbitMQ and Service Bus do; Memory, File and SQS don't). The full table is in [Writing an endpoint](writing-an-endpoint.md#native-dead-lettering-usesnativedeadletter). For consumer and topic failures it is one rule in code: `SettlementFor` picks a `FailureSettlement` and `SettleFailureAsync` applies it. Every send — post, route, topic, wire tap, dead letter — goes through `SendAsync` / `SendBatchAsync`, so output transformers are never bypassed.
 
 ## Endpoint building blocks

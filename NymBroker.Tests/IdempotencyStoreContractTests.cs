@@ -167,7 +167,7 @@ public abstract class IdempotencyStoreContractTests : IAsyncLifetime
     public async Task CompleteInTransaction_IsRecordedOnCommit_AndNotOnRollback()
     {
         RequireDatabase();
-        var store = Assert.IsAssignableFrom<ITransactionalIdempotencyStore>(Store(shared: true));
+        var store = Assert.IsType<ITransactionalIdempotencyStore>(Store(shared: true), exactMatch: false);
         var committed = Guid.NewGuid();
         var rolledBack = Guid.NewGuid();
         await store.TryClaimAsync(committed, Ct);

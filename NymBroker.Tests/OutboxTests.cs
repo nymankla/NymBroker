@@ -315,7 +315,8 @@ public sealed class OutboxTests : IAsyncDisposable
         Assert.Throws<ArgumentException>(() => new OutboxOptions { RetryDelay = TimeSpan.FromMinutes(10) }.Validate());
 
         var options = new OutboxOptions { RetryDelay = TimeSpan.FromSeconds(1), MaxRetryDelay = TimeSpan.FromSeconds(5) };
-        Assert.Equal([1, 2, 4, 5, 5], new[] { 1, 2, 3, 4, 10 }.Select(a => options.RetryDelayAfter(a).TotalSeconds));
+        int[] attempts = [1, 2, 3, 4, 10];
+        Assert.Equal([1, 2, 4, 5, 5], attempts.Select(a => options.RetryDelayAfter(a).TotalSeconds));
     }
 }
 

@@ -8,15 +8,18 @@ namespace NymBroker.Core.Endpoint;
 /// listener starts are kept. A due item is delivered on its own task, so a slow or retrying delivery holds up no other.
 /// </summary>
 /// <remarks>Not durable: what is still waiting when it stops is dropped through the drop callback.</remarks>
-internal sealed class DeferredQueue<T>
+/// <param name="deliver">Delivers a due item; logs its own failures. Its token is cancelled when the queue stops.</param>
+/// <param name="dropped">Logs an item that was still waiting when the queue stopped.</param>
+/// <param name="owner">Names the owner in log messages.</param>
+internal sealed class DeferredQueue<T>(Func<T, CancellationToken, Task> deliver, Action<T> dropped, ILogger logger, string owner)
 {
     // SemaphoreSlim.WaitAsync rejects waits over int.MaxValue ms (about 24 days), so a far item is waited for in steps.
     private static readonly TimeSpan MaxWait = TimeSpan.FromDays(1);
 
-    private readonly Func<T, CancellationToken, Task> _deliver;
-    private readonly Action<T> _dropped;
-    private readonly ILogger _logger;
-    private readonly string _owner;
+    private readonly Func<T, CancellationToken, Task> _deliver = deliver;
+    private readonly Action<T> _dropped = dropped;
+    private readonly ILogger _logger = logger;
+    private readonly string _owner = owner;
 
     // Guards every field below (never held across an await).
     private readonly Lock _lock = new();
@@ -28,17 +31,6 @@ internal sealed class DeferredQueue<T>
     private Task? _loop;
     private long _sequence;
     private bool _stopped;
-
-    /// <param name="deliver">Delivers a due item; logs its own failures. Its token is cancelled when the queue stops.</param>
-    /// <param name="dropped">Logs an item that was still waiting when the queue stopped.</param>
-    /// <param name="owner">Names the owner in log messages.</param>
-    public DeferredQueue(Func<T, CancellationToken, Task> deliver, Action<T> dropped, ILogger logger, string owner)
-    {
-        _deliver = deliver;
-        _dropped = dropped;
-        _logger = logger;
-        _owner = owner;
-    }
 
     /// <summary>Items still waiting (not those being delivered).</summary>
     public int WaitingCount

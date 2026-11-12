@@ -36,8 +36,7 @@ public static class DeadLetterEnvelope
         try { envelope = JsonNode.Parse(raw) as JsonObject; }
         catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException) { }
 
-        if (envelope == null)
-            envelope = CreateUndecodableEnvelope(raw);
+        envelope ??= CreateUndecodableEnvelope(raw);
 
         envelope["deadLetter"] = JsonSerializer.SerializeToNode(info, CoreJsonContext.Default.DeadLetterInfo);
         if (trace is { } stamp)

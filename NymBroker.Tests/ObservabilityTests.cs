@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Collections.Immutable;
-using NymBroker.Core.Aggregator;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Endpoint;
@@ -12,8 +11,6 @@ using NymBroker.Core.Message;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Serialize;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using NymBroker.Core.Resilience;
 
 namespace NymBroker.Tests;
@@ -123,7 +120,7 @@ public sealed class ObservabilityTests
         using var listener = new ActivityListener
         {
             ShouldListenTo = activitySource => activitySource.Name == NymBrokerActivitySource.InstrumentationName,
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            Sample = (ref _) => ActivitySamplingResult.AllData,
             // The listener is process-wide; ignore activities from tests running in parallel.
             ActivityStopped = activity =>
             {
