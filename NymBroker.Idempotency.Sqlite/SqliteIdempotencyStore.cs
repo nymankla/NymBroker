@@ -1,3 +1,5 @@
+using System.Data;
+using System.Data.Common;
 using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -10,7 +12,7 @@ namespace NymBroker.Idempotency.Sqlite;
 /// Durable <see cref="IIdempotencyStore"/> in SQLite: restart-safe deduplication on one host.
 /// One persistent connection, serialized (<see cref="SqliteStoreConnection"/>).
 /// </summary>
-public sealed class SqliteIdempotencyStore : IExpiringIdempotencyStore, IAsyncDisposable
+public sealed class SqliteIdempotencyStore : IExpiringIdempotencyStore, ITransactionalIdempotencyStore, IAsyncDisposable
 {
     private readonly SqliteIdempotencySettings _settings;
     private readonly SqliteStoreConnection _db;
@@ -55,6 +57,13 @@ public sealed class SqliteIdempotencyStore : IExpiringIdempotencyStore, IAsyncDi
         command.Parameters.AddWithValue("@ttlSeconds", _settings.TtlSeconds);
         await command.ExecuteNonQueryAsync(ct);
     }
+
+    /// <summary>
+    /// Marks the message handled in the caller's <see cref="SqliteTransaction"/>, on a table in the same database file
+    /// (<see cref="IInbox"/>). The table already exists: the broker claimed the message on the store's own connection.
+    /// </summary>
+    public Task CompleteInTransactionAsync(Guid messageId, DbTransaction transaction, CancellationToken ct = default)
+        => TransactionalCompletion.ExecuteAsync<SqliteConnection>(transaction, _completeSql, (DbType.String, messageId.ToString("D")), _settings.TtlSeconds, ct);
 
     public async ValueTask ReleaseAsync(Guid messageId, CancellationToken ct = default)
     {

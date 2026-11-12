@@ -1,6 +1,6 @@
 # NymBroker.EfCoreTransactionSample
 
-A consumer that places an order with Entity Framework Core — the order, its lines and the products' stock, three tables in one SQL Server transaction — reading from a NymBroker SQL Server queue, with the broker's SQL Server idempotency store dropping redelivered duplicates. It shows how to make a consumer safe under retries and redelivery: commit or roll back as one unit, record a business rejection instead of retrying it, and let the broker filter messages that were already handled.
+A consumer that places an order with Entity Framework Core — the order, its lines and the products' stock, three tables in one SQL Server transaction — reading from a NymBroker SQL Server queue, with the broker's SQL Server idempotency store dropping redelivered duplicates. It shows how to make a consumer safe under retries and redelivery: commit or roll back as one unit, record a business rejection instead of retrying it, and let the broker filter messages that were already handled. The same transaction also writes the order's event to a [transactional outbox](../../docs/transactional-outbox.md), sent after the commit, and records the message as handled ([inbox](../../docs/transactional-outbox.md#inbox)).
 
 ## Run
 
@@ -15,9 +15,9 @@ It uses a throw-away database `nymbroker_ef_sample` (dropped and recreated on ev
 
 | Scenario | What happens | Checked |
 |---|---|---|
-| 1. Normal order (2 × WIDGET) | Order, line and stock change in one transaction | order + line exist, WIDGET 10 → 8 |
-| 2. Same message delivered twice (1 × WIDGET) | The broker drops the second delivery before the consumer runs ("Dropping duplicate message …") | order exists once, WIDGET 8 → 7 (not 6) |
-| 3. Out of stock on the second line (3 × WIDGET, 5 × GADGET with 1 in stock) | Order, lines and WIDGET's reservation are already written when GADGET runs out; the consumer rolls back to a savepoint, writes an `OrderRejections` row instead, commits, and returns normally | no order, no lines, WIDGET still 7, GADGET still 1, a rejection with the reason, the queue row `Completed` on its first attempt, the message id remembered |
+| 1. Normal order (2 × WIDGET) | Order, line, stock and an `OrderPlaced` event in one transaction; the outbox dispatcher sends the event after the commit | order + line exist, WIDGET 10 → 8, one event sent, outbox empty |
+| 2. Same message delivered twice (1 × WIDGET) | The broker drops the second delivery before the consumer runs ("Dropping duplicate message …") | order exists once, WIDGET 8 → 7 (not 6), one event for it |
+| 3. Out of stock on the second line (3 × WIDGET, 5 × GADGET with 1 in stock) | Order, lines and WIDGET's reservation are already written when GADGET runs out; the consumer rolls back to a savepoint, writes an `OrderRejections` row instead, commits, and returns normally | no order, no lines, WIDGET still 7, GADGET still 1, a rejection with the reason, an `OrderRejected` event and no `OrderPlaced` one, the queue row `Completed` on its first attempt, the message id remembered |
 
 ## How it works
 
@@ -80,11 +80,17 @@ The stock `UPDATE` only matches while enough stock is left, so two orders racing
 
 The table is shared by every instance of the app, and a hosted service deletes expired ids. The consumer needs no duplicate handling of its own.
 
-The store's write is separate from your transaction: if the process dies after `CommitAsync` and before the broker records the id, the claim expires (`LeaseTimeout`, 5 min) and the message is processed again. If that window matters for a consumer, give its writes a natural key (as `OrderId` is here — a second insert would fail on the primary key, rolling back the whole transaction including the stock update) or make them upserts.
+The broker's own record is a separate write: if the process died after `CommitAsync` and before it, the claim would expire (`LeaseTimeout`, 5 min) and the message would be processed again. The consumer closes that window by recording the id itself, in its transaction, with `IInbox` (the idempotency table is in the same database):
+
+```csharp
+await inbox.MarkHandledAsync(context, tx.GetDbTransaction(), ct);   // committed with the order, or not at all
+```
+
+Natural keys (as `OrderId` is here — a second insert would fail on the primary key) remain a good second line of defence.
 
 ## Variations
 
 - **Several consumers / services in one transaction:** they all resolve the same scoped `DbContext` for the message, so `SaveChangesAsync` and `CommitAsync` cover all of them.
-- **Sending messages from the consumer:** `broker.PostAsync` is not part of the transaction. If a follow-up message must be sent if and only if the data is committed, write it to an outbox table in the same transaction and post it from a background job.
+- **Sending messages from the consumer:** `broker.PostAsync` is not part of the transaction: the event could go out for an order that is then rolled back, or be lost after the commit. The consumer uses `IOutbox` instead (`AddSqlServerOutbox` in `Program.cs`): `outbox.PostAsync("OrderEvents", new OrderPlaced(...), tx.GetDbTransaction(), ct)` writes the event in the order's transaction, and a hosted dispatcher sends it after the commit. Delivery is at least once, so the receiver should drop duplicates by message id. See [Transactional outbox and inbox](../../docs/transactional-outbox.md).
 - **EF Core retry on failure:** with `UseSqlServer(…, o => o.EnableRetryOnFailure())`, a transaction you start yourself must run inside `db.Database.CreateExecutionStrategy().ExecuteAsync(…)`.
-- **PostgreSQL / SQLite:** the same pattern with `UseNpgsql` / `UseSqlite` and `AddPostgresIdempotency` / `AddSqliteIdempotency`.
+- **PostgreSQL / MySQL / SQLite:** the same pattern with `UseNpgsql` / `UseMySql` / `UseSqlite`, `AddPostgresIdempotency` / `AddMySqlIdempotency` / `AddSqliteIdempotency` and `AddPostgresOutbox` / `AddMySqlOutbox` / `AddSqliteOutbox`.

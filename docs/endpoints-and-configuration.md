@@ -141,6 +141,8 @@ The HTTP endpoint only **sends**: each message posted or routed to it becomes on
   await broker.PostAsync("Outbox", order);   // durable at once; delivered (and retried) by the queue
   ```
 
+  If the order is also written to your database, use the [transactional outbox](transactional-outbox.md) instead: `outbox.PostAsync("PartnerHook", order, transaction)` sends the call if and only if the order's transaction commits, with the same retries.
+
 - **HttpClient.** `AddHttpEndPoint` registers a named client (`"NymBroker.Http." + name`) with `IHttpClientFactory`. Its last parameter configures it, e.g. `client => client.AddHttpMessageHandler<MyAuthHandler>()` for OAuth tokens or a proxy.
 - **Receiving webhooks** belongs in your ASP.NET Core app: verify the request (signature or API key), `await broker.PostRawAsync("Inbox", body)` to a **durable** queue, and return `202 Accepted`. Never run the consumer inside the request — the response would then depend on the consumer and its retries. Use an [input transformer](pipeline-extensions.md#input-transformers) for another system's JSON. [NymBroker.WebhookSample](../samples/NymBroker.WebhookSample) shows both directions, including signature verification with replay protection.
 

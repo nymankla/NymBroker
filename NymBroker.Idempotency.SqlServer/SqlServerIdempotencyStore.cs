@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Data;
+using System.Data.Common;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Endpoint;
@@ -12,7 +13,7 @@ namespace NymBroker.Idempotency.SqlServer;
 /// Durable <see cref="IIdempotencyStore"/> in a SQL Server table: duplicates are detected across restarts and across
 /// every broker instance that uses the same table. One pooled <see cref="SqlConnection"/> per operation (not thread-safe).
 /// </summary>
-public sealed class SqlServerIdempotencyStore : IExpiringIdempotencyStore
+public sealed class SqlServerIdempotencyStore : IExpiringIdempotencyStore, ITransactionalIdempotencyStore
 {
     private readonly SqlServerIdempotencySettings _settings;
     private readonly ILogger<SqlServerIdempotencyStore> _logger;
@@ -57,6 +58,13 @@ public sealed class SqlServerIdempotencyStore : IExpiringIdempotencyStore
         await using var command = Command(connection, _completeSql, messageId);
         command.Parameters.Add("@ttlSeconds", SqlDbType.Int).Value = _settings.TtlSeconds;
         await command.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>Marks the message handled in the caller's <see cref="SqlTransaction"/>, on a table in that database (<see cref="IInbox"/>).</summary>
+    public async Task CompleteInTransactionAsync(Guid messageId, DbTransaction transaction, CancellationToken ct = default)
+    {
+        await EnsureSchemaAsync(ct);
+        await TransactionalCompletion.ExecuteAsync<SqlConnection>(transaction, _completeSql, (DbType.Guid, messageId), _settings.TtlSeconds, ct);
     }
 
     public async ValueTask ReleaseAsync(Guid messageId, CancellationToken ct = default)

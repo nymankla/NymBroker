@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.Extensions.DependencyInjection;
 using NymBroker.Core.Consume;
 using NymBroker.Core.DI;
@@ -38,6 +39,9 @@ public abstract class IdempotencyStoreContractTests : IAsyncLifetime
 
     /// <summary>Drops the table (or deletes the database file).</summary>
     protected abstract ValueTask DropTableAsync();
+
+    /// <summary>An open connection to the shared database, as the application's consumer would use (<see cref="IInbox"/>).</summary>
+    protected abstract Task<DbConnection> OpenSharedConnectionAsync();
 
     private readonly List<IExpiringIdempotencyStore> _stores = [];
 
@@ -157,6 +161,39 @@ public abstract class IdempotencyStoreContractTests : IAsyncLifetime
 
         Assert.Single(results, r => r == IdempotencyClaimResult.Claimed);
         Assert.All(results.Where(r => r != IdempotencyClaimResult.Claimed), r => Assert.Equal(IdempotencyClaimResult.InProgress, r));
+    }
+
+    [Fact]
+    public async Task CompleteInTransaction_IsRecordedOnCommit_AndNotOnRollback()
+    {
+        RequireDatabase();
+        var store = Assert.IsAssignableFrom<ITransactionalIdempotencyStore>(Store(shared: true));
+        var committed = Guid.NewGuid();
+        var rolledBack = Guid.NewGuid();
+        await store.TryClaimAsync(committed, Ct);
+        await store.TryClaimAsync(rolledBack, Ct);
+
+        await using (var connection = await OpenSharedConnectionAsync())
+        {
+            await using (var transaction = await connection.BeginTransactionAsync(Ct))
+            {
+                await store.CompleteInTransactionAsync(committed, transaction, Ct);
+                await transaction.CommitAsync(Ct);
+            }
+            await using (var transaction = await connection.BeginTransactionAsync(Ct))
+            {
+                await store.CompleteInTransactionAsync(rolledBack, transaction, Ct);
+                await transaction.RollbackAsync(Ct);
+            }
+        }
+
+        Assert.Equal(IdempotencyClaimResult.Duplicate, await store.TryClaimAsync(committed, Ct));
+        await store.ReleaseAsync(committed, Ct);   // what the broker does after a failure: a completed row stays
+        Assert.Equal(IdempotencyClaimResult.Duplicate, await store.TryClaimAsync(committed, Ct));
+
+        Assert.Equal(IdempotencyClaimResult.InProgress, await store.TryClaimAsync(rolledBack, Ct));
+        await store.ReleaseAsync(rolledBack, Ct);
+        Assert.Equal(IdempotencyClaimResult.Claimed, await store.TryClaimAsync(rolledBack, Ct));
     }
 
     // --- End to end: two brokers sharing one table ---

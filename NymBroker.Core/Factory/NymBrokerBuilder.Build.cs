@@ -39,6 +39,10 @@ public sealed partial class NymBrokerBuilder
 
         _services.AddSingleton<INymBroker>(sp => sp.GetRequiredService<NymBrokerImpl>());
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, NymBrokerHostedService>());
+
+        // After the broker's hosted service: the host starts them in order and stops them in reverse.
+        if (_outbox)
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Outbox.OutboxDispatcher>());
     }
 
     private void ValidateHealthCheckEndpoints()
@@ -62,6 +66,7 @@ public sealed partial class NymBrokerBuilder
         services.AddSingleton<MessageTypeRegistry>();
         services.AddSingleton<ConsumerDispatcher>();
         services.AddSingleton<SubscriberDispatcher>();
+        services.TryAddSingleton<IInbox, Inbox>();
     }
 
     /// <summary>

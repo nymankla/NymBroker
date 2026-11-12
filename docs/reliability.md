@@ -182,7 +182,7 @@ A claim is a lease (`LeaseTimeout`): if the process dies after claiming, the cla
 
 Before [#55](https://github.com/nymankla/NymBroker/issues/55) the id was recorded *before* processing, so a message whose consumer failed and was redelivered by the transport was then dropped as a duplicate and lost.
 
-**Limits.** This is duplicate detection for at-least-once delivery, not exactly-once processing. The consumer's side effects are not in the store's transaction: if the process dies after the consumer succeeded but before the claim is completed, the message is processed again once the lease expires. Messages without an id (`Guid.Empty`, e.g. from an input transformer) are not checked.
+**Limits.** This is duplicate detection for at-least-once delivery, not exactly-once processing. By default the consumer's side effects are not in the store's transaction: if the process dies after the consumer succeeded but before the claim is completed, the message is processed again once the lease expires. When the consumer's writes are in the same database as a `NymBroker.Idempotency.*` table, close that window with [`IInbox`](transactional-outbox.md#inbox), which records the message in the consumer's own transaction. Messages without an id (`Guid.Empty`, e.g. from an input transformer) are not checked.
 
 ## Message expiry (TTL)
 

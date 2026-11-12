@@ -1,3 +1,5 @@
+using System.Data;
+using System.Data.Common;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -12,7 +14,7 @@ namespace NymBroker.Idempotency.Postgres;
 /// Durable <see cref="IIdempotencyStore"/> in PostgreSQL, shared by all broker instances using the same table.
 /// Each operation opens a pooled connection from a thread-safe data source.
 /// </summary>
-public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, IAsyncDisposable
+public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, ITransactionalIdempotencyStore, IAsyncDisposable
 {
     private readonly PostgresIdempotencySettings _settings;
     private readonly ILogger<PostgresIdempotencyStore> _logger;
@@ -64,6 +66,13 @@ public sealed class PostgresIdempotencyStore : IExpiringIdempotencyStore, IAsync
         AddGuid(command, messageId);
         command.Parameters.AddWithValue("ttlSeconds", _settings.TtlSeconds);
         await command.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>Marks the message handled in the caller's <see cref="NpgsqlTransaction"/>, on a table in that database (<see cref="IInbox"/>).</summary>
+    public async Task CompleteInTransactionAsync(Guid messageId, DbTransaction transaction, CancellationToken ct = default)
+    {
+        await EnsureSchemaAsync(ct);
+        await TransactionalCompletion.ExecuteAsync<NpgsqlConnection>(transaction, _completeSql, (DbType.Guid, messageId), _settings.TtlSeconds, ct);
     }
 
     public async ValueTask ReleaseAsync(Guid messageId, CancellationToken ct = default)

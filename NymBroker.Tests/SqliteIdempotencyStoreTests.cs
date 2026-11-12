@@ -54,6 +54,13 @@ public sealed class SqliteIdempotencyStoreTests : IdempotencyStoreContractTests
         return Convert.ToInt64(await command.ExecuteScalarAsync(Ct));
     }
 
+    protected override async Task<System.Data.Common.DbConnection> OpenSharedConnectionAsync()
+    {
+        var connection = new SqliteConnection(SharedConnectionString);
+        await connection.OpenAsync(Ct);
+        return connection;
+    }
+
     protected override ValueTask DropTableAsync()
     {
         SqliteConnection.ClearAllPools();

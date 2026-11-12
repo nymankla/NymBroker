@@ -1,0 +1,20 @@
+#nullable enable
+NymBroker.Outbox.MySql.MySqlOutboxSettings
+NymBroker.Outbox.MySql.MySqlOutboxSettings.AutoCreateTable.get -> bool
+NymBroker.Outbox.MySql.MySqlOutboxSettings.AutoCreateTable.set -> void
+NymBroker.Outbox.MySql.MySqlOutboxSettings.ConnectionString.get -> string!
+NymBroker.Outbox.MySql.MySqlOutboxSettings.ConnectionString.set -> void
+NymBroker.Outbox.MySql.MySqlOutboxSettings.MySqlOutboxSettings() -> void
+NymBroker.Outbox.MySql.MySqlOutboxSettings.TableName.get -> string!
+NymBroker.Outbox.MySql.MySqlOutboxSettings.TableName.set -> void
+NymBroker.Outbox.MySql.MySqlOutboxSettings.Validate() -> void
+NymBroker.Outbox.MySql.MySqlOutboxStore
+NymBroker.Outbox.MySql.MySqlOutboxStore.AddAsync(System.Data.Common.DbTransaction! transaction, NymBroker.Core.Outbox.OutboxMessage! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.MySql.MySqlOutboxStore.ClaimAsync(System.Guid claimId, int maxCount, System.TimeSpan leaseTimeout, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<NymBroker.Core.Outbox.ClaimedOutboxMessage!>!>!
+NymBroker.Outbox.MySql.MySqlOutboxStore.MarkFailedAsync(long id, System.Guid claimId, string! error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.MySql.MySqlOutboxStore.MarkSentAsync(long id, System.Guid claimId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.MySql.MySqlOutboxStore.MySqlOutboxStore(NymBroker.Outbox.MySql.MySqlOutboxSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Outbox.MySql.MySqlOutboxStore!>! logger) -> void
+NymBroker.Outbox.MySql.MySqlOutboxStore.ReleaseAsync(long id, System.Guid claimId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.MySql.MySqlOutboxStore.RetryLaterAsync(long id, System.Guid claimId, System.TimeSpan delay, string! error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.MySql.NymBrokerBuilderMySqlOutboxExtensions
+static NymBroker.Outbox.MySql.NymBrokerBuilderMySqlOutboxExtensions.AddMySqlOutbox(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Outbox.MySql.MySqlOutboxSettings? settings = null, System.Action<NymBroker.Core.Outbox.OutboxOptions!>? configure = null) -> NymBroker.Core.Factory.NymBrokerBuilder!

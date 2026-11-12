@@ -2,7 +2,7 @@
 
 [← User guide](user-guide.md)
 
-Choose an endpoint based on where its data lives and how it settles a received message. NymBroker does not provide exactly-once processing: the transport and the consumer's side effects are not committed in one transaction.
+Choose an endpoint based on where its data lives and how it settles a received message. NymBroker does not provide exactly-once processing: the transport and the consumer's side effects are not committed in one transaction. The [transactional outbox and inbox](transactional-outbox.md) tie sending a message, and recording a received one, to your own database transaction; delivery stays at least once.
 
 ## Delivery semantics
 

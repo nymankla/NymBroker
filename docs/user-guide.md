@@ -49,6 +49,7 @@ flowchart LR
 | [Endpoints and configuration](endpoints-and-configuration.md) | Every endpoint type, endpoint modes, configuring in code or from `queuesettings.json` |
 | [Delivery guarantees](delivery-guarantees.md) | At-least-once limits, ordering, crash behavior and endpoint capabilities |
 | [Reliability](reliability.md) | Retries, dead-lettering (native and broker), the dead-letter reason, TTL, wire tap, duplicate detection |
+| [Transactional outbox and inbox](transactional-outbox.md) | `IOutbox`: send a message if and only if your database transaction commits; `IInbox`: record a message as handled in the consumer's transaction; guarantees |
 | [Retry policy](resilience.md) | `RetryPolicy` options, backoff and jitter, and where NymBroker uses it |
 | [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, output transformers |
 | [Scheduling](scheduling.md) | Interval and cron scheduled actions; named actions that run once across instances and catch up missed runs (schedule stores) |

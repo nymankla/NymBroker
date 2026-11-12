@@ -48,6 +48,13 @@ public sealed class SqlServerIdempotencyStoreTests : IdempotencyStoreContractTes
         return (int)(await cmd.ExecuteScalarAsync(Ct))!;
     }
 
+    protected override async Task<System.Data.Common.DbConnection> OpenSharedConnectionAsync()
+    {
+        var connection = new SqlConnection(ConnectionString);
+        await connection.OpenAsync(Ct);
+        return connection;
+    }
+
     protected override async ValueTask DropTableAsync()
     {
         if (string.IsNullOrWhiteSpace(ConnectionString)) return;

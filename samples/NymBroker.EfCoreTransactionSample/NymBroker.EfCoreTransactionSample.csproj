@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\NymBroker.Core\NymBroker.Core.csproj" />
     <ProjectReference Include="..\..\NymBroker.Endpoint.SqlServer\NymBroker.Endpoint.SqlServer.csproj" />
     <ProjectReference Include="..\..\NymBroker.Idempotency.SqlServer\NymBroker.Idempotency.SqlServer.csproj" />
+    <ProjectReference Include="..\..\NymBroker.Outbox.SqlServer\NymBroker.Outbox.SqlServer.csproj" />
   </ItemGroup>
 
   <ItemGroup>

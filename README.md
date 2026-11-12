@@ -6,7 +6,7 @@ NymBroker is a .NET 10 message-processing framework based on [Enterprise Integra
 
 ## Packages and endpoints
 
-Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org for the broker, Memory, and File endpoints. Each optional transport, durable idempotency store and schedule store is a separate package; all packages share one version.
+Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org for the broker, Memory, and File endpoints. Each optional transport, durable idempotency store, transactional outbox and schedule store is a separate package; all packages share one version.
 
 | Package | Endpoint or capability |
 |---|---|
@@ -23,6 +23,10 @@ Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org 
 | [`NymBroker.Idempotency.Postgres`](https://www.nuget.org/packages/NymBroker.Idempotency.Postgres/) | Shared durable idempotency |
 | [`NymBroker.Idempotency.SqlServer`](https://www.nuget.org/packages/NymBroker.Idempotency.SqlServer/) | Shared durable idempotency |
 | [`NymBroker.Idempotency.MySql`](https://www.nuget.org/packages/NymBroker.Idempotency.MySql/) | Shared durable idempotency |
+| [`NymBroker.Outbox.Sqlite`](https://www.nuget.org/packages/NymBroker.Outbox.Sqlite/) | Transactional outbox, one host |
+| [`NymBroker.Outbox.Postgres`](https://www.nuget.org/packages/NymBroker.Outbox.Postgres/) | Transactional outbox |
+| [`NymBroker.Outbox.SqlServer`](https://www.nuget.org/packages/NymBroker.Outbox.SqlServer/) | Transactional outbox |
+| [`NymBroker.Outbox.MySql`](https://www.nuget.org/packages/NymBroker.Outbox.MySql/) | Transactional outbox |
 | [`NymBroker.Scheduling.Sqlite`](https://www.nuget.org/packages/NymBroker.Scheduling.Sqlite/) | Scheduled actions that catch up missed runs, one host |
 | [`NymBroker.Scheduling.Postgres`](https://www.nuget.org/packages/NymBroker.Scheduling.Postgres/) | Scheduled actions that run once per cluster and catch up missed runs |
 | [`NymBroker.Scheduling.SqlServer`](https://www.nuget.org/packages/NymBroker.Scheduling.SqlServer/) | Scheduled actions that run once per cluster and catch up missed runs |
@@ -72,6 +76,7 @@ The [user guide](https://github.com/nymankla/NymBroker/blob/master/docs/user-gui
 - [Routing and publish/subscribe](https://github.com/nymankla/NymBroker/blob/master/docs/routing-and-pubsub.md)
 - [Endpoints and configuration](https://github.com/nymankla/NymBroker/blob/master/docs/endpoints-and-configuration.md)
 - [Reliability and idempotency](https://github.com/nymankla/NymBroker/blob/master/docs/reliability.md)
+- [Transactional outbox and inbox](https://github.com/nymankla/NymBroker/blob/master/docs/transactional-outbox.md)
 - [Delivery guarantees](https://github.com/nymankla/NymBroker/blob/master/docs/delivery-guarantees.md)
 - [Retry policy](https://github.com/nymankla/NymBroker/blob/master/docs/resilience.md)
 - [Pipeline extensions](https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md)

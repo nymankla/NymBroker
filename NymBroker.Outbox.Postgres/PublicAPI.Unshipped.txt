@@ -1,0 +1,21 @@
+#nullable enable
+NymBroker.Outbox.Postgres.NymBrokerBuilderPostgresOutboxExtensions
+NymBroker.Outbox.Postgres.PostgresOutboxSettings
+NymBroker.Outbox.Postgres.PostgresOutboxSettings.AutoCreateTable.get -> bool
+NymBroker.Outbox.Postgres.PostgresOutboxSettings.AutoCreateTable.set -> void
+NymBroker.Outbox.Postgres.PostgresOutboxSettings.ConnectionString.get -> string!
+NymBroker.Outbox.Postgres.PostgresOutboxSettings.ConnectionString.set -> void
+NymBroker.Outbox.Postgres.PostgresOutboxSettings.PostgresOutboxSettings() -> void
+NymBroker.Outbox.Postgres.PostgresOutboxSettings.TableName.get -> string!
+NymBroker.Outbox.Postgres.PostgresOutboxSettings.TableName.set -> void
+NymBroker.Outbox.Postgres.PostgresOutboxSettings.Validate() -> void
+NymBroker.Outbox.Postgres.PostgresOutboxStore
+NymBroker.Outbox.Postgres.PostgresOutboxStore.AddAsync(System.Data.Common.DbTransaction! transaction, NymBroker.Core.Outbox.OutboxMessage! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.Postgres.PostgresOutboxStore.ClaimAsync(System.Guid claimId, int maxCount, System.TimeSpan leaseTimeout, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<NymBroker.Core.Outbox.ClaimedOutboxMessage!>!>!
+NymBroker.Outbox.Postgres.PostgresOutboxStore.DisposeAsync() -> System.Threading.Tasks.ValueTask
+NymBroker.Outbox.Postgres.PostgresOutboxStore.MarkFailedAsync(long id, System.Guid claimId, string! error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.Postgres.PostgresOutboxStore.MarkSentAsync(long id, System.Guid claimId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.Postgres.PostgresOutboxStore.PostgresOutboxStore(NymBroker.Outbox.Postgres.PostgresOutboxSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Outbox.Postgres.PostgresOutboxStore!>! logger) -> void
+NymBroker.Outbox.Postgres.PostgresOutboxStore.ReleaseAsync(long id, System.Guid claimId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.Postgres.PostgresOutboxStore.RetryLaterAsync(long id, System.Guid claimId, System.TimeSpan delay, string! error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+static NymBroker.Outbox.Postgres.NymBrokerBuilderPostgresOutboxExtensions.AddPostgresOutbox(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Outbox.Postgres.PostgresOutboxSettings! settings, System.Action<NymBroker.Core.Outbox.OutboxOptions!>? configure = null) -> NymBroker.Core.Factory.NymBrokerBuilder!

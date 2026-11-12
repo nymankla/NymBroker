@@ -4,7 +4,7 @@
 
 Out of the box, NymBroker is set up for the local Docker containers in `scripts/`: plaintext RabbitMQ, a SQL Server connection that skips certificate verification, and well-known passwords. Before production, every transport needs an encrypted, verified connection, a least-privilege identity, and secrets from a secret store. This page shows how for each endpoint, and what else can leak.
 
-> **The defaults are for local development only.** `SqlServerSettings`, `SqlServerIdempotencySettings` and `SqlServerScheduleStoreSettings` default to `Server=localhost,1433;…;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True`, `PostgresSettings` to `…Username=postgres;Password=postgres`, and `RabbitMqSettings` to `guest` / `guest` without TLS. Always set the connection settings explicitly in production; never rely on a default.
+> **The defaults are for local development only.** `SqlServerSettings`, `SqlServerIdempotencySettings`, `SqlServerScheduleStoreSettings` and `SqlServerOutboxSettings` default to `Server=localhost,1433;…;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True`, `PostgresSettings` to `…Username=postgres;Password=postgres`, and `RabbitMqSettings` to `guest` / `guest` without TLS. Always set the connection settings explicitly in production; never rely on a default.
 
 ## Checklist
 
@@ -93,6 +93,7 @@ Server=tcp:sql.prod.example.com,1433;Database=orders;User ID=nymbroker_orders;Pa
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.orders_queue TO nymbroker_orders;                -- DELETE: removing old rows
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.nymbroker_idempotency TO nymbroker_orders;   -- only with AddSqlServerIdempotency
 GRANT SELECT, INSERT, UPDATE ON dbo.nymbroker_schedule TO nymbroker_orders;                 -- only with AddSqlServerScheduleStore
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.nymbroker_outbox TO nymbroker_orders;       -- only with AddSqlServerOutbox
 ```
 
 Queue listeners also need `SELECT, DELETE` on `<table>_deferred`, and whoever posts deferred messages needs `INSERT` on it ([Deferred messages table](endpoints-and-configuration.md#deferred-messages-table)).
@@ -113,7 +114,7 @@ Host=pg.prod.example.com;Database=orders;Username=nymbroker_orders;Password=<fro
 
 - `VerifyFull` requires TLS and checks both the certificate chain and the host name. If the server's CA is not in the machine's trust store, point to it with `Root Certificate=/path/ca.crt` (or the `PGSSLROOTCERT` environment variable).
 - Client certificates: `SSL Certificate`, `SSL Key` and `SSL Password`.
-- **Permissions:** as for SQL Server — create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE, DELETE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table). `LISTEN` / `NOTIFY` (`UseNotifications`) need no extra grant. The `<table>_deferred` rights are the same as for SQL Server.
+- **Permissions:** as for SQL Server — create the tables in a deployment step, run with `AutoCreateTable = false`, and grant `SELECT, INSERT, UPDATE, DELETE` on the queue table (plus `DELETE` on the idempotency table; `SELECT, INSERT, UPDATE` on the schedule table; `SELECT, INSERT, UPDATE, DELETE` on the outbox table). `LISTEN` / `NOTIFY` (`UseNotifications`) need no extra grant. The `<table>_deferred` rights are the same as for SQL Server.
 
 Reference: [Npgsql security and encryption](https://www.npgsql.org/doc/security.html).
 
@@ -134,6 +135,7 @@ Server=mysql.prod.example.com;Database=orders;User ID=nymbroker_orders;Password=
   GRANT SELECT, INSERT, DELETE ON orders.nymbroker_messages_deferred TO 'nymbroker_orders'@'%';
   GRANT SELECT, INSERT, UPDATE, DELETE ON orders.nymbroker_idempotency TO 'nymbroker_orders'@'%';   -- only with AddMySqlIdempotency
   GRANT SELECT, INSERT, UPDATE ON orders.nymbroker_schedule TO 'nymbroker_orders'@'%';                 -- only with AddMySqlScheduleStore
+  GRANT SELECT, INSERT, UPDATE, DELETE ON orders.nymbroker_outbox TO 'nymbroker_orders'@'%';     -- only with AddMySqlOutbox
   ```
 
 Reference: [MySqlConnector connection options](https://mysqlconnector.net/connection-options/).

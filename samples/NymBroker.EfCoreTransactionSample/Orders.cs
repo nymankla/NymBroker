@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Consume;
+using NymBroker.Core.Idempotency;
 using NymBroker.Core.Message;
+using NymBroker.Core.Outbox;
 
 namespace NymBroker.EfCoreTransactionSample;
 
@@ -9,6 +12,14 @@ namespace NymBroker.EfCoreTransactionSample;
 public sealed record PlaceOrder(string OrderId, string Customer, IReadOnlyList<OrderLineItem> Lines);
 
 public sealed record OrderLineItem(string ProductId, int Quantity);
+
+/// <summary>Event sent through the outbox when an order is placed: sent if and only if the order is committed.</summary>
+[MessageName("orders.order-placed")]
+public sealed record OrderPlaced(string OrderId, int Lines);
+
+/// <summary>Event sent through the outbox when an order is rejected: sent if and only if the rejection is committed.</summary>
+[MessageName("orders.order-rejected")]
+public sealed record OrderRejected(string OrderId, string Reason);
 
 public sealed class Order
 {
@@ -67,9 +78,14 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
 /// (scoped) — and anything else scoped this consumer depends on — uses the same connection and transaction, and is
 /// disposed when the message is done. Duplicates never reach this class: the broker's SQL Server idempotency store
 /// (AddSqlServerIdempotency in Program.cs) drops a message whose id was already handled.
+/// The same transaction also carries the follow-up event (<see cref="IOutbox"/>: sent after the commit, never for a
+/// rollback) and the record that this message was handled (<see cref="IInbox"/>: a crash right after the commit cannot
+/// have it processed again).
 /// </summary>
-public sealed class PlaceOrderConsumer(OrdersDbContext db, ILogger<PlaceOrderConsumer> logger) : IConsume<PlaceOrder>
+public sealed class PlaceOrderConsumer(OrdersDbContext db, IOutbox outbox, IInbox inbox, ILogger<PlaceOrderConsumer> logger) : IConsume<PlaceOrder>
 {
+    public const string EventsEndpoint = "OrderEvents";
+
     private const string BeforeOrder = "BeforeOrder";
 
     public async Task ConsumeAsync(PlaceOrder message, IMessageContext context, CancellationToken ct = default)
@@ -101,23 +117,30 @@ public sealed class PlaceOrderConsumer(OrdersDbContext db, ILogger<PlaceOrderCon
             // if and only if the order is not. Returning normally completes the message: no retry, no dead letter.
             if (reserved == 0)
             {
-                await RejectAsync(tx, message, $"not enough stock of {line.ProductId} for {line.Quantity}", ct);
+                await RejectAsync(tx, message, context, $"not enough stock of {line.ProductId} for {line.Quantity}", ct);
                 return;
             }
         }
 
+        // The event and the "handled" record join the order's transaction (EF Core's DbTransaction underneath).
+        var dbTransaction = tx.GetDbTransaction();
+        await outbox.PostAsync(EventsEndpoint, new OrderPlaced(message.OrderId, message.Lines.Count), dbTransaction, ct);
+        await inbox.MarkHandledAsync(context, dbTransaction, ct);
+
         // Anything unexpected (deadlock, lost connection) still throws before this line: disposing the uncommitted
         // transaction rolls everything back, the broker returns Retry and the queue redelivers the message.
-        await tx.CommitAsync(ct);   // all three tables change together
+        await tx.CommitAsync(ct);   // all three tables, the event and the handled record change together
         logger.LogInformation("Order {OrderId} placed with {Lines} line(s) (message {MessageId})", message.OrderId, message.Lines.Count, context.Id);
     }
 
-    private async Task RejectAsync(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx, PlaceOrder message, string reason, CancellationToken ct)
+    private async Task RejectAsync(IDbContextTransaction tx, PlaceOrder message, IMessageContext context, string reason, CancellationToken ct)
     {
         await tx.RollbackToSavepointAsync(BeforeOrder, ct);
         db.ChangeTracker.Clear();   // the order entity added above was never kept; don't let EF Core track it
         db.OrderRejections.Add(new OrderRejection { OrderId = message.OrderId, Reason = reason, RejectedAtUtc = DateTime.UtcNow });
         await db.SaveChangesAsync(ct);
+        await outbox.PostAsync(EventsEndpoint, new OrderRejected(message.OrderId, reason), tx.GetDbTransaction(), ct);
+        await inbox.MarkHandledAsync(context, tx.GetDbTransaction(), ct);
         await tx.CommitAsync(ct);
         logger.LogWarning("Order {OrderId} rejected: {Reason}", message.OrderId, reason);
     }

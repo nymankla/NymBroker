@@ -18,7 +18,7 @@
     <TreatWarningsAsErrors Condition="'$(CI)' == 'true'">true</TreatWarningsAsErrors>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NymBroker.Core' Or $(MSBuildProjectName.StartsWith('NymBroker.Endpoint.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Idempotency.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Scheduling.'))">
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NymBroker.Core' Or $(MSBuildProjectName.StartsWith('NymBroker.Endpoint.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Idempotency.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Scheduling.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Outbox.'))">
     <IsNymBrokerPackage>true</IsNymBrokerPackage>
   </PropertyGroup>
 

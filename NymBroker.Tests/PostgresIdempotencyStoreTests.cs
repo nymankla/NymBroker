@@ -50,6 +50,13 @@ public sealed class PostgresIdempotencyStoreTests : IdempotencyStoreContractTest
         return Convert.ToInt64(await command.ExecuteScalarAsync(Ct));
     }
 
+    protected override async Task<System.Data.Common.DbConnection> OpenSharedConnectionAsync()
+    {
+        var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(Ct);
+        return connection;
+    }
+
     protected override async ValueTask DropTableAsync()
     {
         if (string.IsNullOrWhiteSpace(ConnectionString)) return;

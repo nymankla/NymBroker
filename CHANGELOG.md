@@ -7,6 +7,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Added
 
 - An opt-in Native AOT path with registered JSON source-generation contexts and explicit typed consumer registration, plus a Native AOT smoke sample.
+- Transactional outbox (#114): new packages `NymBroker.Outbox.SqlServer`, `.Postgres`, `.MySql` and `.Sqlite` (`AddSqlServerOutbox` …). Inject `IOutbox` and call `PostAsync` / `PostDeferredAsync` / `PostRawAsync` with your `DbTransaction` (EF Core: `GetDbTransaction()`): the message is written to an outbox table in that transaction and sent by a hosted dispatcher after the commit, never for a rollback. Several instances share the table; failed sends are retried with backoff (`OutboxOptions`) and then kept as failed. Deferred posts wait in the table, so they are durable on every endpoint. Delivery is at least once (same envelope id), not exactly once. Custom stores implement `IOutboxStore` and register with `NymBrokerBuilder.AddOutboxStore`. See [Transactional outbox and inbox](docs/transactional-outbox.md).
+- Inbox (#114): inject `IInbox` and call `MarkHandledAsync(context, transaction)` in a consumer's transaction to record the message as handled together with the consumer's writes, so a crash after the commit no longer has the redelivery processed again. The `NymBroker.Idempotency.*` stores implement the new `ITransactionalIdempotencyStore`; the idempotency table must be in the transaction's database.
 
 ### Changed
 

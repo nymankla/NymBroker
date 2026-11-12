@@ -8,7 +8,7 @@
 
   <!-- Internal source shared between packages: see shared/README.md. -->
   <PropertyGroup>
-    <IsNymBrokerStore Condition="$(MSBuildProjectName.StartsWith('NymBroker.Idempotency.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Scheduling.'))">true</IsNymBrokerStore>
+    <IsNymBrokerStore Condition="$(MSBuildProjectName.StartsWith('NymBroker.Idempotency.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Scheduling.')) Or $(MSBuildProjectName.StartsWith('NymBroker.Outbox.'))">true</IsNymBrokerStore>
   </PropertyGroup>
   <ItemGroup>
     <SharedSource Include="$(MSBuildThisFileDirectory)shared\Postgres\*.cs" Condition="$(MSBuildProjectName.EndsWith('.Postgres'))" />
@@ -16,6 +16,7 @@
     <SharedSource Include="$(MSBuildThisFileDirectory)shared\MySql\*.cs" Condition="$(MSBuildProjectName.EndsWith('.MySql'))" />
     <SharedSource Include="$(MSBuildThisFileDirectory)shared\Inspection\*.cs" Condition="$(MSBuildProjectName.StartsWith('NymBroker.Endpoint.')) And ($(MSBuildProjectName.EndsWith('.Sqlite')) Or $(MSBuildProjectName.EndsWith('.Postgres')) Or $(MSBuildProjectName.EndsWith('.SqlServer')) Or $(MSBuildProjectName.EndsWith('.MySql')))" />
     <SharedSource Include="$(MSBuildThisFileDirectory)shared\Idempotency\*.cs" Condition="$(MSBuildProjectName.StartsWith('NymBroker.Idempotency.'))" />
+    <SharedSource Include="$(MSBuildThisFileDirectory)shared\Outbox\*.cs" Condition="$(MSBuildProjectName.StartsWith('NymBroker.Outbox.'))" />
     <SharedSource Include="$(MSBuildThisFileDirectory)shared\Stores\Postgres\*.cs" Condition="'$(IsNymBrokerStore)' == 'true' And $(MSBuildProjectName.EndsWith('.Postgres'))" />
     <SharedSource Include="$(MSBuildThisFileDirectory)shared\Stores\Sqlite\*.cs" Condition="'$(IsNymBrokerStore)' == 'true' And $(MSBuildProjectName.EndsWith('.Sqlite'))" />
     <SharedSource Include="$(MSBuildThisFileDirectory)shared\Stores\Pooled\*.cs" Condition="'$(IsNymBrokerStore)' == 'true' And ($(MSBuildProjectName.EndsWith('.SqlServer')) Or $(MSBuildProjectName.EndsWith('.MySql')))" />

@@ -36,6 +36,7 @@ Inspect the project first so you only ask what the code doesn't answer:
 4. **Extras** (multi-select):
    - Dead-letter endpoint for failures (recommended for Memory and File, which cannot retry)
    - Duplicate detection (idempotent receiver): in memory, or durable in SQLite / PostgreSQL / SQL Server / MySQL
+   - Transactional outbox: messages written in the app's own database transaction and sent after the commit (SQLite / PostgreSQL / SQL Server / MySQL)
    - ASP.NET Core health check
    - OpenTelemetry metrics and tracing
    - Drop messages older than a given age (TTL)
@@ -63,6 +64,7 @@ dotnet add package Microsoft.Extensions.Hosting          # only for a console ap
 | HTTP (send) | `NymBroker.Endpoint.Http` | `AddHttpEndPoint`, `WithHttp()` (`NymBroker.Endpoint.Http`) |
 | Durable dedup, one host | `NymBroker.Idempotency.Sqlite` | `AddSqliteIdempotency` (`NymBroker.Idempotency.Sqlite`) |
 | Durable dedup, shared | `NymBroker.Idempotency.Postgres` / `.SqlServer` / `.MySql` | `AddPostgresIdempotency` / `AddSqlServerIdempotency` / `AddMySqlIdempotency` |
+| Transactional outbox | `NymBroker.Outbox.Sqlite` (one host) / `.Postgres` / `.SqlServer` / `.MySql` | `AddSqliteOutbox` / `AddPostgresOutbox` / `AddSqlServerOutbox` / `AddMySqlOutbox`; inject `IOutbox` (`NymBroker.Core.Outbox`) and call `PostAsync(endpoint, message, dbTransaction)` before the commit. Database = the one the app's transactions are on. Docs: `docs/transactional-outbox.md` |
 | Scheduled jobs once per cluster / catch up missed runs | `NymBroker.Scheduling.Sqlite` (one host) / `.Postgres` / `.SqlServer` / `.MySql` | `AddSqliteScheduleStore` / `AddPostgresScheduleStore` / `AddSqlServerScheduleStore` / `AddMySqlScheduleStore` + named `AddScheduledAction` (**nymbroker-scheduled-recovery** skill) |
 
 ## 4. Register the broker

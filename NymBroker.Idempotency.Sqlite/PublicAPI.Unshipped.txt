@@ -1,1 +1,2 @@
 #nullable enable
+NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.CompleteInTransactionAsync(System.Guid messageId, System.Data.Common.DbTransaction! transaction, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

@@ -1,0 +1,20 @@
+#nullable enable
+NymBroker.Outbox.SqlServer.NymBrokerBuilderSqlServerOutboxExtensions
+NymBroker.Outbox.SqlServer.SqlServerOutboxSettings
+NymBroker.Outbox.SqlServer.SqlServerOutboxSettings.AutoCreateTable.get -> bool
+NymBroker.Outbox.SqlServer.SqlServerOutboxSettings.AutoCreateTable.set -> void
+NymBroker.Outbox.SqlServer.SqlServerOutboxSettings.ConnectionString.get -> string!
+NymBroker.Outbox.SqlServer.SqlServerOutboxSettings.ConnectionString.set -> void
+NymBroker.Outbox.SqlServer.SqlServerOutboxSettings.SqlServerOutboxSettings() -> void
+NymBroker.Outbox.SqlServer.SqlServerOutboxSettings.TableName.get -> string!
+NymBroker.Outbox.SqlServer.SqlServerOutboxSettings.TableName.set -> void
+NymBroker.Outbox.SqlServer.SqlServerOutboxSettings.Validate() -> void
+NymBroker.Outbox.SqlServer.SqlServerOutboxStore
+NymBroker.Outbox.SqlServer.SqlServerOutboxStore.AddAsync(System.Data.Common.DbTransaction! transaction, NymBroker.Core.Outbox.OutboxMessage! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.SqlServer.SqlServerOutboxStore.ClaimAsync(System.Guid claimId, int maxCount, System.TimeSpan leaseTimeout, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<NymBroker.Core.Outbox.ClaimedOutboxMessage!>!>!
+NymBroker.Outbox.SqlServer.SqlServerOutboxStore.MarkFailedAsync(long id, System.Guid claimId, string! error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.SqlServer.SqlServerOutboxStore.MarkSentAsync(long id, System.Guid claimId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.SqlServer.SqlServerOutboxStore.ReleaseAsync(long id, System.Guid claimId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.SqlServer.SqlServerOutboxStore.RetryLaterAsync(long id, System.Guid claimId, System.TimeSpan delay, string! error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.SqlServer.SqlServerOutboxStore.SqlServerOutboxStore(NymBroker.Outbox.SqlServer.SqlServerOutboxSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Outbox.SqlServer.SqlServerOutboxStore!>! logger) -> void
+static NymBroker.Outbox.SqlServer.NymBrokerBuilderSqlServerOutboxExtensions.AddSqlServerOutbox(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Outbox.SqlServer.SqlServerOutboxSettings? settings = null, System.Action<NymBroker.Core.Outbox.OutboxOptions!>? configure = null) -> NymBroker.Core.Factory.NymBrokerBuilder!

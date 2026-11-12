@@ -7,10 +7,11 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.DI;
 using NymBroker.Core;
-using NymBroker.Core.Impl;
+using NymBroker.Core.Endpoint;
 using NymBroker.EfCoreTransactionSample;
 using NymBroker.Endpoint.SqlServer;
 using NymBroker.Idempotency.SqlServer;
+using NymBroker.Outbox.SqlServer;
 
 // Start SQL Server first: ./scripts/setup-sqlserver.ps1
 // Runs three scenarios against a throw-away database "nymbroker_ef_sample", checks each one, and exits 0 or 1.
@@ -19,6 +20,8 @@ using NymBroker.Idempotency.SqlServer;
 
 const string QueueTable = "dbo.ef_sample_queue";
 const string IdempotencyTable = "dbo.ef_sample_idempotency";
+const string OutboxTable = "dbo.ef_sample_outbox";
+const string EventsTable = "dbo.ef_sample_events";
 const int MaxRetryCount = 3;
 
 var connectionString = new SqlConnectionStringBuilder(
@@ -53,8 +56,15 @@ builder.Services.AddNymBroker()
         PollInterval     = TimeSpan.FromMilliseconds(50)
     })
     // Idempotent receiver: the broker claims each message id in this table before the consumer runs, remembers it once
-    // the message is handled, and drops a later delivery of the same id. A Retry releases the claim.
+    // the message is handled, and drops a later delivery of the same id. A Retry releases the claim. The consumer also
+    // records the id itself, in its own transaction (IInbox), since the table is in the same database.
     .AddSqlServerIdempotency(new SqlServerIdempotencySettings { ConnectionString = connectionString, TableName = IdempotencyTable })
+    // Where the order events go: another queue here; RabbitMQ, Service Bus or HTTP work the same way.
+    .AddSqlServerEndPoint(PlaceOrderConsumer.EventsEndpoint, new SqlServerSettings { ConnectionString = connectionString, TableName = EventsTable },
+        EndpointMode.WriteOnly)
+    // Transactional outbox: the consumer writes each event in its transaction; a hosted dispatcher sends it after the commit.
+    .AddSqlServerOutbox(new SqlServerOutboxSettings { ConnectionString = connectionString, TableName = OutboxTable },
+        o => o.PollInterval = TimeSpan.FromMilliseconds(50))
     .AddConsumer<PlaceOrderConsumer>()
     .Build();
 
@@ -85,6 +95,8 @@ await WaitUntilAsync(async db => await db.Orders.AnyAsync(o => o.OrderId == "ORD
 Check(await QueryAsync(db => db.OrderLines.CountAsync(l => l.OrderId == "ORD-1")) == 1
       && await StockAsync("WIDGET") == 8, "order, its line and WIDGET stock 10 → 8 committed together");
 await WaitUntilAsync(async _ => await CompletedIdempotencyRowsAsync() == 1);
+await WaitUntilAsync(async _ => await CountAsync(EventsTable) == 1);
+Check(await CountAsync(OutboxTable) == 0, "the OrderPlaced event written in the same transaction was sent after the commit, and left the outbox");
 
 // --- 2. Redelivery: the same envelope (same message id) arrives twice -----------------------------------------------
 Console.WriteLine("2. Deliver the same message twice (what a redelivery after a lost ack looks like)");
@@ -94,6 +106,8 @@ await broker.PostRawAsync("Orders", envelope);
 await WaitUntilAsync(async _ => await QueueCountAsync(status: 2) == 3);   // 3 rows Completed: ORD-1 and ORD-2 twice
 Check(await QueryAsync(db => db.Orders.CountAsync(o => o.OrderId == "ORD-2")) == 1
       && await StockAsync("WIDGET") == 7, "applied once (WIDGET 8 → 7, not 6); the broker drops the second delivery as a duplicate");
+await WaitUntilAsync(async _ => await CountAsync(EventsTable) >= 2);
+Check(await CountAsync(EventsTable) == 2, "one OrderPlaced event for ORD-2, not two");
 
 // --- 3. Rejected part-way: the 2nd line is out of stock after the 1st line's stock was already reserved -------------
 Console.WriteLine("3. Out of stock on the second line: the order is undone and recorded as rejected, without retries");
@@ -106,6 +120,9 @@ var rejection = await QueryAsync(db => db.OrderRejections.SingleOrDefaultAsync(r
 Check(rejection?.Reason.Contains("not enough stock of GADGET") == true, $"the rejection is recorded in the same transaction: \"{rejection?.Reason}\"");
 Check(await QueueCountAsync(status: 3) == 0 && await MaxAttemptsAsync() == 1, "the message completed on its first attempt: no retries, no Failed row");
 Check(await CompletedIdempotencyRowsAsync() == 3, "the message is remembered, so a redelivery of ORD-3 is dropped instead of rejected twice");
+await WaitUntilAsync(async _ => await CountAsync(EventsTable) == 3);
+Check(await EventTypesAsync() == "orders.order-placed,orders.order-placed,orders.order-rejected",
+    "an OrderRejected event, not an OrderPlaced one: the rolled-back order's event was never written");
 
 await host.StopAsync();
 Console.WriteLine(failures == 0 ? "Demo passed." : $"Demo failed: {failures} check(s).");
@@ -147,6 +164,27 @@ async Task<int> CompletedIdempotencyRowsAsync()
     await conn.OpenAsync();
     await using var cmd = new SqlCommand($"SELECT COUNT(*) FROM {IdempotencyTable} WHERE status = 2", conn);   // 2 = completed
     return (int)(await cmd.ExecuteScalarAsync())!;
+}
+
+async Task<int> CountAsync(string table)
+{
+    await using var conn = new SqlConnection(connectionString);
+    await conn.OpenAsync();
+    await using var cmd = new SqlCommand($"IF OBJECT_ID('{table}') IS NULL SELECT 0 ELSE SELECT COUNT(*) FROM {table}", conn);
+    return (int)(await cmd.ExecuteScalarAsync())!;
+}
+
+// The message types of the events, in the order they were queued.
+async Task<string> EventTypesAsync()
+{
+    await using var conn = new SqlConnection(connectionString);
+    await conn.OpenAsync();
+    await using var cmd = new SqlCommand($"SELECT payload FROM {EventsTable} ORDER BY queue_id", conn);
+    var types = new List<string>();
+    await using var reader = await cmd.ExecuteReaderAsync();
+    while (await reader.ReadAsync())
+        types.Add(JsonDocument.Parse((byte[])reader[0]).RootElement.GetProperty("messageType").GetString()!);
+    return string.Join(",", types);
 }
 
 async Task<int> MaxAttemptsAsync()

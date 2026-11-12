@@ -12,20 +12,23 @@ flowchart BT
     EP["NymBroker.Endpoint.*<br/>Sqlite · Postgres · SqlServer · MySql<br/>RabbitMq · AzureServiceBus · AwsSqs · Http"]
     ID["NymBroker.Idempotency.*<br/>Sqlite · Postgres · SqlServer · MySql"]
     SC["NymBroker.Scheduling.*<br/>Sqlite · Postgres · SqlServer · MySql"]
+    OB["NymBroker.Outbox.*<br/>Sqlite · Postgres · SqlServer · MySql"]
     SH["shared/ (source, not a package)"]
     EP --> Core
     ID --> Core
     SC --> Core
+    OB --> Core
     SH -. compiled into .-> EP
     SH -. compiled into .-> ID
     SH -. compiled into .-> SC
+    SH -. compiled into .-> OB
 ```
 
 | Part | Role |
 |---|---|
 | `NymBroker.Core` | The broker engine (`NymBrokerImpl`, internal), the public `INymBroker` runtime API, `NymBrokerBuilder` (all configuration), serializer and envelope, routing, topics, consumers, idempotent receiver, scheduling, splitter and aggregator, health checks, the Memory and File endpoints, `RetryPolicy`, and the building blocks endpoint packages derive from. No transport dependency. |
 | `NymBroker.Endpoint.*` | One transport each. Queue-table endpoints (SQLite, PostgreSQL, SQL Server, MySQL) derive from Core's `LeasedQueueListener`; broker transports (RabbitMQ, Service Bus, SQS) push or poll natively; HTTP is send-only. |
-| `NymBroker.Idempotency.*`, `NymBroker.Scheduling.*` | Durable stores behind Core's `IExpiringIdempotencyStore` and `IScheduleStore`, independent of the endpoint packages. |
+| `NymBroker.Idempotency.*`, `NymBroker.Scheduling.*`, `NymBroker.Outbox.*` | Durable stores behind Core's `IExpiringIdempotencyStore` (and `ITransactionalIdempotencyStore`), `IScheduleStore` and `IOutboxStore`, independent of the endpoint packages. Core's hosted `OutboxDispatcher` sends what the outbox stores hold. |
 | [`shared/`](../shared/README.md) | Internal source compiled into several packages through `Directory.Build.targets`: identifier quoting per database, the store plumbing, and queue inspection. Shares code without a shared package or public API. |
 | `NymBroker.Tests` | One xUnit project: unit tests always run; integration tests run when their `NYMBROKER_*` variable is set (`scripts/test-all.ps1` sets all of them). |
 | `samples/` | Runnable apps, including the [benchmark](benchmarks.md). |
@@ -76,7 +79,7 @@ The checklist for a change is in [CONTRIBUTING.md](../CONTRIBUTING.md#developmen
 
 ## Code health
 
-`NymBroker.Tests/CodeHealth/CodeHealthTests.cs` measures the production code — Core, the endpoint, idempotency and scheduling packages, and `shared/` — from the syntax tree (Roslyn, no compilation) and fails when something is over a limit. Tests and samples are measured but not gated. The targets come from [#112](https://github.com/nymankla/NymBroker/issues/112).
+`NymBroker.Tests/CodeHealth/CodeHealthTests.cs` measures the production code — Core, the endpoint, idempotency, scheduling and outbox packages, and `shared/` — from the syntax tree (Roslyn, no compilation) and fails when something is over a limit. Tests and samples are measured but not gated. The targets come from [#112](https://github.com/nymankla/NymBroker/issues/112).
 
 | Metric | What it counts | Good | Acceptable | Limit |
 |---|---|---|---|---|

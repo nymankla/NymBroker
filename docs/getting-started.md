@@ -22,6 +22,10 @@
 | `NymBroker.Idempotency.MySql` | Durable duplicate detection shared by all instances | `AddMySqlIdempotency` |
 | `NymBroker.Idempotency.Postgres` | Durable duplicate detection shared by all instances | `AddPostgresIdempotency` |
 | `NymBroker.Idempotency.Sqlite` | Restart-safe duplicate detection on one host | `AddSqliteIdempotency` |
+| `NymBroker.Outbox.SqlServer` | Transactional outbox: messages sent if and only if your transaction commits | `AddSqlServerOutbox` |
+| `NymBroker.Outbox.MySql` | Transactional outbox | `AddMySqlOutbox` |
+| `NymBroker.Outbox.Postgres` | Transactional outbox | `AddPostgresOutbox` |
+| `NymBroker.Outbox.Sqlite` | Transactional outbox, one host | `AddSqliteOutbox` |
 | `NymBroker.Scheduling.SqlServer` | Named scheduled actions run once across instances and catch up missed runs | `AddSqlServerScheduleStore` |
 | `NymBroker.Scheduling.MySql` | Named scheduled actions run once across instances and catch up missed runs | `AddMySqlScheduleStore` |
 | `NymBroker.Scheduling.Postgres` | Named scheduled actions run once across instances and catch up missed runs | `AddPostgresScheduleStore` |
