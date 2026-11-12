@@ -59,6 +59,20 @@ flowchart LR
 | [Benchmarks](benchmarks.md) | Running the throughput benchmark, its scenarios, and how to read the results |
 | [Versioning and API compatibility](versioning-and-api-compatibility.md) | How versions are numbered, what may break in a minor version, deprecation |
 
+## Native AOT
+
+Native AOT applications can opt in to source-generated JSON metadata and compile-time consumer dispatch. Register a generated `JsonSerializerContext` and use the explicit message-type overload; ordinary applications can continue using reflection-based registration:
+
+```csharp
+services.AddNymBroker()
+    .AddMemoryEndPoint("Orders")
+    .AddJsonSerializerContext(AppJsonContext.Default)
+    .AddConsumer<OrderConsumer, Order>()
+    .Build();
+```
+
+Generate metadata for every message type that the broker serializes or deserializes, and configure the context with camel-case naming and case-insensitive reads to match the default envelope conventions. The opt-in path currently covers envelope payloads and explicitly typed consumers; reflection-discovered consumers, topic subscribers, and JSON-bound endpoint settings are not AOT-safe yet. The [AOT sample](samples.md) verifies Core configuration reading, message delivery, and dead-letter serialization; it does not establish AOT compatibility for third-party transport packages, which must be validated independently.
+
 ## Minimal example
 
 ```csharp

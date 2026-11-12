@@ -32,8 +32,11 @@ public static class DeadLetterEnvelope
         if (envelope == null)
             envelope = CreateUndecodableEnvelope(raw);
 
-        envelope["deadLetter"] = JsonSerializer.SerializeToNode(info, MessageSerializerJson.JsonOptions);
-        return JsonSerializer.SerializeToUtf8Bytes(envelope);
+        envelope["deadLetter"] = JsonSerializer.SerializeToNode(info, CoreJsonContext.Default.DeadLetterInfo);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+            envelope.WriteTo(writer);
+        return stream.ToArray();
     }
 
     private static DeadLetterInfo Normalize(DeadLetterInfo info)

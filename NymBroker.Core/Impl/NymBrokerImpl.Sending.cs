@@ -15,7 +15,7 @@ internal sealed partial class NymBrokerImpl
     public async Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true) where T : class
     {
         var context = NewContext(message, endpointName);
-        await PostToEndpointAsync(endpointName, MessageSerializerJson.SerializeToBytes(context), splitThresholdBytes, compress, ct);
+        await PostToEndpointAsync(endpointName, _serializer.SerializeRegistered(context), splitThresholdBytes, compress, ct);
     }
 
 #pragma warning disable RS0026 // see INymBroker.PostRawAsync: the overloads differ in a required parameter
@@ -39,7 +39,7 @@ internal sealed partial class NymBrokerImpl
         // The age checks count from when the message is due: a long deferral must not expire it before its first delivery.
         if (deliverAt.UtcDateTime > context.Created) context.Created = deliverAt.UtcDateTime;
 
-        await SendDeferredAsync(endpointName, MessageSerializerJson.SerializeToBytes(context), deliverAt, ct);
+        await SendDeferredAsync(endpointName, _serializer.SerializeRegistered(context), deliverAt, ct);
     }
 
 #pragma warning disable RS0026 // see INymBroker.PostRawDeferredAsync: the overloads differ in a required parameter
@@ -58,7 +58,7 @@ internal sealed partial class NymBrokerImpl
     public async Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
         var context = NewContext(message);
-        var result = await ProcessAsync(MessageSerializerJson.SerializeToBytes(context), null, ct);
+        var result = await ProcessAsync(_serializer.SerializeRegistered(context), null, ct);
 
         // An in-process publish has no transport to redeliver it, so a Retry (e.g. a route's destination
         // failed) surfaces to the caller, as it did before ProcessAsync returned results.
@@ -89,7 +89,7 @@ internal sealed partial class NymBrokerImpl
             var context = NewContext(message, endpointName);
             if (correlationId.HasValue) context.CorrelationId = correlationId.Value;
 
-            wire.AddRange(ToWireMessages(endpointName, MessageSerializerJson.SerializeToBytes(context), splitThresholdBytes, compress));
+            wire.AddRange(ToWireMessages(endpointName, _serializer.SerializeRegistered(context), splitThresholdBytes, compress));
         }
 
         await SendBatchAsync(endpointName, endpoint, wire, ct);
@@ -243,7 +243,7 @@ internal sealed partial class NymBrokerImpl
             message.Length, payload.Length, parts.Count, name, threshold, compressionName ?? "none");
 
         return parts
-            .Select(part => MessageSerializerJson.SerializeToBytes(new MessageContext<SplitMessage>
+            .Select(part => _serializer.SerializeRegistered(new MessageContext<SplitMessage>
             {
                 Message = part,
                 Address = EndpointAddress.Create(name)

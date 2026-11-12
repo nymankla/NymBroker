@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using NymBroker.Core.Aggregator;
+using NymBroker.Core.Consume;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Factory.Configuration;
@@ -7,6 +8,7 @@ using NymBroker.Core.DI;
 using NymBroker.Core.Filter;
 using NymBroker.Core.Idempotency;
 using NymBroker.Core.Impl;
+using NymBroker.Core.Message;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Route;
 using NymBroker.Core.Scheduling;
@@ -30,7 +32,7 @@ public sealed partial class NymBrokerBuilder
         ValidateHealthCheckEndpoints();
         _built = true;
 
-        RegisterCoreServices(_services);
+        RegisterCoreServices(_services, _jsonContexts);
 
         // Snapshot the builder state now: the factory runs later, when the container first resolves the broker.
         _services.AddSingleton<NymBrokerImpl>(new BrokerBlueprint(this).CreateBroker);
@@ -50,9 +52,9 @@ public sealed partial class NymBrokerBuilder
                 "Register the endpoint, or remove it from NonCritical(...).");
     }
 
-    private static void RegisterCoreServices(IServiceCollection services)
+    private static void RegisterCoreServices(IServiceCollection services, IEnumerable<System.Text.Json.Serialization.JsonSerializerContext> jsonContexts)
     {
-        services.AddSingleton<MessageSerializerJson>();
+        services.AddSingleton(new MessageSerializerJson(jsonContexts));
         services.AddSingleton<IMessageSerializer>(sp => sp.GetRequiredService<MessageSerializerJson>());
         services.AddSingleton<IAggregator, AggregatorImpl>();
         services.AddSingleton<ISplitter, SplitterImpl>();
@@ -69,7 +71,7 @@ public sealed partial class NymBrokerBuilder
     private sealed class BrokerBlueprint(NymBrokerBuilder builder)
     {
         private readonly List<string> _endpoints = builder._endpoints.ToList();
-        private readonly List<(Type ConsumerType, Type MessageType, bool RetryOnFailure)> _consumers = builder._consumers.ToList();
+        private readonly List<(Type ConsumerType, Type MessageType, bool RetryOnFailure, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> _consumers = builder._consumers.ToList();
         private readonly List<TopicContext> _topicContexts = builder._topicContexts.ToList();
         private readonly List<TopicConfiguration> _configTopics = builder._configTopics.ToList();
         private readonly List<(Type TransformerType, string? Endpoint)> _transformers = builder._transformers.ToList();
@@ -110,8 +112,8 @@ public sealed partial class NymBrokerBuilder
             foreach (var endpointName in _endpoints)
                 broker.AddEndpoint(endpointName, sp.GetRequiredKeyedService<IEndPoint>(endpointName));
 
-            foreach (var (consumerType, messageType, retryOnFailure) in _consumers)
-                broker.RegisterConsumer(messageType, consumerType.Name, retryOnFailure);
+            foreach (var (consumerType, messageType, retryOnFailure, dispatcher) in _consumers)
+                broker.RegisterConsumer(messageType, consumerType.Name, retryOnFailure, dispatcher);
 
             foreach (var topic in _topicContexts)
                 broker.AddTopic(topic);

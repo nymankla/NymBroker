@@ -1,8 +1,10 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
 using NymBroker.Core.Aggregator;
+using NymBroker.Core.Consume;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Filter;
+using NymBroker.Core.Message;
 using NymBroker.Core.Transform;
 using NymBroker.Core.PubSub;
 using NymBroker.Core.Route;
@@ -89,10 +91,17 @@ internal sealed partial class NymBrokerImpl : INymBroker
                 name);
     }
 
-    public void RegisterConsumer(Type messageType, string serviceKey, bool retryOnFailure = true)
+    public void RegisterConsumer(
+        Type messageType,
+        string serviceKey,
+        bool retryOnFailure = true,
+        Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? dispatcher = null)
     {
         _messageTypeRegistry.Register(messageType);
-        _consumerDispatcher.RegisterConsumer(messageType, serviceKey);
+        if (dispatcher is null)
+            _consumerDispatcher.RegisterConsumer(messageType, serviceKey);
+        else
+            _consumerDispatcher.RegisterConsumerWithDispatcher(messageType, serviceKey, dispatcher);
         if (!retryOnFailure)
             ImmutableInterlocked.Update(ref _noRetryMessageTypes, types => types.Add(messageType));
     }

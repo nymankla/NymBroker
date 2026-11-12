@@ -24,6 +24,10 @@ jobs:
           test "${GITHUB_REF_NAME#v}" = "$version"
       # Builds the samples too; the test and pack steps below build only what they need.
       - run: dotnet build NymBroker.slnx --configuration Release -p:ContinuousIntegrationBuild=true
+      - name: Publish and run Native AOT smoke app
+        run: |
+          dotnet publish samples/NymBroker.AotSample/NymBroker.AotSample.csproj --configuration Release --runtime linux-x64
+          ./samples/NymBroker.AotSample/bin/Release/net10.0/linux-x64/publish/NymBroker.AotSample
       # Includes the code-health gate (CodeHealthTests, docs/architecture.md#code-health), which also writes its
       # summary of the worst methods to the job summary.
       - run: NYMBROKER_CODE_HEALTH_SUMMARY="$GITHUB_STEP_SUMMARY" dotnet test NymBroker.Tests/NymBroker.Tests.csproj --configuration Release -p:ContinuousIntegrationBuild=true

@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Impl;
@@ -27,6 +29,8 @@ public sealed class SubscriberDispatcher(IServiceScopeFactory scopeFactory, ILog
             try
             {
                 var subscriber = scope.ServiceProvider.GetRequiredKeyedService<IMessageSubscriber>(serviceKey);
+                if (!RuntimeFeature.IsDynamicCodeSupported)
+                    throw new InvalidOperationException("Topic subscriber dispatch is not yet supported in Native AOT applications.");
                 var dispatch = DispatchCache.GetOrAdd(subscriberType, BuildDispatcher);
                 invoked = true;
                 await dispatch(subscriber, message, context, ct);
@@ -63,6 +67,7 @@ public sealed class SubscriberDispatcher(IServiceScopeFactory scopeFactory, ILog
         NymBrokerDiagnostics.MessagesConsumed.Add(1, tags);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "This reflection fallback is used only when dynamic code is supported; Native AOT subscriber dispatch is explicitly rejected.")]
     private static Func<IMessageSubscriber, object, IMessageContext, CancellationToken, Task> BuildDispatcher(Type subscriberType)
         => DispatchDelegate.Compile<IMessageSubscriber>(
             subscriberType.GetInterfaces().First(static i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ISubscribe<>)),

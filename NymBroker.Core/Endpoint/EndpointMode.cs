@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace NymBroker.Core.Endpoint;
 
-[JsonConverter(typeof(JsonStringEnumConverter))]
+[JsonConverter(typeof(JsonStringEnumConverter<EndpointMode>))]
 public enum EndpointMode
 {
     ReadWrite,

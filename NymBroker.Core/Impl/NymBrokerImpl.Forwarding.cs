@@ -69,7 +69,7 @@ internal sealed partial class NymBrokerImpl
             fannedOut = true;
 
             if (topic.SubscriberDispatchers.Count > 0 && messageType != null && deserializedMessage == null)
-                deserializedMessage = MessageSerializerJson.DeserializeMessageObject(context, messageType);
+                deserializedMessage = _serializer.DeserializeMessageObjectRegistered(context, messageType);
 
             try
             {
@@ -175,13 +175,13 @@ internal sealed partial class NymBrokerImpl
     /// so an envelope in a queue says where it is and where it came from. The context's own address is left unchanged
     /// for the subscribers and consumers that see it afterwards.
     /// </summary>
-    private static byte[] SerializeForwarded(IMessageContext context, string destination, string? source)
+    private byte[] SerializeForwarded(IMessageContext context, string destination, string? source)
     {
         var original = context.Address;
         context.Address = EndpointAddress.Create(destination, source);
         try
         {
-            return MessageSerializerJson.SerializeToBytes(context);
+            return _serializer.SerializeRegistered(context);
         }
         finally
         {

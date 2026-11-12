@@ -110,7 +110,7 @@ internal sealed partial class NymBrokerImpl
         // ── Aggregator ────────────────────────────────────────────────────────
         if (messageType == typeof(SplitMessage))
         {
-            var split = MessageSerializerJson.DeserializeMessage<SplitMessage>(rawContext);
+            var split = _serializer.DeserializeMessageRegistered<SplitMessage>(rawContext);
             return split == null ? ProcessResult.Completed : await ProcessSplitPartAsync(raw, split, context, run, ct);
         }
 
@@ -259,7 +259,7 @@ internal sealed partial class NymBrokerImpl
     /// <summary>Dispatches to the message type's consumer; a failing consumer is settled by <see cref="SettlementFor"/>.</summary>
     private async ValueTask<ProcessResult> DispatchToConsumerAsync(byte[] raw, RawMessageContext context, Type messageType, ProcessingRun run, CancellationToken ct)
     {
-        var message = MessageSerializerJson.DeserializeMessageObject(context, messageType);
+        var message = _serializer.DeserializeMessageObjectRegistered(context, messageType);
         if (message == null) return ProcessResult.Completed;
 
         try

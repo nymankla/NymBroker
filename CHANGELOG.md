@@ -4,10 +4,19 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- An opt-in Native AOT path with registered JSON source-generation contexts and explicit typed consumer registration, plus a Native AOT smoke sample.
+
+### Changed
+
+- Broker configuration and dead-letter metadata use source-generated JSON metadata.
+
 ### Fixed
 
 - Lease-based queue listeners now treat database failures surfaced after shutdown cancellation as a clean stop, rather than logging false errors during cleanup, deferred promotion, or polling.
 - Integration tests: reduce SQL Server contention between test classes and give deferred-message delivery more time under load (#111).
+- SQL Server idempotency schema creation is serialized across store instances to prevent deadlocks when they start together (#111).
 
 ## [0.22.3] - 2026-11-10
 

@@ -1,1 +1,5 @@
 #nullable enable
+NymBroker.Core.Factory.NymBrokerBuilder.AddConsumer<TConsumer, TMessage>() -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddConsumer<TConsumer, TMessage>(System.Action<NymBroker.Core.Consume.ConsumerOptions!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.AddJsonSerializerContext(System.Text.Json.Serialization.JsonSerializerContext! context) -> NymBroker.Core.Factory.NymBrokerBuilder!
+static NymBroker.Core.Serialize.MessageSerializerJson.DeserializeMessage<T>(NymBroker.Core.Serialize.RawMessageContext! ctx, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T!>! typeInfo) -> T?

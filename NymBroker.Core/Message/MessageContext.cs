@@ -6,7 +6,7 @@ namespace NymBroker.Core.Message;
 internal interface ITypedMessageContext
 {
     bool HasMessage { get; }
-    byte[] SerializeEnvelope();
+    byte[] SerializeEnvelope(MessageSerializerJson serializer);
 }
 
 public sealed class MessageContext<T> : IMessageContext<T>, ITypedMessageContext where T : class
@@ -20,5 +20,5 @@ public sealed class MessageContext<T> : IMessageContext<T>, ITypedMessageContext
     public T? Message { get; set; }
 
     bool ITypedMessageContext.HasMessage => Message is not null;
-    byte[] ITypedMessageContext.SerializeEnvelope() => MessageSerializerJson.Write(this, Message);
+    byte[] ITypedMessageContext.SerializeEnvelope(MessageSerializerJson serializer) => serializer.WriteRegistered(this, Message);
 }

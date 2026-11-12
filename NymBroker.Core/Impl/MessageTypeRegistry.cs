@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using NymBroker.Core.Aggregator;
 using NymBroker.Core.Message;
 
@@ -35,10 +37,17 @@ public sealed class MessageTypeRegistry
         if (_messageTypes.TryGetValue(messageType, out var resolved))
             return resolved;
 
-        resolved = Type.GetType(messageType, throwOnError: false);
+        if (!RuntimeFeature.IsDynamicCodeSupported)
+            return null;
+
+        resolved = ResolveByReflection(messageType);
         if (resolved != null)
             Register(resolved);
 
         return resolved;
     }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2057", Justification = "This legacy fallback runs only when dynamic code is supported; Native AOT callers register message types explicitly.")]
+    private static Type? ResolveByReflection(string messageType)
+        => Type.GetType(messageType, throwOnError: false);
 }

@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.File;
@@ -19,8 +21,9 @@ namespace NymBroker.Core.Factory;
 public sealed partial class NymBrokerBuilder
 {
     private readonly IServiceCollection _services;
+    private readonly List<JsonSerializerContext> _jsonContexts = [];
     private readonly List<string> _endpoints = [];
-    private readonly List<(Type ConsumerType, Type MessageType, bool RetryOnFailure)> _consumers = [];
+    private readonly List<(Type ConsumerType, Type MessageType, bool RetryOnFailure, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> _consumers = [];
     private readonly List<TopicContext> _topicContexts = [];
     private readonly List<TopicConfiguration> _configTopics = [];
     private readonly List<(Type TransformerType, string? Endpoint)> _transformers = [];
@@ -40,6 +43,14 @@ public sealed partial class NymBrokerBuilder
 
     /// <summary>Exposes the DI container for endpoint extension packages (e.g. NymBroker.Endpoint.RabbitMq).</summary>
     public IServiceCollection Services => _services;
+
+    /// <summary>Registers generated JSON metadata for message types used by this broker.</summary>
+    public NymBrokerBuilder AddJsonSerializerContext(JsonSerializerContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (!_jsonContexts.Contains(context)) _jsonContexts.Add(context);
+        return this;
+    }
 
     /// <summary>Set by <see cref="LoadConfiguration"/> so extension packages can process their endpoint types.</summary>
     public BrokerConfiguration? LoadedConfiguration { get; private set; }
@@ -70,6 +81,23 @@ public sealed partial class NymBrokerBuilder
 
     public NymBrokerBuilder AddConsumer<TConsumer>() where TConsumer : class, IMessageConsumer
         => AddConsumer<TConsumer>(new ConsumerOptions());
+
+    /// <summary>Registers a consumer for one known message type without runtime interface discovery.</summary>
+    public NymBrokerBuilder AddConsumer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TConsumer, TMessage>()
+        where TConsumer : class, IMessageConsumer, IConsume<TMessage>
+        where TMessage : class
+        => AddTypedConsumer<TConsumer, TMessage>(new ConsumerOptions());
+
+    /// <summary>Registers a typed consumer with options, without runtime interface discovery.</summary>
+    public NymBrokerBuilder AddConsumer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TConsumer, TMessage>(Action<ConsumerOptions> configure)
+        where TConsumer : class, IMessageConsumer, IConsume<TMessage>
+        where TMessage : class
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var options = new ConsumerOptions();
+        configure(options);
+        return AddTypedConsumer<TConsumer, TMessage>(options);
+    }
 
     /// <summary>
     /// Registers a consumer with options, e.g. <c>o =&gt; o.RetryOnFailure = false</c> to dead-letter a message at once
@@ -121,11 +149,51 @@ public sealed partial class NymBrokerBuilder
         }
 
         foreach (var messageType in messageTypes)
-            _consumers.Add((typeof(TConsumer), messageType, options.RetryOnFailure));
+            _consumers.Add((typeof(TConsumer), messageType, options.RetryOnFailure, null));
 
         _services.AddKeyedTransient<IMessageConsumer, TConsumer>(typeof(TConsumer).Name);
         return this;
     }
+
+    private NymBrokerBuilder AddTypedConsumer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TConsumer, TMessage>(ConsumerOptions options)
+        where TConsumer : class, IMessageConsumer, IConsume<TMessage>
+        where TMessage : class
+    {
+        var existingConsumer = _consumers.FirstOrDefault(c => c.ConsumerType == typeof(TConsumer));
+        if (existingConsumer.ConsumerType is not null)
+        {
+            if (existingConsumer.RetryOnFailure != options.RetryOnFailure)
+                throw new InvalidOperationException($"Consumer '{typeof(TConsumer).Name}' is already registered with different options.");
+            if (existingConsumer.Dispatcher is null)
+                throw new InvalidOperationException($"Consumer '{typeof(TConsumer).Name}' was registered through reflection-based discovery; use either registration style, not both.");
+            if (_consumers.Any(c => c.ConsumerType == typeof(TConsumer) && c.MessageType == typeof(TMessage))) return this;
+
+            var existingMessageConsumer = _consumers.FirstOrDefault(c => c.MessageType == typeof(TMessage));
+            if (existingMessageConsumer.ConsumerType is not null)
+                throw DuplicateConsumer(typeof(TMessage), existingMessageConsumer.ConsumerType.Name, typeof(TConsumer).Name);
+
+            _consumers.Add((typeof(TConsumer), typeof(TMessage), options.RetryOnFailure, DispatchTyped<TMessage>));
+            return this;
+        }
+
+        var sameName = _consumers.FirstOrDefault(c => c.ConsumerType.Name == typeof(TConsumer).Name);
+        if (sameName.ConsumerType is not null)
+            throw new InvalidOperationException(
+                $"Consumers '{sameName.ConsumerType.FullName}' and '{typeof(TConsumer).FullName}' have the same class name; " +
+                "consumers are registered by class name, so give one of them a different name.");
+
+        var existing = _consumers.FirstOrDefault(c => c.MessageType == typeof(TMessage));
+        if (existing.ConsumerType is not null)
+            throw DuplicateConsumer(typeof(TMessage), existing.ConsumerType.Name, typeof(TConsumer).Name);
+
+        _consumers.Add((typeof(TConsumer), typeof(TMessage), options.RetryOnFailure, DispatchTyped<TMessage>));
+        _services.AddKeyedTransient<IMessageConsumer, TConsumer>(typeof(TConsumer).Name);
+        return this;
+    }
+
+    private static Task DispatchTyped<TMessage>(IMessageConsumer consumer, object message, IMessageContext context, CancellationToken ct)
+        where TMessage : class
+        => ((IConsume<TMessage>)consumer).ConsumeAsync((TMessage)message, context, ct);
 
     internal static InvalidOperationException DuplicateConsumer(Type messageType, string existingConsumer, string newConsumer)
         => new($"Message type '{MessageTypeName.Get(messageType)}' already has consumer '{existingConsumer}', so '{newConsumer}' " +

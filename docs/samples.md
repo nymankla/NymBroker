@@ -14,6 +14,7 @@ dotnet run --project samples/<SampleName>
 
 | Sample | Shows | Packages used | Needs |
 |---|---|---|---|
+| [NymBroker.AotSample](../samples/NymBroker.AotSample) | Native AOT publish-and-run check for generated message metadata and explicit consumer dispatch | `NymBroker` | Native AOT-capable .NET SDK and C++ toolchain |
 | [NymBroker.Sample](../samples/NymBroker.Sample) | Memory + File endpoints, a consumer for two message types, a content-based route, interval and cron scheduled actions | `NymBroker` | — |
 | [NymBroker.ConfigSample](../samples/NymBroker.ConfigSample) | Endpoints loaded from `queuesettings.json` with `LoadConfiguration`; routes and consumers in code | `NymBroker` | — |
 | [NymBroker.CsvSample](../samples/NymBroker.CsvSample) | An input transformer that turns CSV lines into typed messages (invalid lines are dropped), and an output transformer that writes them as XML | `NymBroker` | — |

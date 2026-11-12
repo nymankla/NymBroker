@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Message;
@@ -11,7 +13,7 @@ namespace NymBroker.Core.Impl;
 
 public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogger<ConsumerDispatcher> logger)
 {
-    private ImmutableDictionary<Type, string> _consumerKeys = ImmutableDictionary<Type, string>.Empty;
+    private ImmutableDictionary<Type, (string ServiceKey, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> _consumers = ImmutableDictionary<Type, (string, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>?)>.Empty;
 
     private static readonly ConcurrentDictionary<Type, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>> DispatchCache = new();
 
@@ -20,29 +22,42 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogge
     /// for a type that already has a consumer throws, instead of silently replacing it.
     /// </summary>
     public void RegisterConsumer(Type messageType, string serviceKey)
+        => RegisterConsumerWithDispatcher(messageType, serviceKey, null);
+
+    internal void RegisterConsumerWithDispatcher(
+        Type messageType,
+        string serviceKey,
+        Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? dispatcher)
     {
-        ImmutableInterlocked.Update(ref _consumerKeys, keys =>
+        ImmutableInterlocked.Update(ref _consumers, consumers =>
         {
-            if (keys.TryGetValue(messageType, out var existing))
+            if (consumers.TryGetValue(messageType, out var existing))
             {
-                if (existing == serviceKey) return keys;
-                throw Factory.NymBrokerBuilder.DuplicateConsumer(messageType, existing, serviceKey);
+                if (existing.ServiceKey == serviceKey) return consumers;
+                throw Factory.NymBrokerBuilder.DuplicateConsumer(messageType, existing.ServiceKey, serviceKey);
             }
-            return keys.Add(messageType, serviceKey);
+            return consumers.Add(messageType, (serviceKey, dispatcher));
         });
     }
 
     public async Task DispatchAsync(Type messageType, object message, IMessageContext context, CancellationToken ct)
     {
-        if (!_consumerKeys.TryGetValue(messageType, out var serviceKey))
+        if (!_consumers.TryGetValue(messageType, out var registration))
         {
             logger.LogWarning("No consumer registered for message type '{MessageType}'", messageType.Name);
             return;
         }
 
+        var serviceKey = registration.ServiceKey;
         await using var scope = scopeFactory.CreateAsyncScope();
         var consumer = scope.ServiceProvider.GetRequiredKeyedService<IMessageConsumer>(serviceKey);
-        var dispatcher = DispatchCache.GetOrAdd(messageType, BuildDispatcher);
+        var dispatcher = registration.Dispatcher;
+        if (dispatcher is null)
+        {
+            if (!RuntimeFeature.IsDynamicCodeSupported)
+                throw new InvalidOperationException("Native AOT requires AddConsumer<TConsumer, TMessage>() for consumer dispatch.");
+            dispatcher = DispatchCache.GetOrAdd(messageType, BuildDispatcher);
+        }
         var tags = new TagList
         {
             { "source", context.Address?.From ?? "unknown" },
@@ -68,6 +83,7 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogge
         }
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "This reflection fallback is used only when dynamic code is supported; Native AOT dispatch uses registered delegates.")]
     private static Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task> BuildDispatcher(Type messageType)
         => DispatchDelegate.Compile<IMessageConsumer>(typeof(IConsume<>).MakeGenericType(messageType), nameof(IConsume<object>.ConsumeAsync));
 }

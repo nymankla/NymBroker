@@ -19,7 +19,7 @@ public static class BrokerConfigurationReader
         using var doc = JsonDocument.Parse(json);
         if (!doc.RootElement.TryGetProperty(sectionKey, out var section))
             return new();
-        return JsonSerializer.Deserialize<BrokerConfiguration>(section, MessageSerializerJson.JsonOptions) ?? new();
+        return JsonSerializer.Deserialize(section, CoreJsonContext.Default.BrokerConfiguration) ?? new();
     }
 
     /// <summary>
@@ -33,7 +33,7 @@ public static class BrokerConfigurationReader
         // Re-serialize the section to JSON so JsonElement? Config survives the round-trip.
         var json = SerializeSectionToJson(section);
         using var doc = JsonDocument.Parse(json);
-        return JsonSerializer.Deserialize<BrokerConfiguration>(doc.RootElement, MessageSerializerJson.JsonOptions) ?? new();
+        return JsonSerializer.Deserialize(doc.RootElement, CoreJsonContext.Default.BrokerConfiguration) ?? new();
     }
 
     private static string SerializeSectionToJson(IConfigurationSection section)
