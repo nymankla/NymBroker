@@ -7,6 +7,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 ### Fixed
 
 - Lease-based queue listeners now treat database failures surfaced after shutdown cancellation as a clean stop, rather than logging false errors during cleanup, deferred promotion, or polling.
+- Integration tests: reduce SQL Server contention between test classes and give deferred-message delivery more time under load (#111).
 
 ## [0.22.3] - 2026-11-10
 

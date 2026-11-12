@@ -13,6 +13,7 @@ namespace NymBroker.Tests;
 /// Tests for <see cref="SqlServerIdempotencyStore"/> (#55). Settings and registration tests always run; the contract tests
 /// need a real SQL Server and are skipped unless <c>NYMBROKER_SQLSERVER_CS</c> is set (see <see cref="SqlServerEndPointTests"/>).
 /// </summary>
+[Collection("SQL Server integration")]
 public sealed class SqlServerIdempotencyStoreTests : IdempotencyStoreContractTests
 {
     private const string ConnectionStringVariable = "NYMBROKER_SQLSERVER_CS";

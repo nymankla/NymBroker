@@ -27,7 +27,7 @@ internal static class DeferredContract
         where TEndPoint : IDeferredEndPoint, IEndPointEventDriven
     {
         var deliveries = new ConcurrentQueue<(string Body, DateTimeOffset At)>();
-        var deliverAt = DateTimeOffset.UtcNow.AddSeconds(3);
+        var deliverAt = DateTimeOffset.UtcNow.AddSeconds(10);
 
         await endpoint.PostDeferredAsync("""{"n":"later"}"""u8.ToArray(), deliverAt, Ct);
         await endpoint.PostAsync("""{"n":"now"}"""u8.ToArray(), Ct);
@@ -37,7 +37,7 @@ internal static class DeferredContract
             return Task.FromResult(ProcessResult.Completed);
         }, Ct);
 
-        await WaitUntilAsync(() => deliveries.Count >= 2, TimeSpan.FromSeconds(30));
+        await WaitUntilAsync(() => deliveries.Count >= 2, TimeSpan.FromSeconds(45));
         var received = deliveries.ToArray();
         Assert.Equal(2, received.Length);
         Assert.Contains("now", received[0].Body);

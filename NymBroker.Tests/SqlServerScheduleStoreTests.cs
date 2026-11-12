@@ -12,6 +12,7 @@ namespace NymBroker.Tests;
 /// SQL Server schedule store. Settings and registration tests always run; the contract tests need
 /// NYMBROKER_SQLSERVER_CS set (see <see cref="SqlServerEndPointTests"/>).
 /// </summary>
+[Collection("SQL Server integration")]
 public sealed class SqlServerScheduleStoreTests : ScheduleStoreContractTests
 {
     private const string ConnectionStringVariable = "NYMBROKER_SQLSERVER_CS";

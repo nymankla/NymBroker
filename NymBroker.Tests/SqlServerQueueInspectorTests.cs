@@ -12,6 +12,7 @@ using NymBroker.Endpoint.SqlServer;
 namespace NymBroker.Tests;
 
 /// <summary>The read-only <see cref="IQueueInspector"/> of <see cref="SqlServerEndPoint"/>.</summary>
+[Collection("SQL Server integration")]
 public sealed class SqlServerQueueInspectorTests : IAsyncLifetime
 {
     private const string ConnectionStringVariable = "NYMBROKER_SQLSERVER_CS";

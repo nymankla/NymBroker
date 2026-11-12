@@ -17,13 +17,14 @@ namespace NymBroker.Tests;
 /// <c>scripts/setup-sqlserver.ps1</c>:
 /// <c>Server=localhost,1433;Database=nymbroker;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True</c>
 /// </summary>
+[Collection("SQL Server integration")]
 public sealed class SqlServerEndPointTests : IAsyncLifetime
 {
     private const string ConnectionStringVariable = "NYMBROKER_SQLSERVER_CS";
     private static readonly string? ConnectionString = Environment.GetEnvironmentVariable(ConnectionStringVariable);
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
 
-    // Unique per test instance so tests can run in parallel against one database.
+    // Unique per test instance to isolate test data.
     private readonly string _tableName = $"dbo.nb_test_{Guid.NewGuid():N}";
     private readonly List<SqlServerEndPoint> _endpoints = [];
 
