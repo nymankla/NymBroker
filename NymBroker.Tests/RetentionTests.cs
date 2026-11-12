@@ -213,7 +213,12 @@ public sealed class LeasedQueueCleanupTests
         public bool UseNativeDeadLetter => true;
     }
 
-    private sealed class FakeListener(ILeasedQueueSettings settings, ILogger logger, Func<QueueMessageStatus, int, CancellationToken, Task<int>>? delete = null)
+    private sealed class FakeListener(
+        ILeasedQueueSettings settings,
+        ILogger logger,
+        Func<QueueMessageStatus, int, CancellationToken, Task<int>>? delete = null,
+        Func<CancellationToken, Task<int>>? promote = null,
+        Func<IReadOnlyList<QueueMessageOutcome>, CancellationToken, Task<IReadOnlyList<QueueMessage>>>? finalizeAndClaim = null)
         : LeasedQueueListener("Fake", settings, logger)
     {
         private int _claims;
@@ -224,10 +229,12 @@ public sealed class LeasedQueueCleanupTests
         protected override Task<IReadOnlyList<QueueMessage>> FinalizeAndClaimAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct)
         {
             Interlocked.Increment(ref _claims);
-            return Task.FromResult<IReadOnlyList<QueueMessage>>([]);
+            return finalizeAndClaim?.Invoke(outcomes, ct) ?? Task.FromResult<IReadOnlyList<QueueMessage>>([]);
         }
 
         protected override Task FinalizeAsync(IReadOnlyList<QueueMessageOutcome> outcomes, CancellationToken ct) => Task.CompletedTask;
+
+        protected override Task<int> PromoteDueAsync(CancellationToken ct) => promote?.Invoke(ct) ?? Task.FromResult(0);
 
         protected override Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct)
         {
@@ -305,6 +312,73 @@ public sealed class LeasedQueueCleanupTests
 
         Assert.Equal(deletes, listener.Deletes.Count);
         Assert.DoesNotContain(logger.Entries, e => e.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task Stop_CancelledDeleteThrowsNonCancellationException_WithoutAnError()
+    {
+        var logger = new CapturingLogger<FakeListener>();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDelete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var listener = new FakeListener(new Settings(), logger, async (_, _, _) =>
+        {
+            started.TrySetResult();
+            await releaseDelete.Task;
+            throw new InvalidOperationException("database command cancelled");
+        });
+
+        listener.Start();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        var stop = listener.StopAsync();
+        releaseDelete.SetResult();
+        await stop;
+
+        Assert.Single(listener.Deletes);
+        Assert.DoesNotContain(logger.Entries, e => e.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Stop_CancelledPromotionThrowsNonCancellationException_WithoutAnError()
+    {
+        var logger = new CapturingLogger<FakeListener>();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePromotion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var listener = new FakeListener(new Settings(), logger, promote: async _ =>
+        {
+            started.TrySetResult();
+            await releasePromotion.Task;
+            throw new InvalidOperationException("database command cancelled");
+        });
+
+        listener.Start();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        var stop = listener.StopAsync();
+        releasePromotion.SetResult();
+        await stop;
+
+        Assert.DoesNotContain(logger.Entries, e => e.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task Stop_CancelledPollThrowsNonCancellationException_WithoutAnError()
+    {
+        var logger = new CapturingLogger<FakeListener>();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePoll = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var listener = new FakeListener(new Settings(), logger, finalizeAndClaim: async (_, _) =>
+        {
+            started.TrySetResult();
+            await releasePoll.Task;
+            throw new InvalidOperationException("database command cancelled");
+        });
+
+        listener.Start();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        var stop = listener.StopAsync();
+        releasePoll.SetResult();
+        await stop;
+
+        Assert.DoesNotContain(logger.Entries, e => e.Level >= LogLevel.Error);
     }
 
     [Theory]

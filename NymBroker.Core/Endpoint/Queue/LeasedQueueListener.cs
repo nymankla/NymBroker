@@ -146,6 +146,7 @@ public abstract class LeasedQueueListener
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
             Logger.LogCritical(ex, "Listener loop for endpoint '{Name}' terminated unexpectedly", EndpointName);
@@ -183,6 +184,10 @@ public abstract class LeasedQueueListener
         {
             return null;   // stopping mid-batch: unhandled messages are left to lease expiry
         }
+        catch (Exception) when (token.IsCancellationRequested)
+        {
+            return null;   // a provider may report cancellation as a different exception type
+        }
         catch (Exception ex)
         {
             // Rolled back, so 'outcomes' is written on the next attempt. If the leases expire first, the
@@ -214,7 +219,7 @@ public abstract class LeasedQueueListener
             var moved = await PromoteDueAsync(token);
             return moved >= Settings.BatchSize ? 0 : Environment.TickCount64 + (long)PromotionInterval.TotalMilliseconds;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+        catch (Exception ex) when (!token.IsCancellationRequested)
         {
             Logger.LogError(ex, "Could not move due deferred messages to the queue on endpoint '{Name}'; ordinary messages are not affected", EndpointName);
             return Environment.TickCount64 + (long)PromotionRetryDelay.TotalMilliseconds;
@@ -229,12 +234,17 @@ public abstract class LeasedQueueListener
             while (await timer.WaitForNextTickAsync(token))
             {
                 await DeleteAllFinishedAsync(QueueMessageStatus.Completed, Settings.CompletedRetention, token);
+                if (token.IsCancellationRequested) break;
                 await DeleteAllFinishedAsync(QueueMessageStatus.Failed, Settings.FailedRetention, token);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             // Stopping.
+        }
+        catch (Exception) when (token.IsCancellationRequested)
+        {
+            // A database provider may report command cancellation as another exception type.
         }
     }
 
@@ -256,7 +266,7 @@ public abstract class LeasedQueueListener
 
             Logger.LogDebug("Deleted {Count} old {Status} row(s) on endpoint '{Name}'", total, status, EndpointName);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+        catch (Exception ex) when (!token.IsCancellationRequested)
         {
             Logger.LogError(ex, "Deleting old {Status} rows on endpoint '{Name}' failed; retrying at the next interval. Messages are not affected", status, EndpointName);
         }

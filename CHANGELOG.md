@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Fixed
+
+- Lease-based queue listeners now treat database failures surfaced after shutdown cancellation as a clean stop, rather than logging false errors during cleanup, deferred promotion, or polling.
+
 ## [0.22.3] - 2026-11-10
 
 ### Changed
