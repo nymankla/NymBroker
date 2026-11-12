@@ -44,6 +44,29 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error);
     }
 
+    [Fact]
+    public async Task ConcurrentEndpoints_CreateSharedSchemaAndPostAllMessages()
+    {
+        RequirePostgres();
+        var endpoints = Enumerable.Range(0, 12)
+            .Select(i => CreateEndPoint(tableName: i % 2 == 0 ? _tableName : $"public.{_tableName}"))
+            .ToArray();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var posts = endpoints.Select(async (endpoint, i) =>
+        {
+            await gate.Task;
+            await endpoint.PostAsync(Encoding.UTF8.GetBytes($"message-{i}"), TestContext.Current.CancellationToken);
+        }).ToArray();
+        gate.SetResult();
+        await Task.WhenAll(posts);
+
+        Assert.Equal(12, await CountAsync("true"));
+        Assert.Equal(12, await ScalarAsync<long>($"SELECT COUNT(DISTINCT payload) FROM {_tableName}"));
+        Assert.Equal(0, await ScalarAsync<long>($"SELECT COUNT(*) FROM {_tableName}_deferred"));
+        Assert.Equal(3, await ScalarAsync<long>($"SELECT COUNT(*) FROM pg_indexes WHERE tablename = '{_tableName}' AND indexname IN ('ix_{_tableName}_active', 'ix_{_tableName}_completed', 'ix_{_tableName}_failed')"));
+        Assert.Equal(1, await ScalarAsync<long>($"SELECT COUNT(*) FROM pg_indexes WHERE tablename = '{_tableName}_deferred' AND indexname = 'ix_{_tableName}_deferred_due'"));
+    }
+
     // --- Retention ---
 
     [Fact]
@@ -497,12 +520,12 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
             $"Set {ConnectionStringVariable} to run PostgreSQL integration tests.");
 
     private PostgresEndPoint CreateEndPoint(CapturingLogger<PostgresEndPoint>? logger = null, int maxRetryCount = 5, int batchSize = 10,
-        TimeSpan? pollInterval = null, bool useNotifications = true)
+        TimeSpan? pollInterval = null, bool useNotifications = true, string? tableName = null)
     {
         var ep = new PostgresEndPoint("PgTest", new PostgresSettings
         {
             ConnectionString = ConnectionString!,
-            TableName        = _tableName,
+            TableName        = tableName ?? _tableName,
             PollInterval     = pollInterval ?? TimeSpan.FromMilliseconds(20),
             MaxRetryCount    = maxRetryCount,
             BatchSize        = batchSize,

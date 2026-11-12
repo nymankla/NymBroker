@@ -88,7 +88,9 @@ services.AddNymBroker()
     .Build();
 ```
 
-Each endpoint's settings type defines its available options and defaults. The most important shared settings are:
+Each endpoint's settings type defines its available options and defaults. SQL Server and PostgreSQL coordinate automatic queue schema creation between broker instances using database transaction locks; an instance may wait while another creates the tables and indexes. SQL Server serializes queue schema initialization across the database, including for different tables. With `AutoCreateTable = false`, deploy the schema beforehand instead.
+
+The most important shared settings are:
 
 | Setting | Endpoints | Meaning |
 |---|---|---|

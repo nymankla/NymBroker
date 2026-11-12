@@ -56,5 +56,24 @@ public sealed class SqlServerScheduleStoreTests : ScheduleStoreContractTests
     }
 
     [Fact]
+    public async Task AutoCreate_StoresStartingAtOnce_AllClaim()
+    {
+        RequireDatabase();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var occurrence = DateTimeOffset.UtcNow;
+        var tasks = Enumerable.Range(0, 16).Select(async i =>
+        {
+            var settings = Settings();
+            settings.TableName = i % 2 == 0 ? $"dbo.{TableName}" : TableName;
+            var store = new SqlServerScheduleStore(settings, NullLogger<SqlServerScheduleStore>.Instance);
+            await gate.Task;
+            return await store.TryClaimAsync($"job-{i}", occurrence, Ct);
+        }).ToArray();
+        gate.SetResult();
+
+        Assert.All(await Task.WhenAll(tasks), Assert.True);
+    }
+
+    [Fact]
     public void TableName_IsQuoted() => Assert.Equal("[dbo].[a]]b]", SqlServerScheduleSql.QuoteQualifiedIdentifier("dbo.a]b"));
 }

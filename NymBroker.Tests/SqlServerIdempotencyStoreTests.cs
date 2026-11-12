@@ -115,6 +115,26 @@ public sealed class SqlServerIdempotencyStoreTests : IdempotencyStoreContractTes
 
     // --- Store behaviour (SQL Server); the shared behaviour is in IdempotencyStoreContractTests ---
 
+    // Opt-in until the qualified/unqualified schema creation race is fixed.
+    [Fact(Explicit = true)]
+    public async Task AutoCreate_QualifiedAndUnqualifiedStoresStartingAtOnce_AllClaim()
+    {
+        RequireDatabase();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tasks = Enumerable.Range(0, 16).Select(async i =>
+        {
+            var settings = Settings();
+            settings.TableName = i % 2 == 0 ? QualifiedTableName : TableName;
+            var store = new SqlServerIdempotencyStore(settings, NullLogger<SqlServerIdempotencyStore>.Instance);
+            await gate.Task;
+            return await store.TryClaimAsync(Guid.NewGuid(), Ct);
+        }).ToArray();
+        gate.SetResult();
+
+        Assert.All(await Task.WhenAll(tasks), result => Assert.Equal(IdempotencyClaimResult.Claimed, result));
+        Assert.Equal(16, await CountRowsAsync());
+    }
+
     [Fact]
     public async Task AutoCreate_StoresStartingAtOnce_AllCreateTheTable()
     {

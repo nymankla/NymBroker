@@ -14,6 +14,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ### Fixed
 
+- SQL Server and PostgreSQL queue endpoints serialize automatic schema initialization across instances to prevent concurrent table and index creation races (#118, #119).
 - Lease-based queue listeners now treat database failures surfaced after shutdown cancellation as a clean stop, rather than logging false errors during cleanup, deferred promotion, or polling.
 - Integration tests: reduce SQL Server contention between test classes and give deferred-message delivery more time under load (#111).
 - SQL Server idempotency schema creation is serialized across store instances to prevent deadlocks when they start together (#111).

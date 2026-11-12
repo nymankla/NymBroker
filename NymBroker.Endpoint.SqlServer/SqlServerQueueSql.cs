@@ -39,8 +39,7 @@ internal static class SqlServerQueueSql
         var completedIndex = IndexIfMissing($"ix_{safeName}_completed", tableLiteral, $"ON {table}(completed_at_utc) WHERE status = {Completed}");
         var failedIndex = IndexIfMissing($"ix_{safeName}_failed", tableLiteral, $"ON {table}(failed_at_utc) WHERE status = {Failed}");
 
-        return $"""
-            SET NOCOUNT ON;
+        return WithSchemaLock($"""
             IF OBJECT_ID(N'{tableLiteral}', N'U') IS NULL
             BEGIN
                 CREATE TABLE {table} (
@@ -70,6 +69,31 @@ internal static class SqlServerQueueSql
                 );
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'{Literal(dueIndex)}' AND object_id = OBJECT_ID(N'{Literal(deferred)}'))
                 CREATE INDEX {QuoteSimpleIdentifier(dueIndex)} ON {deferred}(deliver_at_utc);
+            """);
+    }
+
+    private static string WithSchemaLock(string schemaSql)
+    {
+        // Identifier equality depends on database collation; a shared lock covers all equivalent spellings.
+        return $"""
+            SET NOCOUNT ON;
+            SET XACT_ABORT ON;
+            BEGIN TRY
+                BEGIN TRANSACTION;
+                DECLARE @lockResult int;
+                EXEC @lockResult = sys.sp_getapplock
+                    @Resource = N'NymBroker:QueueSchema',
+                    @LockMode = N'Exclusive',
+                    @LockOwner = N'Transaction';
+                IF @lockResult < 0
+                    THROW 51000, 'Could not acquire the queue schema lock.', 1;
+                {schemaSql}
+                COMMIT TRANSACTION;
+            END TRY
+            BEGIN CATCH
+                IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+                THROW;
+            END CATCH;
             """;
     }
 

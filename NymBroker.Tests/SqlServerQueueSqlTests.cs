@@ -48,9 +48,28 @@ public sealed class SqlServerQueueSqlTests
         Assert.Contains("CREATE INDEX [ix_dbo_orders_active]", sql);
         Assert.Contains("WHERE status IN (0, 1)", sql);
         Assert.Contains("WHERE name = N'ix_dbo_orders_active'", sql);
+        Assert.Contains("sys.sp_getapplock", sql);
+        Assert.Contains("@Resource = N'NymBroker:QueueSchema'", sql);
+        Assert.Contains("@LockOwner = N'Transaction'", sql);
+        Assert.Contains("IF @lockResult < 0", sql);
+        Assert.Contains("IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;", sql);
+        Assert.True(sql.IndexOf("sys.sp_getapplock", StringComparison.Ordinal) < sql.IndexOf("IF OBJECT_ID", StringComparison.Ordinal));
+        Assert.True(sql.IndexOf("CREATE INDEX [ix_dbo_orders_deferred_due]", StringComparison.Ordinal) < sql.IndexOf("COMMIT TRANSACTION", StringComparison.Ordinal));
         // message_id is per-insert and never looked up, so it carries no (random GUID) unique index.
         Assert.Contains("message_id       UNIQUEIDENTIFIER NOT NULL,", sql);
         Assert.DoesNotContain("NOT NULL UNIQUE", sql);
+    }
+
+    [Theory]
+    [InlineData("dbo.orders")]
+    [InlineData("orders")]
+    [InlineData("dbo.ordérs")]
+    [InlineData("dbo.other")]
+    public void CreateSchema_UsesDatabaseWideLockForAllIdentifiers(string tableName)
+    {
+        var sql = SqlServerQueueSql.CreateSchema(tableName);
+
+        Assert.Contains("@Resource = N'NymBroker:QueueSchema'", sql);
     }
 
     [Fact]

@@ -45,6 +45,30 @@ public sealed class SqlServerEndPointTests : IAsyncLifetime
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error);
     }
 
+    [Fact]
+    public async Task ConcurrentEndpoints_CreateSharedSchemaAndPostAllMessages()
+    {
+        RequireSqlServer();
+        var endpoints = Enumerable.Range(0, 12)
+            .Select(i => CreateEndPoint(tableName: i % 2 == 0 ? _tableName : _tableName[4..]))
+            .ToArray();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var posts = endpoints.Select(async (endpoint, i) =>
+        {
+            await gate.Task;
+            await endpoint.PostAsync(Encoding.UTF8.GetBytes($"message-{i}"), TestContext.Current.CancellationToken);
+        }).ToArray();
+        gate.SetResult();
+        await Task.WhenAll(posts);
+
+        Assert.Equal(12, await CountAsync("1 = 1"));
+        Assert.Equal(12, await ScalarAsync<int>($"SELECT COUNT(DISTINCT payload) FROM {_tableName}"));
+        Assert.Equal(0, await ScalarAsync<int>($"SELECT COUNT(*) FROM {_tableName}_deferred"));
+        var safeName = _tableName.Replace('.', '_');
+        Assert.Equal(3, await ScalarAsync<int>($"SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID(N'{_tableName}') AND name IN ('ix_{safeName}_active', 'ix_{safeName}_completed', 'ix_{safeName}_failed')"));
+        Assert.Equal(1, await ScalarAsync<int>($"SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID(N'{_tableName}_deferred') AND name = 'ix_{safeName}_deferred_due'"));
+    }
+
     // --- Retention ---
 
     [Fact]
@@ -443,12 +467,12 @@ public sealed class SqlServerEndPointTests : IAsyncLifetime
         => Assert.SkipUnless(!string.IsNullOrWhiteSpace(ConnectionString),
             $"Set {ConnectionStringVariable} to run SQL Server integration tests.");
 
-    private SqlServerEndPoint CreateEndPoint(CapturingLogger<SqlServerEndPoint>? logger = null, int maxRetryCount = 5, int batchSize = 10)
+    private SqlServerEndPoint CreateEndPoint(CapturingLogger<SqlServerEndPoint>? logger = null, int maxRetryCount = 5, int batchSize = 10, string? tableName = null)
     {
         var ep = new SqlServerEndPoint("SqlTest", new SqlServerSettings
         {
             ConnectionString = ConnectionString!,
-            TableName        = _tableName,
+            TableName        = tableName ?? _tableName,
             PollInterval     = TimeSpan.FromMilliseconds(20),
             MaxRetryCount    = maxRetryCount,
             BatchSize        = batchSize

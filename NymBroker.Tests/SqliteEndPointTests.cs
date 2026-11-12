@@ -332,6 +332,37 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ConcurrentEndpoints_MigrateV1Table_AndPreserveRows()
+    {
+        using var db = new SqliteTestDb.TempFile();
+        await SqliteTestDb.ExecuteAsync(db.ConnectionString, """
+            CREATE TABLE NymBrokerMessages (
+                QueueId INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, MessageId TEXT NOT NULL UNIQUE,
+                Status INTEGER NOT NULL DEFAULT 0 CHECK (Status IN (0, 1, 2, 3)), CreatedAtUtc INTEGER NOT NULL DEFAULT (unixepoch()),
+                LockedUntilUtc INTEGER NULL, CompletedAtUtc INTEGER NULL, FailedAtUtc INTEGER NULL,
+                AttemptCount INTEGER NOT NULL DEFAULT 0, LastError TEXT NULL, Payload TEXT NOT NULL);
+            INSERT INTO NymBrokerMessages (MessageId, Status, Payload) VALUES ('a', 0, 'old');
+            """);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tasks = Enumerable.Range(0, 12).Select(async i =>
+        {
+            await gate.Task;
+            await Task.Run(async () =>
+            {
+                await using var endpoint = FileEndPoint(db.ConnectionString);
+                await endpoint.PostAsync(Encoding.UTF8.GetBytes($"new-{i}"), TestContext.Current.CancellationToken);
+            });
+        }).ToArray();
+        gate.SetResult();
+        await Task.WhenAll(tasks);
+
+        Assert.Equal(13, await SqliteTestDb.ScalarAsync<int>(db.ConnectionString, "SELECT COUNT(*) FROM NymBrokerMessages"));
+        Assert.Equal(1, await SqliteTestDb.ScalarAsync<int>(db.ConnectionString, "SELECT COUNT(*) FROM NymBrokerMessages WHERE Payload = CAST('old' AS BLOB)"));
+        Assert.Equal("BLOB", await SqliteTestDb.ScalarAsync<string>(db.ConnectionString,
+            "SELECT type FROM pragma_table_info('NymBrokerMessages') WHERE name = 'Payload'"));
+    }
+
+    [Fact]
     public async Task BatchFinalize_MixedOutcomes_AreWrittenTogether()
     {
         using var db = new SqliteTestDb.TempFile();

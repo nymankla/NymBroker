@@ -4,6 +4,7 @@ using NpgsqlTypes;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Endpoint.Queue;
+using NymBroker.Shared;
 
 namespace NymBroker.Endpoint.Postgres;
 
@@ -262,9 +263,16 @@ public sealed partial class PostgresEndPoint : IEndPointEventDriven, IDeferredEn
 
     private async Task CreateSchemaAsync(NpgsqlConnection conn, CancellationToken ct)
     {
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = PostgresQueueSql.CreateSchema(_settings.TableName);
-        await cmd.ExecuteNonQueryAsync(ct);
+        // Key by unqualified name so qualified and search-path references to the same table coordinate.
+        await using var transaction = await conn.BeginTransactionAsync(ct);
+        await using (var schemaLock = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended('nymbroker:queue:' || CAST(@name AS name)::text, 0));", conn, transaction))
+        {
+            schemaLock.Parameters.AddWithValue("name", PostgresIdentifier.Split(_settings.TableName)[^1]);
+            await schemaLock.ExecuteNonQueryAsync(ct);
+        }
+        await using (var cmd = new NpgsqlCommand(PostgresQueueSql.CreateSchema(_settings.TableName), conn, transaction))
+            await cmd.ExecuteNonQueryAsync(ct);
+        await transaction.CommitAsync(ct);
     }
 
     /// <summary>The shared queue loop, plus waiting for a NOTIFY instead of the full poll interval when idle.</summary>

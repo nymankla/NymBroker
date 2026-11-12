@@ -55,6 +55,26 @@ public sealed class PostgresScheduleStoreTests : ScheduleStoreContractTests
         Assert.Same(provider.GetRequiredService<PostgresScheduleStore>(), provider.GetRequiredService<IScheduleStore>());
     }
 
+    // Opt-in until the qualified/unqualified schema creation race is fixed.
+    [Fact(Explicit = true)]
+    public async Task AutoCreate_QualifiedAndUnqualifiedStoresStartingAtOnce_AllClaim()
+    {
+        RequireDatabase();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var occurrence = DateTimeOffset.UtcNow;
+        var tasks = Enumerable.Range(0, 16).Select(async i =>
+        {
+            var settings = Settings();
+            settings.TableName = i % 2 == 0 ? TableName : $"public.{TableName}";
+            await using var store = new PostgresScheduleStore(settings, NullLogger<PostgresScheduleStore>.Instance);
+            await gate.Task;
+            return await store.TryClaimAsync($"job-{i}", occurrence, Ct);
+        }).ToArray();
+        gate.SetResult();
+
+        Assert.All(await Task.WhenAll(tasks), Assert.True);
+    }
+
     [Fact]
     public void TableName_IsQuoted() => Assert.Equal("\"my\"\"schema\".\"t\"", PostgresScheduleSql.QuoteQualifiedIdentifier("my\"schema.t"));
 }
