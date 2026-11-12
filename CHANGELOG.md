@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-12
+
 ### Added
 
 - An opt-in Native AOT path with registered JSON source-generation contexts and explicit typed consumer registration, plus a Native AOT smoke sample.

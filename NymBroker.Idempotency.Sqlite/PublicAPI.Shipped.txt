@@ -19,6 +19,7 @@ NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.Ttl.set -> void
 NymBroker.Idempotency.Sqlite.SqliteIdempotencySettings.Validate() -> void
 NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore
 NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.CompleteAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.CompleteInTransactionAsync(System.Guid messageId, System.Data.Common.DbTransaction! transaction, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.DeleteExpiredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.DisposeAsync() -> System.Threading.Tasks.ValueTask
 NymBroker.Idempotency.Sqlite.SqliteIdempotencyStore.ReleaseAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask

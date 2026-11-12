@@ -1,1 +1,21 @@
 #nullable enable
+NymBroker.Outbox.Sqlite.NymBrokerBuilderSqliteOutboxExtensions
+NymBroker.Outbox.Sqlite.SqliteOutboxSettings
+NymBroker.Outbox.Sqlite.SqliteOutboxSettings.AutoCreateTable.get -> bool
+NymBroker.Outbox.Sqlite.SqliteOutboxSettings.AutoCreateTable.set -> void
+NymBroker.Outbox.Sqlite.SqliteOutboxSettings.ConnectionString.get -> string!
+NymBroker.Outbox.Sqlite.SqliteOutboxSettings.ConnectionString.set -> void
+NymBroker.Outbox.Sqlite.SqliteOutboxSettings.SqliteOutboxSettings() -> void
+NymBroker.Outbox.Sqlite.SqliteOutboxSettings.TableName.get -> string!
+NymBroker.Outbox.Sqlite.SqliteOutboxSettings.TableName.set -> void
+NymBroker.Outbox.Sqlite.SqliteOutboxSettings.Validate() -> void
+NymBroker.Outbox.Sqlite.SqliteOutboxStore
+NymBroker.Outbox.Sqlite.SqliteOutboxStore.AddAsync(System.Data.Common.DbTransaction! transaction, NymBroker.Core.Outbox.OutboxMessage! message, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.Sqlite.SqliteOutboxStore.ClaimAsync(System.Guid claimId, int maxCount, System.TimeSpan leaseTimeout, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<NymBroker.Core.Outbox.ClaimedOutboxMessage!>!>!
+NymBroker.Outbox.Sqlite.SqliteOutboxStore.DisposeAsync() -> System.Threading.Tasks.ValueTask
+NymBroker.Outbox.Sqlite.SqliteOutboxStore.MarkFailedAsync(long id, System.Guid claimId, string! error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.Sqlite.SqliteOutboxStore.MarkSentAsync(long id, System.Guid claimId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.Sqlite.SqliteOutboxStore.ReleaseAsync(long id, System.Guid claimId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.Sqlite.SqliteOutboxStore.RetryLaterAsync(long id, System.Guid claimId, System.TimeSpan delay, string! error, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+NymBroker.Outbox.Sqlite.SqliteOutboxStore.SqliteOutboxStore(NymBroker.Outbox.Sqlite.SqliteOutboxSettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Outbox.Sqlite.SqliteOutboxStore!>! logger) -> void
+static NymBroker.Outbox.Sqlite.NymBrokerBuilderSqliteOutboxExtensions.AddSqliteOutbox(this NymBroker.Core.Factory.NymBrokerBuilder! builder, NymBroker.Outbox.Sqlite.SqliteOutboxSettings! settings, System.Action<NymBroker.Core.Outbox.OutboxOptions!>? configure = null) -> NymBroker.Core.Factory.NymBrokerBuilder!

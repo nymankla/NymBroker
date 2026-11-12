@@ -19,6 +19,7 @@ NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.Ttl.set -> void
 NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings.Validate() -> void
 NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore
 NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.CompleteAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.CompleteInTransactionAsync(System.Guid messageId, System.Data.Common.DbTransaction! transaction, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.DeleteExpiredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.ReleaseAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore.SqlServerIdempotencyStore(NymBroker.Idempotency.SqlServer.SqlServerIdempotencySettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Idempotency.SqlServer.SqlServerIdempotencyStore!>! logger) -> void

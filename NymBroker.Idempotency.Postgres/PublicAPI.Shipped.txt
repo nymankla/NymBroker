@@ -19,6 +19,7 @@ NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.Ttl.set -> void
 NymBroker.Idempotency.Postgres.PostgresIdempotencySettings.Validate() -> void
 NymBroker.Idempotency.Postgres.PostgresIdempotencyStore
 NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.CompleteAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.CompleteInTransactionAsync(System.Guid messageId, System.Data.Common.DbTransaction! transaction, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.DeleteExpiredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.DisposeAsync() -> System.Threading.Tasks.ValueTask
 NymBroker.Idempotency.Postgres.PostgresIdempotencyStore.PostgresIdempotencyStore(NymBroker.Idempotency.Postgres.PostgresIdempotencySettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Idempotency.Postgres.PostgresIdempotencyStore!>! logger) -> void

@@ -18,6 +18,7 @@ NymBroker.Idempotency.MySql.MySqlIdempotencySettings.Ttl.set -> void
 NymBroker.Idempotency.MySql.MySqlIdempotencySettings.Validate() -> void
 NymBroker.Idempotency.MySql.MySqlIdempotencyStore
 NymBroker.Idempotency.MySql.MySqlIdempotencyStore.CompleteAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Idempotency.MySql.MySqlIdempotencyStore.CompleteInTransactionAsync(System.Guid messageId, System.Data.Common.DbTransaction! transaction, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 NymBroker.Idempotency.MySql.MySqlIdempotencyStore.DeleteExpiredAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 NymBroker.Idempotency.MySql.MySqlIdempotencyStore.MySqlIdempotencyStore(NymBroker.Idempotency.MySql.MySqlIdempotencySettings! settings, Microsoft.Extensions.Logging.ILogger<NymBroker.Idempotency.MySql.MySqlIdempotencyStore!>! logger) -> void
 NymBroker.Idempotency.MySql.MySqlIdempotencyStore.ReleaseAsync(System.Guid messageId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
