@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using NymBroker.Shared;
 
 namespace NymBroker.Idempotency.SqlServer;
@@ -38,8 +36,6 @@ internal static class SqlServerIdempotencySql
         var safeName = string.Join('_', tableName.Split('.', StringSplitOptions.TrimEntries));
         var primaryKey = $"pk_{safeName}";
         var expiresIndex = $"ix_{safeName}_expires";
-        var lockHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tableName.ToUpperInvariant())));
-        var lockResource = $"NymBroker:IdempotencySchema:{lockHash}";
 
         return $"""
             SET NOCOUNT ON;
@@ -48,7 +44,7 @@ internal static class SqlServerIdempotencySql
                 BEGIN TRANSACTION;
                 DECLARE @lockResult int;
                 EXEC @lockResult = sys.sp_getapplock
-                    @Resource = N'{lockResource}',
+                    @Resource = N'NymBroker:IdempotencySchema',
                     @LockMode = N'Exclusive',
                     @LockOwner = N'Transaction';
                 IF @lockResult < 0

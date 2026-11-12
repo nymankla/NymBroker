@@ -14,6 +14,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ### Fixed
 
+- Coordinate SQL Server and PostgreSQL idempotency and scheduling schema creation across equivalent table-name references, and guard SQLite queue schema detection and migration with one write transaction. PostgreSQL idempotency schema creation now supports schema-qualified table names.
 - SQL Server and PostgreSQL queue endpoints serialize automatic schema initialization across instances to prevent concurrent table and index creation races (#118, #119).
 - Lease-based queue listeners now treat database failures surfaced after shutdown cancellation as a clean stop, rather than logging false errors during cleanup, deferred promotion, or polling.
 - Integration tests: reduce SQL Server contention between test classes and give deferred-message delivery more time under load (#111).

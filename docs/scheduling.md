@@ -90,7 +90,7 @@ services.AddNymBroker()
 | SQL Server | `NymBroker.Scheduling.SqlServer` | `AddSqlServerScheduleStore` | Shared by every instance using the table |
 | MySQL 8.0+ / MariaDB 10.6+ | `NymBroker.Scheduling.MySql` | `AddMySqlScheduleStore` | Shared by every instance using the table |
 
-Each store settings class has `ConnectionString`, `TableName` (default `nymbroker_schedule`, `dbo.nymbroker_schedule` for SQL Server) and `AutoCreateTable` (default `true`). The table holds one row per action name with the last claimed occurrence, so it needs no cleanup. To use a different storage, implement `IScheduleStore` (`GetLastRunAsync`, an atomic `TryClaimAsync`) and register it with `.AddScheduleStore(sp => ...)`.
+Each store settings class has `ConnectionString`, `TableName` (default `nymbroker_schedule`, `dbo.nymbroker_schedule` for SQL Server) and `AutoCreateTable` (default `true`). The table holds one row per action name with the last claimed occurrence, so it needs no cleanup. SQL Server and PostgreSQL coordinate automatic schema creation across instances, including qualified and unqualified references to the same table. SQL Server serializes schedule schema initialization across the database, so startup may wait for another store's initialization. To use a different storage, implement `IScheduleStore` (`GetLastRunAsync`, an atomic `TryClaimAsync`) and register it with `.AddScheduleStore(sp => ...)`.
 
 How named actions behave:
 

@@ -360,6 +360,8 @@ public sealed class SqliteEndPointTests : IAsyncDisposable
         Assert.Equal(1, await SqliteTestDb.ScalarAsync<int>(db.ConnectionString, "SELECT COUNT(*) FROM NymBrokerMessages WHERE Payload = CAST('old' AS BLOB)"));
         Assert.Equal("BLOB", await SqliteTestDb.ScalarAsync<string>(db.ConnectionString,
             "SELECT type FROM pragma_table_info('NymBrokerMessages') WHERE name = 'Payload'"));
+        Assert.Equal(1, await SqliteTestDb.ScalarAsync<int>(db.ConnectionString,
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name GLOB 'NymBrokerMessages_v1_*'"));
     }
 
     [Fact]

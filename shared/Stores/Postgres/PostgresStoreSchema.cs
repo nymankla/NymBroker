@@ -10,9 +10,8 @@ internal static class PostgresStoreSchema
 {
     /// <summary>
     /// <c>CREATE … IF NOT EXISTS</c> is not safe against a concurrent CREATE (instances starting at the same time): the
-    /// loser fails on a catalog unique index. A transaction-scoped advisory lock on the table name, parameter
-    /// <c>lockKey</c> in <paramref name="createSchemaSql"/>, makes concurrent creators wait for each other, so the later
-    /// ones find the table and skip it.
+    /// loser fails on a catalog unique index. A transaction-scoped advisory lock on the unqualified table name, parameter
+    /// <c>lockKey</c> in <paramref name="createSchemaSql"/>, makes qualified and unqualified references coordinate.
     /// </summary>
     internal static async Task CreateAsync(NpgsqlDataSource dataSource, string createSchemaSql, string tableName, CancellationToken ct)
     {
@@ -20,7 +19,8 @@ internal static class PostgresStoreSchema
         await using var transaction = await connection.BeginTransactionAsync(ct);
         await using (var command = new NpgsqlCommand(createSchemaSql, connection, transaction))
         {
-            command.Parameters.AddWithValue("lockKey", $"nymbroker:{tableName}");
+            var name = PostgresIdentifier.Split(tableName)[^1];
+            command.Parameters.AddWithValue("lockKey", $"nymbroker:{name}");
             await command.ExecuteNonQueryAsync(ct);
         }
         await transaction.CommitAsync(ct);

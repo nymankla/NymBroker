@@ -373,48 +373,42 @@ public sealed partial class SqliteEndPoint : IEndPointEventDriven, IDeferredEndP
     /// </summary>
     private async Task EnsureSchemaAsync(SqliteConnection conn, CancellationToken ct)
     {
-        var columns = await GetColumnTypesAsync(conn, _settings.TableName, ct);
-        if (columns.Count == 0)
-        {
-            await ExecuteAsync(conn, SqliteQueueSql.CreateTable(_settings.TableName), null, ct);
-            return;
-        }
-
+        await using var tx = BeginImmediate(conn);
+        var columns = await GetColumnTypesAsync(conn, _settings.TableName, tx, ct);
         var isCurrent = columns.TryGetValue("Payload", out var payloadType)
                         && string.Equals(payloadType, "BLOB", StringComparison.OrdinalIgnoreCase)
                         && columns.ContainsKey("QueueId");
-        if (isCurrent)
-        {
-            await ExecuteAsync(conn, SqliteQueueSql.CreateTable(_settings.TableName), null, ct);   // idempotent: index + user_version
-            return;
-        }
+        string? backup = null;
+        if (columns.Count == 0 || isCurrent)
+            await ExecuteAsync(conn, SqliteQueueSql.CreateTable(_settings.TableName), tx, ct);
+        else
+            backup = await MigrateAsync(conn, tx, columns.ContainsKey("QueueId") && columns.ContainsKey("MessageId"), ct);
+        await tx.CommitAsync(ct);
 
-        var fromVersion1 = columns.ContainsKey("QueueId") && columns.ContainsKey("MessageId");
-        await MigrateAsync(conn, fromVersion1, ct);
+        if (backup is not null)
+            _logger.LogInformation("Migrated SQLite queue table '{Table}' to schema version {Version}; the previous table was kept as '{Backup}'",
+                _settings.TableName, SqliteQueueSql.SchemaVersion, backup);
     }
 
-    private async Task MigrateAsync(SqliteConnection conn, bool fromVersion1, CancellationToken ct)
+    private async Task<string> MigrateAsync(SqliteConnection conn, SqliteTransaction tx, bool fromVersion1, CancellationToken ct)
     {
         var table = _settings.TableName;
         var backup = $"{table}_{(fromVersion1 ? "v1" : "Legacy")}_{DateTime.UtcNow:yyyyMMddHHmmss}";
 
-        await using var tx = BeginImmediate(conn);
         await ExecuteAsync(conn, $"ALTER TABLE {SqliteQueueSql.Quote(table)} RENAME TO {SqliteQueueSql.Quote(backup)}", tx, ct);
         await ExecuteAsync(conn, SqliteQueueSql.DropVersion1Indexes(table), tx, ct);
         await ExecuteAsync(conn, SqliteQueueSql.CreateTable(table), tx, ct);
         await ExecuteAsync(conn, fromVersion1
             ? SqliteQueueSql.CopyFromVersion1(table, backup)
             : SqliteQueueSql.CopyFromLegacy(table, backup), tx, ct);
-        await tx.CommitAsync(ct);
-
-        _logger.LogInformation("Migrated SQLite queue table '{Table}' to schema version {Version}; the previous table was kept as '{Backup}'",
-            table, SqliteQueueSql.SchemaVersion, backup);
+        return backup;
     }
 
-    private static async Task<Dictionary<string, string>> GetColumnTypesAsync(SqliteConnection conn, string table, CancellationToken ct)
+    private static async Task<Dictionary<string, string>> GetColumnTypesAsync(SqliteConnection conn, string table, SqliteTransaction tx, CancellationToken ct)
     {
         var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         await using var command = conn.CreateCommand();
+        command.Transaction = tx;
         command.CommandText = "SELECT name, type FROM pragma_table_info($table)";
         command.Parameters.AddWithValue("$table", table);
         await using var reader = await command.ExecuteReaderAsync(ct);

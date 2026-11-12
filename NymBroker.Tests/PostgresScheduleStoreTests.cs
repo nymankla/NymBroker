@@ -55,8 +55,7 @@ public sealed class PostgresScheduleStoreTests : ScheduleStoreContractTests
         Assert.Same(provider.GetRequiredService<PostgresScheduleStore>(), provider.GetRequiredService<IScheduleStore>());
     }
 
-    // Opt-in until the qualified/unqualified schema creation race is fixed.
-    [Fact(Explicit = true)]
+    [Fact]
     public async Task AutoCreate_QualifiedAndUnqualifiedStoresStartingAtOnce_AllClaim()
     {
         RequireDatabase();

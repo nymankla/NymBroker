@@ -75,5 +75,27 @@ public sealed class SqlServerScheduleStoreTests : ScheduleStoreContractTests
     }
 
     [Fact]
+    public async Task AutoCreate_ConflictingConstraint_PropagatesCreationError()
+    {
+        RequireDatabase();
+        await using var connection = new SqlConnection(ConnectionString);
+        await connection.OpenAsync(Ct);
+        var otherTable = $"other_{TableName}";
+        await using var create = new SqlCommand($"CREATE TABLE dbo.[{otherTable}] (id int NOT NULL CONSTRAINT [pk_dbo_{TableName}] PRIMARY KEY)", connection);
+        await create.ExecuteNonQueryAsync(Ct);
+        try
+        {
+            var store = new SqlServerScheduleStore(Settings(), NullLogger<SqlServerScheduleStore>.Instance);
+            var error = await Assert.ThrowsAsync<SqlException>(() => store.GetLastRunAsync("job", Ct).AsTask());
+            Assert.Equal(2714, error.Number);
+        }
+        finally
+        {
+            await using var drop = new SqlCommand($"DROP TABLE dbo.[{otherTable}]", connection);
+            await drop.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public void TableName_IsQuoted() => Assert.Equal("[dbo].[a]]b]", SqlServerScheduleSql.QuoteQualifiedIdentifier("dbo.a]b"));
 }

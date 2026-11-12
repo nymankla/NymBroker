@@ -12,8 +12,7 @@ internal static class SqlServerScheduleSql
     private static string Literal(string value) => SqlServerIdentifier.Literal(value);
 
     /// <summary>
-    /// Idempotent, also when several instances start at once: the loser of a concurrent CREATE gets error 2714
-    /// ("There is already an object named …"), which is ignored.
+    /// Schema checks and DDL are serialized across store instances, including equivalent table-name spellings.
     /// </summary>
     internal static string CreateSchema(string tableName)
     {
@@ -22,17 +21,28 @@ internal static class SqlServerScheduleSql
 
         return $"""
             SET NOCOUNT ON;
-            IF OBJECT_ID(N'{Literal(table)}', N'U') IS NULL
+            SET XACT_ABORT ON;
             BEGIN TRY
-                CREATE TABLE {table} (
-                    name           NVARCHAR(200) NOT NULL,
-                    last_run_utc   DATETIME2(7)  NOT NULL,
-                    updated_at_utc DATETIME2(7)  NOT NULL DEFAULT SYSUTCDATETIME(),
-                    CONSTRAINT {QuoteSimpleIdentifier(primaryKey)} PRIMARY KEY CLUSTERED (name)
-                );
+                BEGIN TRANSACTION;
+                DECLARE @lockResult int;
+                EXEC @lockResult = sys.sp_getapplock
+                    @Resource = N'NymBroker:ScheduleSchema',
+                    @LockMode = N'Exclusive',
+                    @LockOwner = N'Transaction';
+                IF @lockResult < 0
+                    THROW 51000, 'Could not acquire the schedule schema lock.', 1;
+                IF OBJECT_ID(N'{Literal(table)}', N'U') IS NULL
+                    CREATE TABLE {table} (
+                        name           NVARCHAR(200) NOT NULL,
+                        last_run_utc   DATETIME2(7)  NOT NULL,
+                        updated_at_utc DATETIME2(7)  NOT NULL DEFAULT SYSUTCDATETIME(),
+                        CONSTRAINT {QuoteSimpleIdentifier(primaryKey)} PRIMARY KEY CLUSTERED (name)
+                    );
+                COMMIT TRANSACTION;
             END TRY
             BEGIN CATCH
-                IF ERROR_NUMBER() <> 2714 THROW;
+                IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+                THROW;
             END CATCH;
             """;
     }

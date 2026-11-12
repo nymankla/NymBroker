@@ -88,7 +88,7 @@ services.AddNymBroker()
     .Build();
 ```
 
-Each endpoint's settings type defines its available options and defaults. SQL Server and PostgreSQL coordinate automatic queue schema creation between broker instances using database transaction locks; an instance may wait while another creates the tables and indexes. SQL Server serializes queue schema initialization across the database, including for different tables. With `AutoCreateTable = false`, deploy the schema beforehand instead.
+Each endpoint's settings type defines its available options and defaults. SQL Server and PostgreSQL coordinate automatic queue schema creation between broker instances using database transaction locks; an instance may wait while another creates the tables and indexes. SQL Server serializes queue schema initialization across the database, including for different tables. SQLite takes a write transaction before checking or migrating a queue schema, so other writers may wait during initialization. With `AutoCreateTable = false`, deploy the schema beforehand instead.
 
 The most important shared settings are:
 

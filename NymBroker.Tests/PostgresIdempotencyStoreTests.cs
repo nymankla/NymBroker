@@ -110,6 +110,15 @@ public sealed class PostgresIdempotencyStoreTests : IdempotencyStoreContractTest
     }
 
     [Fact]
+    public void CreateSchema_UsesUnqualifiedIndexNameForQualifiedTable()
+    {
+        var sql = PostgresIdempotencySql.CreateSchema("public.orders");
+        Assert.Contains("CREATE INDEX IF NOT EXISTS \"ix_public_orders_", sql);
+        Assert.Contains(" ON \"public\".\"orders\"(expires_at_utc)", sql);
+        Assert.DoesNotContain("CREATE INDEX IF NOT EXISTS \"public\".", sql);
+    }
+
+    [Fact]
     public async Task AddPostgresIdempotency_RegistersStoreAndCleanupService()
     {
         var services = new ServiceCollection();
@@ -140,8 +149,7 @@ public sealed class PostgresIdempotencyStoreTests : IdempotencyStoreContractTest
         Assert.DoesNotContain(provider.GetServices<IHostedService>(), service => service is IdempotencyCleanupService<PostgresIdempotencyStore>);
     }
 
-    // Opt-in until the qualified/unqualified schema creation race is fixed.
-    [Fact(Explicit = true)]
+    [Fact]
     public async Task AutoCreate_QualifiedAndUnqualifiedStoresStartingAtOnce_AllClaim()
     {
         RequireDatabase();

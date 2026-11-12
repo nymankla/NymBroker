@@ -165,6 +165,8 @@ services.AddNymBroker()
 
 For PostgreSQL, reference `NymBroker.Idempotency.Postgres` and use `.AddPostgresIdempotency(new PostgresIdempotencySettings { ConnectionString = "...", TableName = "nymbroker_idempotency" })`. For MySQL 8.0+ / MariaDB 10.6+, reference `NymBroker.Idempotency.MySql` and use `.AddMySqlIdempotency(new MySqlIdempotencySettings { ConnectionString = "...", TableName = "nymbroker_idempotency" })`. For SQLite, reference `NymBroker.Idempotency.Sqlite` and use `.AddSqliteIdempotency(new SqliteIdempotencySettings { ConnectionString = "Data Source=idempotency.db" })`. SQLite gives restart-safe deduplication on **one host** (processes on the same machine may share the file); it is not meant for several instances on different machines — use SQL Server, PostgreSQL or MySQL for that. All database stores support `Ttl`, `LeaseTimeout`, automatic schema creation, and a hosted cleanup service; set `CleanupInterval = TimeSpan.Zero` to disable cleanup. Any other store: implement `IIdempotencyStore` and register it with `AddIdempotentReceiver(store)` or `AddIdempotentReceiver<TStore>()`.
 
+SQL Server and PostgreSQL coordinate automatic idempotency schema creation across instances, including qualified and unqualified references to the same table. SQL Server serializes idempotency schema initialization across the database, so startup may wait for another store's initialization.
+
 ### How it works
 
 The broker claims the message id after decoding (and after reassembling a split message — its parts are not claimed), before routes, topics and consumers run:

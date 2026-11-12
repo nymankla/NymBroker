@@ -16,13 +16,9 @@ internal static class PostgresIdempotencySql
     internal static string CreateSchema(string tableName)
     {
         var table = QuoteQualifiedIdentifier(tableName);
-        var parts = tableName.Split('.', StringSplitOptions.TrimEntries);
         var readableName = string.Concat(tableName.Select(ch => ch is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '_' ? ch : '_'));
         var suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tableName)))[..12].ToLowerInvariant();
         var indexName = $"ix_{readableName[..Math.Min(readableName.Length, 38)]}_{suffix}_expires";
-        var qualifiedIndexName = parts.Length > 1
-            ? $"{QuoteSimpleIdentifier(parts[0])}.{QuoteSimpleIdentifier(indexName)}"
-            : QuoteSimpleIdentifier(indexName);
 
         // @lockKey: serializes concurrent creators (run inside a transaction; see PostgresIdempotencyStore.CreateSchemaAsync).
         return $"""
@@ -33,7 +29,7 @@ internal static class PostgresIdempotencySql
                 expires_at_utc TIMESTAMPTZ NOT NULL,
                 created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
-            CREATE INDEX IF NOT EXISTS {qualifiedIndexName} ON {table}(expires_at_utc);
+            CREATE INDEX IF NOT EXISTS {QuoteSimpleIdentifier(indexName)} ON {table}(expires_at_utc);
             """;
     }
 

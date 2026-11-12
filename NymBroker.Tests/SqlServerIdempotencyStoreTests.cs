@@ -90,6 +90,19 @@ public sealed class SqlServerIdempotencyStoreTests : IdempotencyStoreContractTes
         Assert.Contains("UPDLOCK", sql);
     }
 
+    [Theory]
+    [InlineData("dbo.orders")]
+    [InlineData("orders")]
+    [InlineData("dbo.ordérs")]
+    public void CreateSchema_UsesDatabaseWideTransactionLock(string tableName)
+    {
+        var sql = SqlServerIdempotencySql.CreateSchema(tableName);
+        Assert.Contains("@Resource = N'NymBroker:IdempotencySchema'", sql);
+        Assert.Contains("@LockOwner = N'Transaction'", sql);
+        Assert.Contains("IF @lockResult < 0", sql);
+        Assert.Contains("IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;", sql);
+    }
+
     [Fact]
     public async Task AddSqlServerIdempotency_RegistersStoreAndCleanupService_AndBrokerUsesIt()
     {
@@ -115,8 +128,7 @@ public sealed class SqlServerIdempotencyStoreTests : IdempotencyStoreContractTes
 
     // --- Store behaviour (SQL Server); the shared behaviour is in IdempotencyStoreContractTests ---
 
-    // Opt-in until the qualified/unqualified schema creation race is fixed.
-    [Fact(Explicit = true)]
+    [Fact]
     public async Task AutoCreate_QualifiedAndUnqualifiedStoresStartingAtOnce_AllClaim()
     {
         RequireDatabase();
