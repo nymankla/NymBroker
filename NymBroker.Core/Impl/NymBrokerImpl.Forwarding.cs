@@ -27,6 +27,7 @@ internal sealed partial class NymBrokerImpl
                 continue;
             }
 
+            using var activity = StartSendActivity(route.DestinationEndpoint, context);
             var routedEnvelope = SerializeForwarded(context, route.DestinationEndpoint, source);
             var tags = new TagList
             {
@@ -40,9 +41,10 @@ internal sealed partial class NymBrokerImpl
                 await SendAsync(route.DestinationEndpoint, destEndpoint, routedEnvelope, ct);
                 RecordRouted(tags, 1, "success");
             }
-            catch
+            catch (Exception ex)
             {
                 RecordRouted(tags, 1, "failure");
+                RecordSendFailure(activity, ex);
                 throw;
             }
             LogRouted(messageTypeName, source, route.DestinationEndpoint);
@@ -140,6 +142,7 @@ internal sealed partial class NymBrokerImpl
                 continue;
             }
 
+            using var activity = StartSendActivity(endpointName, contexts.Count == 1 ? contexts[0] : null, contexts.Count);
             var wire = new List<byte[]>(contexts.Count);
             foreach (var context in contexts)
                 wire.Add(SerializeForwarded(context, endpointName, source));
@@ -160,9 +163,10 @@ internal sealed partial class NymBrokerImpl
                     await SendBatchAsync(endpointName, endpoint, wire, ct);
                 RecordRouted(tags, wire.Count, "success");
             }
-            catch
+            catch (Exception ex)
             {
                 RecordRouted(tags, wire.Count, "failure");
+                RecordSendFailure(activity, ex);
                 throw;
             }
             LogTopicDelivered(topic.TopicName, wire.Count, endpointName);
@@ -181,7 +185,7 @@ internal sealed partial class NymBrokerImpl
         context.Address = EndpointAddress.Create(destination, source);
         try
         {
-            return _serializer.SerializeRegistered(context);
+            return SerializeOutgoingKeepingContext(context);   // hop by hop: the current send activity's context
         }
         finally
         {

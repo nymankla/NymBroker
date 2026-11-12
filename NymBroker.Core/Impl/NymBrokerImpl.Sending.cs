@@ -15,7 +15,16 @@ internal sealed partial class NymBrokerImpl
     public async Task PostAsync<T>(string endpointName, T message, CancellationToken ct = default, int? splitThresholdBytes = null, bool compress = true) where T : class
     {
         var context = NewContext(message, endpointName);
-        await PostToEndpointAsync(endpointName, _serializer.SerializeRegistered(context), splitThresholdBytes, compress, ct);
+        using var activity = StartSendActivity(endpointName, context);
+        try
+        {
+            await PostToEndpointAsync(endpointName, SerializeOutgoing(context), splitThresholdBytes, compress, ct);
+        }
+        catch (Exception ex)
+        {
+            RecordSendFailure(activity, ex);
+            throw;
+        }
     }
 
 #pragma warning disable RS0026 // see INymBroker.PostRawAsync: the overloads differ in a required parameter
@@ -39,7 +48,16 @@ internal sealed partial class NymBrokerImpl
         // The age checks count from when the message is due: a long deferral must not expire it before its first delivery.
         if (deliverAt.UtcDateTime > context.Created) context.Created = deliverAt.UtcDateTime;
 
-        await SendDeferredAsync(endpointName, _serializer.SerializeRegistered(context), deliverAt, ct);
+        using var activity = StartSendActivity(endpointName, context);
+        try
+        {
+            await SendDeferredAsync(endpointName, SerializeOutgoing(context), deliverAt, ct);
+        }
+        catch (Exception ex)
+        {
+            RecordSendFailure(activity, ex);
+            throw;
+        }
     }
 
 #pragma warning disable RS0026 // see INymBroker.PostRawDeferredAsync: the overloads differ in a required parameter
@@ -58,7 +76,8 @@ internal sealed partial class NymBrokerImpl
     public async Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
         var context = NewContext(message);
-        var result = await ProcessAsync(_serializer.SerializeRegistered(context), null, ct);
+        // In process: the envelope carries the caller's context, so the process activity is its child.
+        var result = await ProcessAsync(SerializeOutgoing(context), null, ct);
 
         // An in-process publish has no transport to redeliver it, so a Retry (e.g. a route's destination
         // failed) surfaces to the caller, as it did before ProcessAsync returned results.
@@ -83,16 +102,25 @@ internal sealed partial class NymBrokerImpl
         var endpoint = ResolvePostTarget(endpointName);   // unknown / read-only throw before anything is sent
         if (batch.Count == 0) return;
 
+        using var activity = StartSendActivity(endpointName, context: null, batch.Count);   // one for the batch; every envelope carries it
         var wire = new List<byte[]>(batch.Count);
         foreach (var message in batch)
         {
             var context = NewContext(message, endpointName);
             if (correlationId.HasValue) context.CorrelationId = correlationId.Value;
 
-            wire.AddRange(ToWireMessages(endpointName, _serializer.SerializeRegistered(context), splitThresholdBytes, compress));
+            wire.AddRange(ToWireMessages(endpointName, SerializeOutgoing(context), splitThresholdBytes, compress));
         }
 
-        await SendBatchAsync(endpointName, endpoint, wire, ct);
+        try
+        {
+            await SendBatchAsync(endpointName, endpoint, wire, ct);
+        }
+        catch (Exception ex)
+        {
+            RecordSendFailure(activity, ex);
+            throw;
+        }
         LogPostedBatch(batch.Count, wire.Count, endpointName);
     }
 
@@ -243,7 +271,7 @@ internal sealed partial class NymBrokerImpl
             message.Length, payload.Length, parts.Count, name, threshold, compressionName ?? "none");
 
         return parts
-            .Select(part => _serializer.SerializeRegistered(new MessageContext<SplitMessage>
+            .Select(part => SerializeOutgoing(new MessageContext<SplitMessage>
             {
                 Message = part,
                 Address = EndpointAddress.Create(name)

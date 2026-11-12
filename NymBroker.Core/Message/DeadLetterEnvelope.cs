@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Serialize;
 
 namespace NymBroker.Core.Message;
@@ -20,7 +21,13 @@ public static class DeadLetterEnvelope
     /// property is copied unchanged. <see cref="DeadLetterInfo.Description"/> is truncated to <see cref="MaxDescriptionLength"/> characters. When <paramref name="raw"/> is not a JSON object, a new
     /// <see cref="UndecodableMessage"/> envelope carrying the original bytes is returned instead.
     /// </summary>
-    public static byte[] Annotate(ReadOnlySpan<byte> raw, DeadLetterInfo info)
+    public static byte[] Annotate(ReadOnlySpan<byte> raw, DeadLetterInfo info) => AnnotateWithTrace(raw, info, trace: null);
+
+    /// <param name="trace">
+    /// The trace context the dead-letter copy carries instead of the received one (removed when its values are null);
+    /// null keeps the received one.
+    /// </param>
+    internal static byte[] AnnotateWithTrace(ReadOnlySpan<byte> raw, DeadLetterInfo info, TraceStamp? trace)
     {
         ArgumentNullException.ThrowIfNull(info);
         info = Normalize(info);
@@ -33,10 +40,21 @@ public static class DeadLetterEnvelope
             envelope = CreateUndecodableEnvelope(raw);
 
         envelope["deadLetter"] = JsonSerializer.SerializeToNode(info, CoreJsonContext.Default.DeadLetterInfo);
+        if (trace is { } stamp)
+        {
+            SetOrRemove(envelope, "traceParent", stamp.TraceParent);
+            SetOrRemove(envelope, "traceState", stamp.TraceState);
+        }
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
             envelope.WriteTo(writer);
         return stream.ToArray();
+    }
+
+    private static void SetOrRemove(JsonObject envelope, string name, string? value)
+    {
+        if (value is null) envelope.Remove(name);
+        else envelope[name] = value;
     }
 
     private static DeadLetterInfo Normalize(DeadLetterInfo info)

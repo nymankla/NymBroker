@@ -56,13 +56,48 @@ Every processed message gets an activity `nymbroker.process` (kind *consumer*) f
 | Tag | Value |
 |---|---|
 | `messaging.system` | `nymbroker` |
-| `nymbroker.source` | endpoint the message was received on |
+| `messaging.operation.type` | `process` |
+| `messaging.destination.name`, `nymbroker.source` | endpoint the message was received on |
 | `messaging.message.id` | envelope `id` |
 | `messaging.conversation_id` | envelope `correlationId` |
 | `messaging.message.type` | envelope `messageType` |
 | `error.type` | exception type, when processing failed |
 
 Activities started inside consumers (HTTP calls, database commands) become children of it, so a trace shows everything one message caused.
+
+Every send gets an activity `nymbroker.send` (kind *producer*): `PostAsync`, `PostDeferredAsync`, `PostBatchAsync` (one for the batch, tagged `messaging.batch.message_count`), each route and topic endpoint a received message is forwarded to, and the copy sent to the broker's dead-letter endpoint. Tags: `messaging.system`, `messaging.operation.type` = `send`, `messaging.destination.name`, and for a single message `messaging.message.id`, `messaging.conversation_id`, `messaging.message.type`; `error.type` when the send failed.
+
+### Trace context across messages
+
+The broker writes the W3C trace context of the sending activity into the envelope (`traceParent`, `traceState`), so a consumer in another process continues the producer's trace, on every transport:
+
+```text
+http-request (producer app)
+└─ nymbroker.send  Orders
+   └─ nymbroker.process  Orders (consumer app)
+      ├─ SQL / HTTP calls of the consumer
+      └─ nymbroker.send  Shipping (a route)
+         └─ nymbroker.process  Shipping (next app)
+```
+
+- **Parent or link.** By default the context is the consumer activity's **parent**: one trace from the request to the last consumer. For long-running or fan-out flows, where one trace would grow without bound, make each processed message the root of a new trace with a **link** to the producer, as the OpenTelemetry messaging conventions recommend:
+
+  ```csharp
+  services.AddNymBroker()
+      .ConfigureTracing(o => o.Continuation = TraceContinuation.Link)
+  ```
+
+- **Forwarding is hop by hop.** A route, topic endpoint or dead-letter copy carries the context of its own `nymbroker.send` activity, a child of the message's `nymbroker.process`. The wire tap is a byte-for-byte copy of the received message, so it carries the received context.
+- **Retries.** Every delivery of a message is its own `nymbroker.process` activity under the same producer activity, so redeliveries show as siblings.
+- **Without a context** (an older envelope, a message from another system, a raw post) or with one that is not a valid W3C `traceparent`, the process activity starts as before: a child of the current activity if there is one, else a new trace. The message itself is processed normally. A `traceState` longer than 512 characters is dropped. An [input transformer](pipeline-extensions.md#input-transformers) can set `RawMessageContext.TraceParent` / `TraceState` from an external message's own trace header.
+- **When nobody traces.** If an app has no listener for the `NymBroker` source (no OpenTelemetry), it creates no activities; the envelopes it posts carry the caller's current activity if any, and the messages it forwards keep the context they arrived with, so a trace survives a hop that is not instrumented.
+- **What it reveals.** `traceParent` holds random trace and span ids; `traceState` may hold vendor data. If messages leave your trust boundary (a partner's webhook, a shared queue), turn propagation off: envelopes are then sent without trace context, also when forwarded. Received context is still read.
+
+  ```csharp
+  .ConfigureTracing(o => o.PropagateTraceContext = false)
+  ```
+
+`PostRawAsync` sends bytes unchanged, so it adds no context. A message posted through the [transactional outbox](transactional-outbox.md) carries the context of the code that wrote it (for example the web request), not of the dispatcher.
 
 ## Logging
 

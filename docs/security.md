@@ -4,6 +4,8 @@
 
 Out of the box, NymBroker is set up for the local Docker containers in `scripts/`: plaintext RabbitMQ, a SQL Server connection that skips certificate verification, and well-known passwords. Before production, every transport needs an encrypted, verified connection, a least-privilege identity, and secrets from a secret store. This page shows how for each endpoint, and what else can leak.
 
+> **Trace context.** Envelopes carry the sender's W3C `traceParent` / `traceState` ([Observability](observability.md#trace-context-across-messages)). If messages leave your trust boundary, turn it off with `.ConfigureTracing(o => o.PropagateTraceContext = false)`.
+
 > **The defaults are for local development only.** `SqlServerSettings`, `SqlServerIdempotencySettings`, `SqlServerScheduleStoreSettings` and `SqlServerOutboxSettings` default to `Server=localhost,1433;…;User Id=sa;Password=NymBroker!Dev123;TrustServerCertificate=True`, `PostgresSettings` to `…Username=postgres;Password=postgres`, and `RabbitMqSettings` to `guest` / `guest` without TLS. Always set the connection settings explicitly in production; never rely on a default.
 
 ## Checklist

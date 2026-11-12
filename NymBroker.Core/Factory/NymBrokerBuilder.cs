@@ -38,6 +38,7 @@ public sealed partial class NymBrokerBuilder
     private string? _deadLetterEndpoint;
     private TimeSpan? _maxMessageAge;
     private readonly BrokerHealthCheckOptions _healthCheckOptions = new();
+    private readonly Diagnostics.TracingOptions _tracingOptions = new();
     private bool _idempotentReceiver;
     private bool _built;
 
@@ -285,6 +286,20 @@ public sealed partial class NymBrokerBuilder
     {
         ArgumentNullException.ThrowIfNull(configure);
         configure(_healthCheckOptions);
+        return this;
+    }
+
+    /// <summary>
+    /// Configures W3C trace context propagation through the envelope: whether sent envelopes carry
+    /// <c>traceParent</c> / <c>traceState</c>, and whether a consumer continues that context as parent or link.
+    /// Can be called more than once.
+    /// </summary>
+    public NymBrokerBuilder ConfigureTracing(Action<Diagnostics.TracingOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        configure(_tracingOptions);
+        if (!Enum.IsDefined(_tracingOptions.Continuation))
+            throw new ArgumentOutOfRangeException(nameof(configure), _tracingOptions.Continuation, "Unknown TraceContinuation.");
         return this;
     }
 

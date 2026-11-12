@@ -73,6 +73,7 @@ services.AddNymBroker()
 ```
 
 - The result goes through the rest of the pipeline exactly like a normal message: consumers receive the typed `OrderCreated`.
+- If the external message carries a W3C trace context (for example a `traceparent` field or header the other system wrote), set `TraceParent` and `TraceState` on the `RawMessageContext`: the consumer's activity then continues that trace. An invalid value is ignored.
 - Returning `null` drops the input without logging; log inside the transformer if you need a trace. A transformer that **throws** counts as a processing failure and is retried by transports that can.
 - To push raw input yourself, post it with `PostRawAsync(endpoint, bytes)` — see [Sending messages](sending-messages.md#pre-serialized-bytes). The `samples/NymBroker.CsvSample` project shows the full flow.
 

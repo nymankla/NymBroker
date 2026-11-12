@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Diagnostics.CodeAnalysis;
+using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Message;
 
 namespace NymBroker.Core.Serialize;
@@ -59,6 +60,7 @@ public sealed class MessageSerializerJson : IMessageSerializer
             WriteValue(writer, "address", context.Address, typeof(EndpointAddress));
             writer.WriteString("messageType", context.MessageType);
             writer.WriteString("created", context.Created);
+            WriteTraceContext(writer, context);
             writer.WritePropertyName("message");
             JsonSerializer.Serialize(writer, message, _options.GetTypeInfo(typeof(TMessage)));
             if (context.DeadLetter is not null)
@@ -66,6 +68,15 @@ public sealed class MessageSerializerJson : IMessageSerializer
             writer.WriteEndObject();
         }
         return stream.ToArray();
+    }
+
+    /// <summary>Before <c>message</c>, so a reader meets it early; absent when the context has none (older envelopes look the same).</summary>
+    private static void WriteTraceContext(Utf8JsonWriter writer, IMessageContext context)
+    {
+        if (context.TraceParent is null) return;
+        writer.WriteString("traceParent", context.TraceParent);
+        if (context.TraceState is not null)
+            writer.WriteString("traceState", context.TraceState);
     }
 
     private void WriteValue<T>(Utf8JsonWriter writer, string name, T? value, Type type)
@@ -108,6 +119,7 @@ public sealed class MessageSerializerJson : IMessageSerializer
     {
         if (dto is null) throw new InvalidOperationException("Failed to deserialize message context.");
 
+        var trace = TraceContext.Sanitize(dto.TraceParent, dto.TraceState);   // malformed or oversized context is dropped
         return new RawMessageContext
         {
             Id = dto.Id,
@@ -116,6 +128,8 @@ public sealed class MessageSerializerJson : IMessageSerializer
             MessageType = dto.MessageType,
             Created = dto.Created,
             DeadLetter = dto.DeadLetter,
+            TraceParent = trace.TraceParent,
+            TraceState = trace.TraceState,
             RawMessage = dto.Message
         };
     }

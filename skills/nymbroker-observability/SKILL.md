@@ -31,7 +31,7 @@ builder.Services.AddOpenTelemetry()
         .AddOtlpExporter());
 ```
 
-Add the instrumentations the app already uses (ASP.NET Core, HttpClient, SQL client) so a message's trace shows its database and HTTP calls: each processed message is an activity `nymbroker.process` (kind consumer) and work inside the consumer becomes its children. Tags: `nymbroker.source`, `messaging.message.id`, `messaging.conversation_id` (correlation id), `messaging.message.type`, `error.type`.
+Add the instrumentations the app already uses (ASP.NET Core, HttpClient, SQL client) so a message's trace shows its database and HTTP calls: each processed message is an activity `nymbroker.process` (kind consumer) and work inside the consumer becomes its children. Tags: `nymbroker.source`, `messaging.message.id`, `messaging.conversation_id` (correlation id), `messaging.message.type`, `error.type`. Every post, batch, route/topic forward and dead-letter copy is an activity `nymbroker.send` (kind producer, `messaging.destination.name`), and the envelope carries its W3C trace context (`traceParent` / `traceState`), so a consumer in another app continues the producer's trace on every transport. Options: `.ConfigureTracing(o => o.Continuation = TraceContinuation.Link)` for a new trace per message linked to the producer (long or fan-out flows); `o.PropagateTraceContext = false` when messages leave the trust boundary (namespace `NymBroker.Core.Diagnostics`). Details: `docs/observability.md#trace-context-across-messages`.
 
 Key instruments (meter `NymBroker`):
 

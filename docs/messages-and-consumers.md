@@ -33,6 +33,7 @@ On the wire every message is a JSON envelope:
   "address": { "to": "Orders", "from": "WebApi" },
   "messageType": "order.created",
   "created": "2026-10-06T08:15:00Z",
+  "traceParent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
   "message": { "orderId": "ORD-1", "customer": "Alice", "amount": 49.9, "priority": "high" }
 }
 ```
@@ -45,6 +46,7 @@ On the wire every message is a JSON envelope:
 | `messageType` | The type name described above. |
 | `created` | UTC creation time; used for message expiry (TTL) and age-based routes. |
 | `message` | Your message. |
+| `traceParent` / `traceState` | The W3C trace context of the activity that sent the message, when there was one; the consumer continues that trace. Absent otherwise (see [Observability](observability.md#trace-context-across-messages)). |
 | `deadLetter` | Only on dead-lettered messages: why it failed (see [Reliability](reliability.md#why-a-message-was-dead-lettered)). |
 
 The broker writes and reads the envelope for you; you only see it if you inspect a queue or table directly, or post raw bytes yourself.
@@ -95,6 +97,7 @@ Every consumer and subscriber call receives the envelope's metadata:
 | `MessageType` | `string?` | Wire type name |
 | `Created` | `DateTime` | UTC creation time |
 | `DeadLetter` | `DeadLetterInfo?` | Set only when the message was dead-lettered — useful when consuming from a dead-letter endpoint |
+| `TraceParent` / `TraceState` | `string?` | The sender's W3C trace context, if any; the consumer's activity already continues it |
 
 `context.Address.From` is how one consumer can behave differently depending on where a message came from — for example a consumer that also reads from a dead-letter endpoint. It is always the endpoint the broker received the message on, never a value from the sender, and `null` for a message published with `PublishAsync`, which no endpoint received.
 

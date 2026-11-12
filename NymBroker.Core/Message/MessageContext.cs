@@ -1,3 +1,4 @@
+using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Serialize;
 
 namespace NymBroker.Core.Message;
@@ -9,7 +10,7 @@ internal interface ITypedMessageContext
     byte[] SerializeEnvelope(MessageSerializerJson serializer);
 }
 
-public sealed class MessageContext<T> : IMessageContext<T>, ITypedMessageContext where T : class
+public sealed class MessageContext<T> : IMessageContext<T>, ITypedMessageContext, ITraceCarrier where T : class
 {
     public Guid Id { get; } = Guid.NewGuid();
     public Guid CorrelationId { get; set; } = Guid.NewGuid();
@@ -17,6 +18,9 @@ public sealed class MessageContext<T> : IMessageContext<T>, ITypedMessageContext
     public string? MessageType { get; set; } = MessageTypeName.Get(typeof(T));
     public DateTime Created { get; set; } = DateTime.UtcNow;
     public DeadLetterInfo? DeadLetter { get; set; }
+    /// <summary>Set by the broker when it sends the message; see <see cref="IMessageContext.TraceParent"/>.</summary>
+    public string? TraceParent { get; set; }
+    public string? TraceState { get; set; }
     public T? Message { get; set; }
 
     bool ITypedMessageContext.HasMessage => Message is not null;

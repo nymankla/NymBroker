@@ -90,16 +90,19 @@ internal sealed partial class NymBrokerImpl
             _logger.LogError("Dead letter endpoint '{Endpoint}' not found", _deadLetterEndpoint);
             return ProcessResult.Retry(description: $"Dead letter endpoint '{_deadLetterEndpoint}' not found.");
         }
+        using var activity = StartSendActivity(_deadLetterEndpoint, context: null);
         try
         {
             var info = new DeadLetterInfo(cause.Reason, cause.Description, cause.Exception?.GetType().FullName, sourceEndpoint, DateTime.UtcNow);
-            await SendAsync(_deadLetterEndpoint, dlq, DeadLetterEnvelope.Annotate(raw, info), ct);
+            var envelope = DeadLetterEnvelope.AnnotateWithTrace(raw, info, TraceContext.Outgoing(_tracing.PropagateTraceContext));
+            await SendAsync(_deadLetterEndpoint, dlq, envelope, ct);
             RecordDeadLettered(cause.Reason, sourceEndpoint, "broker");
             _logger.LogWarning("Message dead-lettered to endpoint '{Endpoint}' ({Reason}: {Description})", _deadLetterEndpoint, cause.Reason, cause.Description);
             return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
+            RecordSendFailure(activity, ex);
             _logger.LogError(ex, "Failed to post message to dead letter endpoint '{Endpoint}'; returning Retry to the source endpoint", _deadLetterEndpoint);
             return ProcessResult.Retry(ex);
         }

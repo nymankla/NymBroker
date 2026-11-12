@@ -46,3 +46,23 @@ NymBroker.Core.Outbox.OutboxOptions.PollInterval.set -> void
 NymBroker.Core.Outbox.OutboxOptions.RetryDelay.get -> System.TimeSpan
 NymBroker.Core.Outbox.OutboxOptions.RetryDelay.set -> void
 NymBroker.Core.Outbox.OutboxOptions.Validate() -> void
+NymBroker.Core.Diagnostics.TraceContinuation
+NymBroker.Core.Diagnostics.TraceContinuation.Link = 1 -> NymBroker.Core.Diagnostics.TraceContinuation
+NymBroker.Core.Diagnostics.TraceContinuation.Parent = 0 -> NymBroker.Core.Diagnostics.TraceContinuation
+NymBroker.Core.Diagnostics.TracingOptions
+NymBroker.Core.Diagnostics.TracingOptions.Continuation.get -> NymBroker.Core.Diagnostics.TraceContinuation
+NymBroker.Core.Diagnostics.TracingOptions.Continuation.set -> void
+NymBroker.Core.Diagnostics.TracingOptions.PropagateTraceContext.get -> bool
+NymBroker.Core.Diagnostics.TracingOptions.PropagateTraceContext.set -> void
+NymBroker.Core.Diagnostics.TracingOptions.TracingOptions() -> void
+NymBroker.Core.Factory.NymBrokerBuilder.ConfigureTracing(System.Action<NymBroker.Core.Diagnostics.TracingOptions!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Message.IMessageContext.TraceParent.get -> string?
+NymBroker.Core.Message.IMessageContext.TraceState.get -> string?
+NymBroker.Core.Message.MessageContext<T>.TraceParent.get -> string?
+NymBroker.Core.Message.MessageContext<T>.TraceParent.set -> void
+NymBroker.Core.Message.MessageContext<T>.TraceState.get -> string?
+NymBroker.Core.Message.MessageContext<T>.TraceState.set -> void
+NymBroker.Core.Serialize.RawMessageContext.TraceParent.get -> string?
+NymBroker.Core.Serialize.RawMessageContext.TraceParent.set -> void
+NymBroker.Core.Serialize.RawMessageContext.TraceState.get -> string?
+NymBroker.Core.Serialize.RawMessageContext.TraceState.set -> void

@@ -18,6 +18,7 @@ using NymBroker.Core.Resilience;
 
 namespace NymBroker.Tests;
 
+[Collection(ActivityListenerCollection.Name)]
 public sealed class ObservabilityTests
 {
     private sealed class ObservedMessage

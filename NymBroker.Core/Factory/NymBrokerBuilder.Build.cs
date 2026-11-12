@@ -91,6 +91,11 @@ public sealed partial class NymBrokerBuilder
         private readonly bool _idempotentReceiver = builder._idempotentReceiver;
         private readonly bool _scheduleStore = builder._scheduleStore;
         private readonly BrokerHealthCheckOptions _healthCheckOptions = builder._healthCheckOptions;
+        private readonly Diagnostics.TracingOptions _tracingOptions = new()
+        {
+            PropagateTraceContext = builder._tracingOptions.PropagateTraceContext,
+            Continuation = builder._tracingOptions.Continuation
+        };
 
         public NymBrokerImpl CreateBroker(IServiceProvider sp)
         {
@@ -167,6 +172,7 @@ public sealed partial class NymBrokerBuilder
                 broker.SetIdempotencyStore(sp.GetRequiredService<IIdempotencyStore>());
 
             broker.ConfigureHealthCheck(_healthCheckOptions);
+            broker.ConfigureTracing(_tracingOptions);
         }
 
         /// <summary>Config-based topics: resolves each message type string to a CLR type through the registry.</summary>

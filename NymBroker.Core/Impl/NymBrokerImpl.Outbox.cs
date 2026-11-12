@@ -13,7 +13,8 @@ internal sealed partial class NymBrokerImpl
         var context = NewContext(message, endpointName);
         if (deliverAt is { } due && due.UtcDateTime > context.Created) context.Created = due.UtcDateTime;
 
-        return new OutboxMessage(endpointName, _serializer.SerializeRegistered(context), deliverAt);
+        // The context of the caller (e.g. the web request) that writes the message: the consumer continues its trace.
+        return new OutboxMessage(endpointName, SerializeOutgoing(context), deliverAt);
     }
 
     internal OutboxMessage CreateRawOutboxMessage(string endpointName, ReadOnlyMemory<byte> message)

@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Text;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Aggregator;
 using NymBroker.Core.Diagnostics;
@@ -22,15 +23,15 @@ internal sealed partial class NymBrokerImpl
         var tags = new TagList { { "source", sourceEndpoint ?? "unknown" } };
         NymBrokerDiagnostics.MessagesReceived.Add(1, tags);
         var startedAt = Stopwatch.GetTimestamp();
-        using var activity = NymBrokerActivitySource.Source.StartActivity("nymbroker.process", ActivityKind.Consumer);
-        activity?.SetTag("messaging.system", "nymbroker");
-        activity?.SetTag("nymbroker.source", sourceEndpoint);
+        // Decoded first, so the activity can continue the trace context the envelope carries.
+        var decoding = Decode(raw, sourceEndpoint);
+        using var activity = StartProcessActivity(sourceEndpoint, decoding.Context);
         var run = new ProcessingRun(sourceEndpoint, UsesNativeDeadLetter(sourceEndpoint), activity, tags);
 
         var resultTag = "cancelled";
         try
         {
-            var result = await ProcessMessageAsync(raw, run, ct);
+            var result = await ProcessMessageAsync(raw, decoding, run, ct);
             resultTag = ResultTag(result.Outcome);
             return result;
         }
@@ -77,15 +78,16 @@ internal sealed partial class NymBrokerImpl
         }
     }
 
-    private async Task<ProcessResult> ProcessMessageAsync(byte[] raw, ProcessingRun run, CancellationToken ct)
+    private async Task<ProcessResult> ProcessMessageAsync(byte[] raw, Decoding decoding, ProcessingRun run, CancellationToken ct)
     {
         await WireTapAsync(raw, ct);
 
-        var decoded = Decode(raw, run, out var decodeError);
+        decoding.TransformerFailure?.Throw();   // as if thrown here: ProcessAsync logs it and returns Retry
+        var decoded = decoding.Context;
         if (decoded == null)
-            return decodeError == null
-                ? ProcessResult.Completed   // the input transformer dropped it
-                : await DeadLetterAsync(raw, run, DeadLetterCause.Of(DeadLetterReasons.DeserializationFailed, decodeError), ct);
+            return decoding.DeserializeError is { } error
+                ? await DeadLetterUndecodableAsync(raw, error, run, ct)
+                : ProcessResult.Completed;   // the input transformer dropped it
 
         StampReceived(decoded, run);
         using var logScope = _logger.BeginScope(new MessageLogScope(decoded, run.Source));
@@ -140,29 +142,34 @@ internal sealed partial class NymBrokerImpl
     }
 
     /// <summary>
-    /// Decodes the raw bytes with the source's input transformer, the global one, or the envelope serializer.
-    /// Returns null when a transformer drops the message (<paramref name="error"/> null) or the envelope
-    /// cannot be deserialized (<paramref name="error"/> set, failure logged and recorded).
+    /// The received bytes decoded before processing starts. <see cref="Context"/> is null when a transformer dropped the
+    /// message, the envelope could not be deserialized (<see cref="DeserializeError"/>), or the transformer threw
+    /// (<see cref="TransformerFailure"/>, rethrown once processing has started).
     /// </summary>
-    private IMessageContext? Decode(byte[] raw, ProcessingRun run, out Exception? error)
+    private readonly record struct Decoding(IMessageContext? Context, Exception? DeserializeError, ExceptionDispatchInfo? TransformerFailure);
+
+    /// <summary>Decodes the raw bytes with the source's input transformer, the global one, or the envelope serializer. Never throws.</summary>
+    private Decoding Decode(byte[] raw, string? sourceEndpoint)
     {
-        error = null;
-        var sourceEndpoint = run.Source;
         var transformer = sourceEndpoint != null && _endpointTransformers.TryGetValue(sourceEndpoint, out var epT)
             ? epT
             : _globalInputTransformer;
 
         if (transformer != null)
-            return transformer.Transform(raw.AsSpan(), sourceEndpoint);
-
-        try { return _serializer.Deserialize(raw.AsSpan()); }
-        catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deserialize message from {Source}", sourceEndpoint);
-            run.RecordFailure(ex);
-            error = ex;
-            return null;
+            try { return new Decoding(transformer.Transform(raw.AsSpan(), sourceEndpoint), null, null); }
+            catch (Exception ex) { return new Decoding(null, null, ExceptionDispatchInfo.Capture(ex)); }
         }
+
+        try { return new Decoding(_serializer.Deserialize(raw.AsSpan()), null, null); }
+        catch (Exception ex) { return new Decoding(null, ex, null); }
+    }
+
+    private Task<ProcessResult> DeadLetterUndecodableAsync(byte[] raw, Exception error, ProcessingRun run, CancellationToken ct)
+    {
+        _logger.LogError(error, "Failed to deserialize message from {Source}", run.Source);
+        run.RecordFailure(error);
+        return DeadLetterAsync(raw, run, DeadLetterCause.Of(DeadLetterReasons.DeserializationFailed, error), ct);
     }
 
     private static void StampReceived(IMessageContext context, ProcessingRun run)
@@ -225,7 +232,7 @@ internal sealed partial class NymBrokerImpl
         ProcessResult result;
         try
         {
-            result = await ProcessMessageAsync(decoded, run, ct);
+            result = await ProcessMessageAsync(decoded, Decode(decoded, run.Source), run, ct);
         }
         catch
         {
