@@ -444,7 +444,7 @@ public sealed class BrokeredQueueEndPoint : IEndPointEventDriven
         _listeningCts = null;
     }
 
-    // Runs the probe with a 5 s timeout; a failure is logged at Error and reported unhealthy. Never throws.
+    // Runs the probe with a 5 s timeout; reports failures and propagates caller cancellation.
     public Task<IHealthCheckResult> HealthCheckAsync(CancellationToken cancellationToken = default)
         => HealthCheckResult.FromProbeAsync("Brokered queue", _name, _logger, ct => _client.PingAsync(ct),
             cancellationToken: cancellationToken);
@@ -460,7 +460,7 @@ What this sample adds beyond Sample B:
 - **Separate poll errors from message errors.** A failed `ReceiveBatchAsync` is a transport problem: log it, back off, retry. A `Retry` or `DeadLetter` result is a message problem: settle that message and continue with the batch.
 - **Handle poison messages.** Repeated `Retry`s should eventually stop. Rely on the queue's max-delivery-count / dead-letter feature if it has one. Otherwise, check `DeliveryCount` and mark the message failed yourself, the way the SQL endpoints use `MaxRetryCount`, and log at `Warning` when you do.
 - **Retry with `RetryPolicy`.** Use `RetryPolicy` (`NymBroker.Core.Resilience`) for transient send and reconnect failures. Build one policy per endpoint and reuse it; `OnRetry` must log. Don't add Polly. See [Retry policy](resilience.md) for every option. If the client SDK already retries transient faults (the Azure SDKs do, as in `AzureServiceBusEndPoint`), don't wrap it in a second retry loop.
-- **Keep the health check bounded and asynchronous.** A probe that contacts the server belongs in `HealthCheckAsync`, through `HealthCheckResult.FromProbeAsync`: it adds the 5 s timeout, logs a failure and never throws. Implement `HealthCheck()` by waiting for it.
+- **Keep the health check bounded and asynchronous.** A probe that contacts the server belongs in `HealthCheckAsync`, through `HealthCheckResult.FromProbeAsync`: it adds the 5 s timeout and logs and reports a failure; cancellation of the caller's token propagates. Implement `HealthCheck()` by waiting for it.
 - **Drain back to back.** Wait `PollInterval` only after a poll that returned nothing. Waiting after every batch caps throughput at `BatchSize / PollInterval`: about 100 msg/s with the defaults.
 - **For a database-backed queue, batch the round trips.** The SQL endpoints in this repo (`SqliteEndPoint`, `PostgresEndPoint`, `SqlServerEndPoint`, `MySqlEndPoint`) all use the same patterns:
   - claim a batch in one statement;
@@ -660,7 +660,7 @@ Tests run in parallel. Use a unique name, port or table per test, and filter any
 - [ ] `OperationCanceledException` is swallowed only at shutdown boundaries; unexpected loop death is logged at `Critical`.
 - [ ] No silent catches: every `catch` logs.
 - [ ] `StopListeningAsync` stops receiving and awaits the loop.
-- [ ] The health check is bounded, never throws, and reports a dead listener; a server probe is in `HealthCheckAsync` (`FromProbeAsync`).
+- [ ] The health check is bounded, reports failures and a dead listener, and propagates caller cancellation; a server probe is in `HealthCheckAsync` (`FromProbeAsync`).
 - [ ] Transient failures use `NymBroker.Core.Resilience.RetryPolicy` with a logging `OnRetry`.
 - [ ] Builder extension calls both `Services.AddKeyedSingleton<IEndPoint>(name, …)` and `RegisterEndpoint(name)`.
 - [ ] Tests use no external infrastructure and are safe to run in parallel.

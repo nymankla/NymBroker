@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected documentation for tracing and raw-message privacy, pipeline ordering, retry settlement, outbox delivery, health checks, and queue listener internals.
+
 ## [0.23.0] - 2026-11-12
 
 ### Added

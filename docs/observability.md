@@ -24,7 +24,7 @@ Meter `NymBroker`:
 | `nymbroker.messages.failed` | counter | processing failures | `source` |
 | `nymbroker.messages.dead_lettered` | counter | dead-lettered messages | `reason`, `source`, `mode` (`broker`/`native`) |
 | `nymbroker.messages.duplicates` | counter | duplicates dropped by the [idempotent receiver](reliability.md#duplicate-detection) | `source` |
-| `nymbroker.message.processing.duration` | histogram (ms) | time to process one message | `source`, `outcome` (`success`/`failure`), `result` (`completed`/`retry`/`dead_letter`) |
+| `nymbroker.message.processing.duration` | histogram (ms) | time to process one message | `source`, `outcome` (`success`/`failure`), `result` (`completed`/`retry`/`dead_letter`/`cancelled`) |
 | `nymbroker.message.age` | histogram (s) | time from the envelope's `created` to the start of processing; not recorded when `created` is missing, never negative | `source` |
 | `nymbroker.health.checks` | counter | [health checks](#health-checks) run | `status` (`healthy`/`degraded`/`unhealthy`) |
 | `nymbroker.health.endpoint.failures` | counter | endpoints reported unhealthy by a health check | `endpoint`, `critical` (`true`/`false`), `reason` (`unhealthy`/`timeout`/`error`) |
@@ -51,7 +51,7 @@ Useful views:
 
 ## Traces
 
-Every processed message gets an activity `nymbroker.process` (kind *consumer*) from the source `NymBroker`, with these tags:
+When a listener samples the `NymBroker` activity source, processing can create an activity `nymbroker.process` (kind *consumer*) with these tags:
 
 | Tag | Value |
 |---|---|
@@ -65,7 +65,7 @@ Every processed message gets an activity `nymbroker.process` (kind *consumer*) f
 
 Activities started inside consumers (HTTP calls, database commands) become children of it, so a trace shows everything one message caused.
 
-Every send gets an activity `nymbroker.send` (kind *producer*): `PostAsync`, `PostDeferredAsync`, `PostBatchAsync` (one for the batch, tagged `messaging.batch.message_count`), each route and topic endpoint a received message is forwarded to, and the copy sent to the broker's dead-letter endpoint. Tags: `messaging.system`, `messaging.operation.type` = `send`, `messaging.destination.name`, and for a single message `messaging.message.id`, `messaging.conversation_id`, `messaging.message.type`; `error.type` when the send failed.
+With a listener sampling the source, typed `PostAsync`, `PostDeferredAsync`, `PostBatchAsync` (one for the batch), each route or topic endpoint delivery, and the broker's dead-letter copy can create a `nymbroker.send` activity (kind *producer*). A batch of more than one message is tagged `messaging.batch.message_count`. Tags include `messaging.system`, `messaging.operation.type` = `send`, `messaging.destination.name`, and, where a single message context is available, `messaging.message.id`, `messaging.conversation_id`, `messaging.message.type`; `error.type` is set when the send failed. Raw posts, wire-tap copies and outbox writes do not start a send activity.
 
 ### Trace context across messages
 
@@ -87,17 +87,17 @@ http-request (producer app)
       .ConfigureTracing(o => o.Continuation = TraceContinuation.Link)
   ```
 
-- **Forwarding is hop by hop.** A route, topic endpoint or dead-letter copy carries the context of its own `nymbroker.send` activity, a child of the message's `nymbroker.process`. The wire tap is a byte-for-byte copy of the received message, so it carries the received context.
+- **Forwarding is hop by hop.** When send activities are created and propagation is enabled, a route, topic endpoint or dead-letter copy carries its own `nymbroker.send` context, a child of the message's `nymbroker.process`. The wire tap passes the original bytes to its destination, retaining the received context unless the destination has an output transformer.
 - **Retries.** Every delivery of a message is its own `nymbroker.process` activity under the same producer activity, so redeliveries show as siblings.
-- **Without a context** (an older envelope, a message from another system, a raw post) or with one that is not a valid W3C `traceparent`, the process activity starts as before: a child of the current activity if there is one, else a new trace. The message itself is processed normally. A `traceState` longer than 512 characters is dropped. An [input transformer](pipeline-extensions.md#input-transformers) can set `RawMessageContext.TraceParent` / `TraceState` from an external message's own trace header.
+- **Without a context** (for example an older envelope or a raw post without trace fields) or with one that is not a valid W3C `traceparent`, the process activity starts as before: a child of the current activity if there is one, else a new trace. The message itself is processed normally. A `traceState` longer than 512 characters is dropped. An [input transformer](pipeline-extensions.md#input-transformers) can set `RawMessageContext.TraceParent` / `TraceState` from an external message's own trace header.
 - **When nobody traces.** If an app has no listener for the `NymBroker` source (no OpenTelemetry), it creates no activities; the envelopes it posts carry the caller's current activity if any, and the messages it forwards keep the context they arrived with, so a trace survives a hop that is not instrumented.
-- **What it reveals.** `traceParent` holds random trace and span ids; `traceState` may hold vendor data. If messages leave your trust boundary (a partner's webhook, a shared queue), turn propagation off: envelopes are then sent without trace context, also when forwarded. Received context is still read.
+- **What it reveals.** `traceParent` holds random trace and span ids; `traceState` may hold vendor data. Turning propagation off removes trace context from envelopes the broker serializes, including route, topic and dead-letter forwards. Received context is still read. Raw posts and wire taps pass existing bytes through this setting, and an output transformer can produce its own content: sanitize these paths separately before crossing a trust boundary.
 
   ```csharp
   .ConfigureTracing(o => o.PropagateTraceContext = false)
   ```
 
-`PostRawAsync` sends bytes unchanged, so it adds no context. A message posted through the [transactional outbox](transactional-outbox.md) carries the context of the code that wrote it (for example the web request), not of the dispatcher.
+`PostRawAsync` and `PostRawDeferredAsync` do not add trace context to the supplied bytes; optional splitting and destination output transformers can still change what is sent. With propagation enabled and a current W3C activity, a typed message posted through the [transactional outbox](transactional-outbox.md) carries the context of the code that wrote it (for example the web request), not of the dispatcher; a raw outbox post retains its supplied bytes.
 
 ## Logging
 

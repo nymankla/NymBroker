@@ -8,9 +8,9 @@ This page explains what happens when handling fails, where failed messages end u
 
 ```mermaid
 flowchart LR
-    A["Received bytes"] --> B["Wire taps<br/>(raw copy)"]
-    B --> C["Deserialize<br/>(or input transformer)"]
-    C --> D["Expiry check<br/>(TTL)"]
+    A["Received bytes"] --> C["Deserialize<br/>(or input transformer)"]
+    C --> B["Wire taps<br/>(original bytes)"]
+    B --> D["Expiry check<br/>(TTL)"]
     D --> E["Filters"]
     E --> S["Reassemble split<br/>messages"]
     S --> I["Duplicate check<br/>(idempotent receiver)"]
@@ -18,7 +18,7 @@ flowchart LR
     F --> G["Result to the endpoint:<br/>Completed · Retry · DeadLetter"]
 ```
 
-Each step can end processing early: an undecodable or expired message is dead-lettered, a filter can drop a message, a failing consumer causes a retry.
+Deserialization happens first to recover trace context, but the wire tap receives the original bytes before a decode failure or input-transformer result is acted on. Subsequent steps can end processing early: an undecodable or expired message is dead-lettered, a filter can drop a message, and a failing consumer can cause a retry.
 
 ## Success, retry, dead letter
 
@@ -27,8 +27,8 @@ After processing, the broker gives the source endpoint one of three results, and
 | Result | When | What the transport does |
 |---|---|---|
 | **Completed** | handled successfully, or intentionally dropped (filtered, duplicate, no consumer) | ack / complete / mark the row Completed |
-| **Retry** | a consumer or topic subscriber threw, or a route's destination failed | redeliver later; dead-letter once the retry limit is reached |
-| **DeadLetter** | the message can never succeed: undecodable bytes, expired, unknown compression, or a consumer registered with `RetryOnFailure = false` threw | dead-letter immediately, with the reason |
+| **Retry** | for example, a consumer or topic failure on a native-dead-letter source, or a failed route destination | redeliver if the transport supports it; apply its retry limit |
+| **DeadLetter** | for example, undecodable or expired bytes on a native-dead-letter source, or a consumer registered with `RetryOnFailure = false` throwing there | dead-letter immediately, with the reason |
 
 ```mermaid
 flowchart TD
@@ -50,7 +50,7 @@ flowchart TD
 | Amazon SQS | visible again after `RetryDelay` (for a failed route destination; consumer failures go to the dead-letter endpoint) | broker dead-letter endpoint; messages redelivered too often go to the queue's redrive dead-letter queue | the redrive policy's `maxReceiveCount` ([SQS notes](endpoints-and-configuration.md#amazon-sqs-notes)) |
 | Memory, File | — (cannot redeliver) | broker dead-letter endpoint | none: failures go straight to the dead-letter endpoint |
 
-Set `UseNativeDeadLetter = false` on a RabbitMQ, Service Bus or SQL endpoint to make it behave like Memory/File: no retries, failures go to the broker's dead-letter endpoint.
+Set `UseNativeDeadLetter = false` on a RabbitMQ, Service Bus or SQL endpoint to send consumer and topic failures to the broker's dead-letter endpoint instead of retrying them through the transport. This does not disable every retry: a failed route destination or dead-letter post, for example, still returns `Retry` to the source transport.
 
 If the post to the dead-letter endpoint itself fails, the broker returns **Retry** instead of completing the message, so a transport that can redeliver keeps it. Memory and File cannot redeliver, so they log the loss. A type-based `PublishAsync` throws to the caller.
 
@@ -67,8 +67,8 @@ services.AddNymBroker()
 
 - From an endpoint with its own dead-letter queue the broker returns **DeadLetter** instead of **Retry**: a `Failed` row, the dead-letter exchange, the Service Bus dead-letter queue.
 - From Memory, File, Amazon SQS or an endpoint with `UseNativeDeadLetter = false` nothing changes: those failures already go straight to the broker's dead-letter endpoint.
-- The option applies to every message type the consumer handles, and only to the consumer. A topic subscriber or a route destination that fails still gives **Retry**.
-- Unlike `UseNativeDeadLetter = false`, which turns off retries for everything an endpoint receives, this is per consumer, and the message stays in the transport's own dead-letter queue.
+- The option applies to every message type the consumer handles, and only to the consumer. A failed route destination still gives **Retry**; a topic failure follows the source endpoint's normal settlement policy.
+- Unlike `UseNativeDeadLetter = false`, which changes settlement for consumer and topic failures from that endpoint, this is per consumer, and the message stays in the transport's own dead-letter queue.
 
 ## The broker's dead-letter endpoint
 

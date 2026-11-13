@@ -27,7 +27,7 @@ flowchart BT
 | Part | Role |
 |---|---|
 | `NymBroker.Core` | The broker engine (`NymBrokerImpl`, internal), the public `INymBroker` runtime API, `NymBrokerBuilder` (all configuration), serializer and envelope, routing, topics, consumers, idempotent receiver, scheduling, splitter and aggregator, health checks, the Memory and File endpoints, `RetryPolicy`, and the building blocks endpoint packages derive from. No transport dependency. |
-| `NymBroker.Endpoint.*` | One transport each. Queue-table endpoints (SQLite, PostgreSQL, SQL Server, MySQL) derive from Core's `LeasedQueueListener`; broker transports (RabbitMQ, Service Bus, SQS) push or poll natively; HTTP is send-only. |
+| `NymBroker.Endpoint.*` | One transport each. Queue-table endpoints (SQLite, PostgreSQL, SQL Server, MySQL) use a nested listener derived from Core's `LeasedQueueListener`; broker transports (RabbitMQ, Service Bus, SQS) push or poll natively; HTTP is send-only. |
 | `NymBroker.Idempotency.*`, `NymBroker.Scheduling.*`, `NymBroker.Outbox.*` | Durable stores behind Core's `IExpiringIdempotencyStore` (and `ITransactionalIdempotencyStore`), `IScheduleStore` and `IOutboxStore`, independent of the endpoint packages. Core's hosted `OutboxDispatcher` sends what the outbox stores hold. |
 | [`shared/`](../shared/README.md) | Internal source compiled into several packages through `Directory.Build.targets`: identifier quoting per database, the store plumbing, and queue inspection. Shares code without a shared package or public API. |
 | `NymBroker.Tests` | One xUnit project: unit tests always run; integration tests run when their `NYMBROKER_*` variable is set (`scripts/test-all.ps1` sets all of them). |
@@ -47,9 +47,9 @@ Every listener hands received bytes to `ProcessAsync`, which never throws (excep
 
 ```mermaid
 flowchart LR
-    R[received bytes] --> WT[WireTapAsync]
-    WT --> D[Decode<br/>input transformer or JSON]
-    D --> X[CheckExpired<br/>TTL]
+    R[received bytes] --> D[Decode<br/>input transformer or JSON]
+    D --> WT[WireTapAsync<br/>raw bytes]
+    WT --> X[CheckExpired<br/>TTL]
     X --> F[ApplyFilters]
     F --> SP{split part?}
     SP -- yes --> AG[ProcessSplitPartAsync<br/>reassemble, then start over]
@@ -60,7 +60,7 @@ flowchart LR
     RD --> CN[DispatchToConsumerAsync<br/>only if not routed or published]
 ```
 
-`ProcessAsync` decodes the bytes before it starts the `nymbroker.process` activity, so the activity can continue the W3C trace context the envelope carries ([Observability](observability.md#trace-context-across-messages)); the stages above then use that decoded result, the wire tap still first. Sends start `nymbroker.send` activities (`NymBrokerImpl.Tracing.cs`).
+`ProcessAsync` decodes the bytes before it starts the `nymbroker.process` activity, so the activity can continue the W3C trace context the envelope carries ([Observability](observability.md#trace-context-across-messages)). The wire tap then receives the original bytes before the decode result or a captured transformer failure is acted on. Instrumented sends start `nymbroker.send` activities (`NymBrokerImpl.Tracing.cs`).
 
 Which result each situation gets depends on whether the source endpoint dead-letters natively (the SQL tables, RabbitMQ and Service Bus do; Memory, File and SQS don't). The full table is in [Writing an endpoint](writing-an-endpoint.md#native-dead-lettering-usesnativedeadletter). For consumer and topic failures it is one rule in code: `SettlementFor` picks a `FailureSettlement` and `SettleFailureAsync` applies it. Every send — post, route, topic, wire tap, dead letter — goes through `SendAsync` / `SendBatchAsync`, so output transformers are never bypassed.
 
@@ -97,7 +97,7 @@ Above "acceptable" is the warning band: refactor. Ways out, in the order to try 
 
 Not gated on parameters: constructors (the DI container fills them) and public API whose signature can't change without a breaking release (`EndpointHandler.InvokeAsync`, `HealthCheckResult.FromProbeAsync`, `INymBroker.PostBatchAsync`; the list is `ParameterExceptions` in the test).
 
-**The limits are a ratchet.** If a change pushes something over a limit, split it; never raise the limit. When the worst value drops, lower the limit towards the top of the acceptable band. As of November 2026 every limit holds; the worst values are 47 lines, cyclomatic 10, cognitive 14, nesting 3, and a 437-line type, with 0.95 % duplication.
+**The limits are a ratchet.** If a change pushes something over a limit, split it; never raise the limit. When the worst value drops, lower the limit towards the top of the acceptable band. In the November 2026 measurement every limit held; the worst values were 47 lines, cyclomatic 10, cognitive 14, nesting 3, and a 431-line type, with 0.80 % duplication. Re-run the report below for current values.
 
 Running it:
 

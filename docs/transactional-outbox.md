@@ -73,7 +73,7 @@ With ADO.NET, pass the `SqlTransaction` (or `NpgsqlTransaction`, ...) itself. `I
 | `PostDeferredAsync<T>(endpoint, message, deliverAt, transaction, ct)` | `INymBroker.PostDeferredAsync`: the message waits **in the outbox table** until it is due, so the wait is durable for every endpoint, including those that cannot defer |
 | `PostRawAsync(endpoint, bytes, transaction, ct)` | `INymBroker.PostRawAsync` |
 
-The envelope, and so the message id, is created by the call. An unknown or read-only endpoint, or a byte array posted as a
+For a typed post, the envelope and message id are created by the call; a raw post stores the supplied bytes. An unknown or read-only endpoint, or a byte array posted as a
 typed message, throws at once, before anything is written. Output transformers run when the message is sent. Splitting
 (`splitThresholdBytes`) is not available through the outbox.
 
@@ -89,7 +89,7 @@ A hosted service, started after the broker and stopped before it, runs on every 
 When a batch was full it goes on at once; otherwise it waits `PollInterval`. A failed send is retried after `RetryDelay`
 (1 s), doubled after each further failure up to `MaxRetryDelay` (5 min). After `MaxAttempts` (10), the row is kept with
 status 2 (failed) and its last error, and the dispatcher logs an error. A row for an endpoint that is no longer registered
-is marked failed at once. A failure to read the table is logged and tried again after 5 seconds.
+is marked failed at once. A failure to read the table is logged and tried again after the greater of 5 seconds and `PollInterval`.
 
 On shutdown, rows that were claimed but not sent are handed back for the next claim, so they are not held until the lease
 expires.

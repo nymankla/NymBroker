@@ -31,7 +31,7 @@ builder.Services.AddOpenTelemetry()
         .AddOtlpExporter());
 ```
 
-Add the instrumentations the app already uses (ASP.NET Core, HttpClient, SQL client) so a message's trace shows its database and HTTP calls: each processed message is an activity `nymbroker.process` (kind consumer) and work inside the consumer becomes its children. Tags: `nymbroker.source`, `messaging.message.id`, `messaging.conversation_id` (correlation id), `messaging.message.type`, `error.type`. Every post, batch, route/topic forward and dead-letter copy is an activity `nymbroker.send` (kind producer, `messaging.destination.name`), and the envelope carries its W3C trace context (`traceParent` / `traceState`), so a consumer in another app continues the producer's trace on every transport. Options: `.ConfigureTracing(o => o.Continuation = TraceContinuation.Link)` for a new trace per message linked to the producer (long or fan-out flows); `o.PropagateTraceContext = false` when messages leave the trust boundary (namespace `NymBroker.Core.Diagnostics`). Details: `docs/observability.md#trace-context-across-messages`.
+Add the instrumentations the app already uses (ASP.NET Core, HttpClient, SQL client) so a message's trace shows its database and HTTP calls. With a listener sampling `NymBroker`, processing can create `nymbroker.process` (kind consumer); typed posts, batches, route/topic forwards and broker dead-letter copies can create `nymbroker.send` (kind producer). The broker can carry W3C context (`traceParent` / `traceState`) in its envelopes across transports. Raw posts, wire-tap copies and outbox writes do not start send activities. Options: `.ConfigureTracing(o => o.Continuation = TraceContinuation.Link)` for a new trace linked to the producer; `o.PropagateTraceContext = false` stops stamping or forwarding context in broker-serialized envelopes (namespace `NymBroker.Core.Diagnostics`). It does not sanitize raw posts or wire-tap copies: inspect and sanitize those separately before crossing a trust boundary. Details: `docs/observability.md#trace-context-across-messages`.
 
 Key instruments (meter `NymBroker`):
 
@@ -46,9 +46,9 @@ Key instruments (meter `NymBroker`):
 | `nymbroker.messages.routed` (`destination`, `via`) | where routed/topic copies go |
 | `nymbroker.messages.duplicates` | duplicates dropped by the idempotent receiver |
 | `nymbroker.health.status` (gauge 0/1/2), `nymbroker.health.endpoint.failures` | health over time (recorded when a health check runs) |
-| `nymbroker.retries` (meter `NymBroker.Resilience`) | File/RabbitMQ reconnect and IO retries |
+| `nymbroker.retries` (meter `NymBroker.Resilience`) | RetryPolicy attempts, including transport, HTTP and broker-held deferred sends |
 
-Queue backlog is **not** measured by the broker — use the transport's metrics (Service Bus / RabbitMQ) or a query on rows with `status = 0`.
+For SQL queues, `broker.GetQueueInspector("Orders")?.GetCountsAsync(ct)` exposes counts when the endpoint supports inspection. For other transports use their own metrics (for example Service Bus or RabbitMQ).
 
 ## 3. Health checks (ASP.NET Core)
 
@@ -73,10 +73,10 @@ app.MapHealthChecks("/health/live", new() { Predicate = _ => false });   // live
 - The check is `Unhealthy` when the broker isn't started or any critical endpoint can't reach its server; `Degraded` when only non-critical ones fail. `Data` lists each endpoint's status.
 - Use it for **readiness**, not liveness — a database outage shouldn't restart every pod.
 - `Build()` throws if `NonCritical` names an unknown endpoint.
-- In a worker without ASP.NET Core, call `await broker.CheckHealthAsync(ct)` (returns `BrokerHealthReport`; never throws) from your own probe or a timer, or add a minimal health endpoint.
+- In a worker without ASP.NET Core, call `await broker.CheckHealthAsync(ct)` (returns `BrokerHealthReport`; caller cancellation propagates) from your own probe or a timer, or add a minimal health endpoint.
 - Checks contact external systems; probe every few seconds at most.
 
-Queue status without the transport's tables (SQLite, PostgreSQL, SQL Server and MySQL endpoints; `null` for the others): 
+Queue inspection is available for SQLite, PostgreSQL, SQL Server and MySQL endpoints; `GetQueueInspector` returns `null` for the others. See `docs/observability.md#queue-inspection` for counts and paging.
 
 ## 4. Logging
 

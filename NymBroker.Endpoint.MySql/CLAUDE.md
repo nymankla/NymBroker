@@ -13,7 +13,7 @@
 - **Schema**: InnoDB, clustered `queue_id BIGINT AUTO_INCREMENT`; `message_id BINARY(16)` (written as `Guid.ToByteArray()`, read as bytes — independent of MySqlConnector's `GuidFormat`), `payload LONGBLOB` (bytes unchanged), `last_error MEDIUMTEXT` (an exception text can exceed `TEXT`'s 64 KB, and strict mode would then fail the finalize forever), `DATETIME(6)` times from `UTC_TIMESTAMP(6)`. `CREATE TABLE IF NOT EXISTS` with the index inline (MySQL has no `CREATE INDEX IF NOT EXISTS`). `TableName` is `table` or `db.table`, each part `^[A-Za-z_][A-Za-z0-9_$]*$`, backtick-quoted; validated at registration and in the constructor.
 - **Inserts**: one autocommit `INSERT` per `PostAsync`; `PostBatchAsync` is one multi-row `INSERT` (atomic; AUTO_INCREMENT values follow the VALUES order).
 - **Connections**: one pooled `MySqlConnection` per operation (not thread-safe). Polls on a timer when idle (no LISTEN/NOTIFY).
-- JSON for `@items` uses reflection-based `System.Text.Json`, like the SQL Server and Postgres endpoints.
+- JSON for `@items` uses reflection-based `System.Text.Json`, like the SQL Server endpoint. PostgreSQL finalizes through typed arrays instead of JSON.
 
 **Deferred messages** wait in `<table>_deferred` with an index on the due time, never in the queue table: the claim index and plan don't change, however many wait, and older package versions never deliver them early. `LockDue` + `PromoteDue` move them in a transaction of their own (two round trips, `SKIP LOCKED`, `ROLLBACK` on failure); `LeasedQueueListener` decides when.
 
