@@ -13,7 +13,7 @@ Docs: https://github.com/nymankla/NymBroker/blob/master/docs/user-guide.md · Pa
 
 Inspect the project first so you only ask what the code doesn't answer:
 
-- The target framework must be **net11.0** or later. If it's older, stop and tell the user NymBroker requires .NET 11.
+- The target framework must be **net11.0** or later. If it's older, stop and tell the user NymBroker requires .NET 11. An app that must stay on net10.0 can use NymBroker 0.24.x, the last release for .NET 10 (pin `Version="0.24.*"`); the APIs these skills describe may not all exist there.
 - Host type: `WebApplication.CreateBuilder` (ASP.NET Core), `Host.CreateApplicationBuilder` / `Host.CreateDefaultBuilder` (worker / console), or no host.
 - Whether NymBroker is already referenced (`dotnet list package`), and any existing `AddNymBroker()` call — extend it instead of adding a second one.
 - Databases or brokers the app already uses (connection strings in `appsettings*.json`, packages such as Npgsql, Microsoft.Data.SqlClient, RabbitMQ.Client, Azure.Messaging.ServiceBus) — a good hint for the transport.

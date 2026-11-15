@@ -4,7 +4,7 @@
 
 ## Requirements and packages
 
-- .NET 11.
+- .NET 11. NymBroker 0.24.x is the last release for .NET 10; stay on it if your app cannot move to .NET 11 yet.
 - The core package, [`NymBroker`](https://www.nuget.org/packages/NymBroker/) (project `NymBroker.Core`), contains the broker plus the **Memory** and **File** endpoints. Each other transport is a separate add-on so you only take the dependencies you use:
 
 | Package | Adds | Builder methods |

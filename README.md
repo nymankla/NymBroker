@@ -34,7 +34,7 @@ Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org 
 
 ## Quick start
 
-Requires the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0). Add the core and hosting packages to a new console app:
+Requires the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0). NymBroker 0.24.x is the last release for .NET 10. Add the core and hosting packages to a new console app:
 
 ```bash
 dotnet add package NymBroker
