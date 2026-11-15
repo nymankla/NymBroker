@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+
+- The packages now reference `Microsoft.Extensions.*` and `Microsoft.Data.Sqlite` 11.0.0 (was 10.0.14), and still target `net10.0`. Apps that reference `Microsoft.Extensions.*` 10.x packages themselves should move them to 11.0 as well. Also updated: `Microsoft.Data.SqlClient` 7.1.2 and `AWSSDK.SQS` 4.1.0.
+
 ## [0.24.0] - 2026-11-15
 
 ### Added

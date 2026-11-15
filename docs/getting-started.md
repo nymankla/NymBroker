@@ -56,9 +56,11 @@ Or in the project file:
 <ItemGroup>
   <PackageReference Include="NymBroker" Version="0.*" />
   <PackageReference Include="NymBroker.Endpoint.Sqlite" Version="0.*" />
-  <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.*" />
+  <PackageReference Include="Microsoft.Extensions.Hosting" Version="11.0.*" />
 </ItemGroup>
 ```
+
+NymBroker targets `net10.0` and references the 11.0 `Microsoft.Extensions.*` packages, which also run on .NET 10. Use the same major version for your own `Microsoft.Extensions.*` references.
 
 Each optional package adds its builder methods (see the table above) to `AddNymBroker()`, in its own namespace — for example `using NymBroker.Endpoint.Sqlite;` for `AddSqliteEndPoint`.
 

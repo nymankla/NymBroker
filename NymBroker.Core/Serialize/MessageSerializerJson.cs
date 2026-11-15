@@ -107,7 +107,7 @@ public sealed class MessageSerializerJson : IMessageSerializer
             writer.WriteString("created", context.Created);
             WriteTraceContext(writer, context);
             writer.WritePropertyName("message");
-            JsonSerializer.Serialize(writer, message, _options.GetTypeInfo(typeof(TMessage)));
+            JsonSerializer.Serialize<TMessage>(writer, message!, _options.GetTypeInfo<TMessage>());
             if (context.DeadLetter is not null)
                 WriteValue(writer, "deadLetter", context.DeadLetter, typeof(DeadLetterInfo));
             writer.WriteEndObject();
@@ -135,13 +135,13 @@ public sealed class MessageSerializerJson : IMessageSerializer
     }
 
     public IMessageContext Deserialize(string json)
-        => ToRawContext((MessageContextDto<JsonElement>?)JsonSerializer.Deserialize(json, _options.GetTypeInfo(typeof(MessageContextDto<JsonElement>))));
+        => ToRawContext(JsonSerializer.Deserialize(json, _options.GetTypeInfo<MessageContextDto<JsonElement>>()));
 
     public IMessageContext Deserialize(Stream stream)
-        => ToRawContext((MessageContextDto<JsonElement>?)JsonSerializer.Deserialize(stream, _options.GetTypeInfo(typeof(MessageContextDto<JsonElement>))));
+        => ToRawContext(JsonSerializer.Deserialize(stream, _options.GetTypeInfo<MessageContextDto<JsonElement>>()));
 
     public IMessageContext Deserialize(ReadOnlySpan<byte> utf8Json)
-        => ToRawContext((MessageContextDto<JsonElement>?)JsonSerializer.Deserialize(utf8Json, _options.GetTypeInfo(typeof(MessageContextDto<JsonElement>))));
+        => ToRawContext(JsonSerializer.Deserialize(utf8Json, _options.GetTypeInfo<MessageContextDto<JsonElement>>()));
 
     /// <summary>Typed deserialization of the message payload from an already-deserialized context using reflection-based metadata.</summary>
     [RequiresUnreferencedCode("Use the overload that accepts JsonTypeInfo<T> in trimmed or Native AOT applications.")]
@@ -162,7 +162,7 @@ public sealed class MessageSerializerJson : IMessageSerializer
         => ctx.RawMessage.Deserialize(_options.GetTypeInfo(messageType));
 
     internal T? DeserializeMessageRegistered<T>(RawMessageContext ctx) where T : class
-        => (T?)ctx.RawMessage.Deserialize(_options.GetTypeInfo(typeof(T)));
+        => ctx.RawMessage.Deserialize(_options.GetTypeInfo<T>());
 
     private static RawMessageContext ToRawContext(MessageContextDto<JsonElement>? dto)
     {
