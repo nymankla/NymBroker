@@ -8,6 +8,7 @@ using NymBroker.Core.Factory;
 using NymBroker.Core.Factory.Configuration;
 using NymBroker.Core;
 using NymBroker.Core.Message;
+using NymBroker.Core.Splitter;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NymBroker.Endpoint.Postgres;
@@ -439,5 +440,43 @@ public sealed class BuilderConfigurationTests
         builder.Build();
 
         // Building with a registered external endpoint should not throw.
+    }
+
+    // --- Compressor registration ---
+
+    [Fact]
+    public async Task Compressor_DefaultsToBrotli()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddNymBroker().Build();
+
+        await using var sp = services.BuildServiceProvider();
+        Assert.IsType<BrotliCompressor>(sp.GetRequiredService<ICompressor>());
+    }
+
+    // Build used AddSingleton, so a compressor the app registered before AddNymBroker was silently replaced by Brotli.
+    [Fact]
+    public async Task Compressor_RegisteredBeforeAddNymBroker_IsUsed()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<ICompressor, ZstandardCompressor>();
+        services.AddNymBroker().Build();
+
+        await using var sp = services.BuildServiceProvider();
+        Assert.IsType<ZstandardCompressor>(sp.GetRequiredService<ICompressor>());
+    }
+
+    [Fact]
+    public async Task Compressor_RegisteredAfterAddNymBroker_IsUsed()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddNymBroker().Build();
+        services.AddSingleton<ICompressor, ZstandardCompressor>();
+
+        await using var sp = services.BuildServiceProvider();
+        Assert.IsType<ZstandardCompressor>(sp.GetRequiredService<ICompressor>());
     }
 }

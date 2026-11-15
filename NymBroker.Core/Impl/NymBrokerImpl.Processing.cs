@@ -8,6 +8,7 @@ using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Message;
 using NymBroker.Core.Serialize;
+using NymBroker.Core.Splitter;
 
 namespace NymBroker.Core.Impl;
 
@@ -242,13 +243,14 @@ internal sealed partial class NymBrokerImpl
         var decoded = reassembled;
         if (!string.IsNullOrEmpty(split.Compression))
         {
-            if (!string.Equals(split.Compression, _compressor.Name, StringComparison.Ordinal))
+            var decompressor = BuiltInCompressors.ForDecoding(split.Compression, _compressor);
+            if (decompressor is null)
             {
                 _logger.LogError("Reassembled message uses unknown compression '{Compression}' — cannot decode.", split.Compression);
                 run.RecordFailure();
                 return await DeadLetterAsync(raw, run, new DeadLetterCause(DeadLetterReasons.UnknownCompression, $"Unknown compression '{split.Compression}'", null), ct);
             }
-            decoded = _compressor.Decompress(reassembled);
+            decoded = decompressor.Decompress(reassembled);
         }
 
         // Same run: one received message, one processing duration.

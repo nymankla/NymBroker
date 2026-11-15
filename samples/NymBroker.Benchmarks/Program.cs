@@ -8,6 +8,7 @@ using NymBroker.Core.Endpoint;
 using NymBroker.Core.Factory;
 using NymBroker.Core;
 using NymBroker.Core.Route;
+using NymBroker.Core.Splitter;
 using NymBroker.Endpoint.Sqlite;
 using NymBroker.Endpoint.Postgres;
 using NymBroker.Endpoint.RabbitMq;
@@ -173,6 +174,16 @@ var results = new List<BenchmarkResult?>
     await RunAsync("Split+Compress – random", "Memory", SplitCount,
         messageFactory: i => new BenchmarkMessage(i, randomPayload),
         splitThresholdBytes: SplitThresholdBytes, compress: true),
+
+    await RunAsync("Split+Compress – zstd",   "Memory", SplitCount,
+        messageFactory: i => new BenchmarkMessage(i, splitPayload),
+        splitThresholdBytes: SplitThresholdBytes, compress: true,
+        configureBuilder: b => b.Services.AddSingleton<ICompressor, ZstandardCompressor>()),
+
+    await RunAsync("Split+zstd – random",     "Memory", SplitCount,
+        messageFactory: i => new BenchmarkMessage(i, randomPayload),
+        splitThresholdBytes: SplitThresholdBytes, compress: true,
+        configureBuilder: b => b.Services.AddSingleton<ICompressor, ZstandardCompressor>()),
 
     // ── Transports that need no service ──────────────────────────────────────────────────────────────────
     await RunAsync("File   – direct",     "FileLoop", FileCount, fileDir: "bench-in"),

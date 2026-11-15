@@ -1,1 +1,6 @@
 #nullable enable
+NymBroker.Core.Splitter.ZstandardCompressor
+NymBroker.Core.Splitter.ZstandardCompressor.ZstandardCompressor(System.IO.Compression.CompressionLevel level = System.IO.Compression.CompressionLevel.Fastest) -> void
+NymBroker.Core.Splitter.ZstandardCompressor.Compress(byte[]! data) -> byte[]!
+NymBroker.Core.Splitter.ZstandardCompressor.Decompress(byte[]! data) -> byte[]!
+NymBroker.Core.Splitter.ZstandardCompressor.Name.get -> string!

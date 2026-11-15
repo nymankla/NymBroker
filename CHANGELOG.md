@@ -4,9 +4,17 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- `ZstandardCompressor` (namespace `NymBroker.Core.Splitter`): compresses split messages with Zstandard, built into .NET 11. Opt in with `services.AddSingleton<ICompressor, ZstandardCompressor>()`; Brotli stays the default. In the benchmark split ~270 KB messages were handled 40–80 % faster than with Brotli (706 → 1 273 msg/s in the run in [docs/benchmarks.md](docs/benchmarks.md#example-run-on-net-11)), at a similar size, and decompressing is about three times as fast. Every receiver now decodes both `brotli` and `zstd` parts, whichever compressor it is configured with, so senders and receivers can switch independently. A receiver on 0.24 or earlier dead-letters `zstd` parts as `UnknownCompression`: switch senders only once all their receivers run 0.25 or later.
+
 ### Changed
 
 - **Breaking:** every package now targets `net11.0` instead of `net10.0`, and references `Microsoft.Extensions.*` and `Microsoft.Data.Sqlite` 11.0.0 (was 10.0.14). Migration: retarget your app to `net11.0` (install the .NET 11 SDK and runtime) and move your own `Microsoft.Extensions.*` references to 11.0. 0.24.x is the last release for .NET 10: apps that must stay on .NET 10 stay on it. Also updated: `Microsoft.Data.SqlClient` 7.1.2 and `AWSSDK.SQS` 4.1.0.
+
+### Fixed
+
+- An `ICompressor` registered before `AddNymBroker` is now used. The builder registered Brotli unconditionally, so it replaced the app's own compressor; only one registered after `AddNymBroker` took effect.
 
 ## [0.24.0] - 2026-11-15
 

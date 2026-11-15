@@ -66,6 +66,7 @@ The fast in-process scenarios finish in a few hundred milliseconds, so warm-up m
 | Split+Compress – direct | 200 | ~270 KB compressible messages split at 16 KB, Brotli-compressed first |
 | Split – no compress | 200 | The same messages split without compression |
 | Split+Compress – random | 200 | ~270 KB of Base64 random data, compressed first: what `compress` costs when it gains little |
+| Split+Compress – zstd, Split+zstd – random | 200 | The two compressed rows above with `ZstandardCompressor` instead of the default Brotli |
 | File – direct | 100 | File endpoint: one file written and picked up per message |
 | HTTP – no network | 10 000 | HTTP endpoint with a handler that answers at once: what the endpoint and `HttpClient` add per request, without a server |
 | SQLite – direct / batch/100 | 1 000 | SQLite queue table (in-memory database, `BatchSize = 100`), single posts and batches of 100 |
@@ -104,8 +105,73 @@ Things to keep in mind when comparing:
 
 - **In-process scenarios** show the broker's ceiling. The difference from `Memory – direct` is the cost of that feature. A route costs more than most, because every message goes through two Memory endpoints and is deserialized twice. Apart from `Input transformer`, if a feature looks *faster* than direct, the run was noisy, so run it again with fewer background processes.
 - **Database and broker scenarios** are bound by the transport — durable commits and network round trips — not by NymBroker. Docker Desktop adds latency, so a native or production server is usually faster. The `batch/100` rows show what `PostBatchAsync` gains over one `PostAsync` per message; see [Sending messages](sending-messages.md). A `direct` row is usually limited by sending: compare it with `drain backlog` to see how fast the transport can be read.
-- **Split scenarios** compare compression on and off. On a compressible payload, compression usually means fewer parts and fewer bytes on the wire, at some CPU cost. On random data it costs far more time and gains little, so pass `compress: false` for data that is already compressed or encrypted.
+- **Split scenarios** compare compression on and off, and Brotli with Zstandard. On a compressible payload, compression usually means fewer parts and fewer bytes on the wire, at some CPU cost. On random data it costs far more time and gains little, so pass `compress: false` for data that is already compressed or encrypted.
 - Compare runs on the same machine, in Release, with the same services running. Close other heavy processes.
+
+### Example run on .NET 11
+
+One full run of the benchmark on .NET 11 (SDK 11.0.100), before the 0.25 release (November 2026): a laptop with an Intel Core Ultra 7 165H (22 logical cores, 64 GB RAM) on Windows 11, with every service in Docker Desktop 29 on the same machine. Use it to see the order of magnitude and the relations between rows, not as a target for your own hardware.
+
+```
+Scenario                        Msg/sec     Elapsed   Gen0   Gen1   Gen2     Alloc/msg
+──────────────────────────────────────────────────────────────────────────────────────
+Memory – direct                 285 714      175 ms     11      9      0    2,7 KB/msg
+Memory – 8 producers            204 918      244 ms     12     11      0    3,1 KB/msg
+Memory – batch/100              276 243      181 ms     10      9      0    2,7 KB/msg
+Memory – 64 KB                   10 000      500 ms     76     52     20  258,7 KB/msg
+Memory – routed                 208 333      240 ms     20     19      0    4,9 KB/msg
+Memory – 20 routes              158 227      316 ms     20     19      0    4,9 KB/msg
+Memory – wire tap               279 329      179 ms     11     10      0    2,7 KB/msg
+Input transformer               310 559      161 ms      7      1      0    1,9 KB/msg
+Output transformer              164 473      304 ms     16     15      0    4,0 KB/msg
+PubSub – 3 subs                 263 157      190 ms      8      0      0    2,0 KB/msg
+PubSub – endpoint               239 234      209 ms     16      1      0    4,0 KB/msg
+Idempotent – memory             160 771      311 ms     12      2      0    3,0 KB/msg
+Idempotent – SQLite               6 535      153 ms      0      0      0    6,0 KB/msg
+Consumer fails → DLQ             33 670      297 ms     10      0      0   12,9 KB/msg
+Deferred – in broker             16 570    1 207 ms      6      3      0    4,1 KB/msg
+Split+Compress – direct             706      283 ms     74     74     74    3,2 MB/msg
+Split – no compress                 518      386 ms     88     59     43    4,8 MB/msg
+Split+Compress – random             102    1 942 ms    107     80     71    6,6 MB/msg
+Split+Compress – zstd             1 273      157 ms     46     46     46    3,2 MB/msg
+Split+zstd – random                 138    1 447 ms    107     82     72    6,7 MB/msg
+File   – direct                     917      109 ms      0      0      0   15,8 KB/msg
+HTTP – no network               108 695       92 ms      2      0      0    2,5 KB/msg
+SQLite – direct                   6 578      152 ms      0      0      0    5,8 KB/msg
+SQLite – batch/100               29 411       34 ms      0      0      0    4,0 KB/msg
+SQLite – drain backlog           50 000      100 ms      1      0      0    2,9 KB/msg
+SQLite – deferred                 3 496      286 ms      0      0      0    4,2 KB/msg
+SQLite – 5 ms consumer               64    6 250 ms      0      0      0    4,5 KB/msg
+SQLite – 5 ms consumer ×8           478      836 ms      0      0      0    4,7 KB/msg
+Postgres – direct                   356    2 804 ms      1      0      0   13,8 KB/msg
+Postgres – batch/100              4 424      226 ms      0      0      0    4,6 KB/msg
+Postgres – drain backlog          9 328      536 ms      1      0      0    2,6 KB/msg
+Postgres – deferred                 277    3 609 ms      0      0      0    9,2 KB/msg
+Postgres – 5 ms consumer             62    6 408 ms      0      0      0    4,2 KB/msg
+Postgres – 5 ms consumer ×8         420      951 ms      0      0      0    4,6 KB/msg
+Idempotent – Postgres               127    7 856 ms      0      0      0    9,8 KB/msg
+SqlServer – direct                   98   10 146 ms      1      0      0   14,4 KB/msg
+SqlServer – batch/100             2 551      392 ms      0      0      0    5,5 KB/msg
+SqlServer – drain backlog         2 972    1 682 ms      1      0      0    3,5 KB/msg
+MySQL – direct                      100    9 917 ms      1      0      0   19,7 KB/msg
+MySQL – batch/100                 1 312      762 ms      0      0      0    4,7 KB/msg
+MySQL – drain backlog             1 840    2 717 ms      1      0      0    3,0 KB/msg
+ServiceBus – direct                  36    5 423 ms      0      0      0   22,4 KB/msg
+RabbitMQ – direct                   331    3 020 ms      0      0      0    5,3 KB/msg
+RabbitMQ – batch/100              6 289      159 ms      0      0      0    4,6 KB/msg
+RabbitMQ – not durable           10 000      100 ms      0      0      0    4,3 KB/msg
+RabbitMQ – drain backlog         21 929      228 ms      1      0      0    3,1 KB/msg
+SQS – direct                        321    3 106 ms      4      0      0   49,1 KB/msg
+SQS – batch/100                   1 342      745 ms      1      0      0   12,3 KB/msg
+SQS – drain backlog               1 234    4 050 ms      3      0      0    8,4 KB/msg
+```
+
+What it shows:
+
+- **The broker's own cost** is a few microseconds and about 2.7 KB per message (`Memory – direct`); a route adds a second endpoint hop and deserialization (4.9 KB).
+- **Zstandard** (`ZstandardCompressor`, built into .NET 11) handled split ~270 KB messages about 80 % faster than the default Brotli (1 273 against 706 msg/s), with fewer garbage collections at the same allocation. On random data the gain is smaller (138 against 102), and `compress: false` is still the better choice there. See [Large messages](sending-messages.md#large-messages-split-and-compress).
+- **`MaxConcurrentCalls = 8`** multiplied the throughput of a consumer that waits 5 ms per message by about 7 (SQLite 64 → 478, PostgreSQL 62 → 420 msg/s).
+- **Transports** are limited by the server, not by NymBroker: batching (`batch/100`) and reading a backlog (`drain backlog`) are 10–100 times faster than one durable post per message. The Service Bus emulator caps its row.
 
 ### Latency and failures (`--latency`)
 

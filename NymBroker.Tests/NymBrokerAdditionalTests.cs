@@ -8,6 +8,7 @@ using NymBroker.Core.PubSub;
 using NymBroker.Core.Message;
 using NymBroker.Core.Serialize;
 using NymBroker.Core.Splitter;
+using NymBroker.Core.Endpoint;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -351,6 +352,48 @@ public sealed class NymBrokerAdditionalTests
         await broker.ProcessAsync(items[0], null, TestContext.Current.CancellationToken);
 
         Assert.Single(consumer.Received);
+    }
+
+    // A receiver decodes both built-in codecs whatever it sends with, so senders and receivers can switch
+    // codec independently. Without that, a Brotli receiver dead-lettered every zstd part as UnknownCompression.
+    [Theory]
+    [InlineData("zstd", "brotli")]
+    [InlineData("brotli", "zstd")]
+    [InlineData("zstd", "zstd")]
+    public async Task SplitParts_CompressedWithEitherBuiltInCodec_AreDecodedByAnyReceiver(string senderCodec, string receiverCodec)
+    {
+        static ICompressor Codec(string name) => name == "zstd" ? new ZstandardCompressor() : new BrotliCompressor();
+        static (NymBrokerImpl Broker, BigMessageConsumer Consumer, MemoryQueueEndPoint Dest) Create(ICompressor compressor)
+        {
+            var services = new ServiceCollection();
+            services.AddLogging();
+            var consumer = new BigMessageConsumer();
+            services.AddKeyedSingleton<IMessageConsumer>(nameof(BigMessageConsumer), consumer);
+            services.AddSingleton<MessageSerializerJson>();
+            services.AddSingleton<IAggregator, AggregatorImpl>();
+            var broker = TestBroker.Create(services.BuildServiceProvider(), compressor: compressor);
+            broker.RegisterConsumer(typeof(BigMessage), nameof(BigMessageConsumer));
+            var dest = new MemoryQueueEndPoint("Dest");
+            broker.AddEndpoint("Dest", dest);
+            return (broker, consumer, dest);
+        }
+
+        var (sender, _, wire) = Create(Codec(senderCodec));
+        var (receiver, consumer, _) = Create(Codec(receiverCodec));
+        // Hex GUIDs compress to about half, so the message still needs several parts after compression.
+        var payload = string.Concat(Enumerable.Range(0, 300).Select(_ => Guid.NewGuid().ToString("N")));
+
+        await sender.PostAsync("Dest", new BigMessage { Payload = payload }, TestContext.Current.CancellationToken, splitThresholdBytes: 1000, compress: true);
+        var parts = new List<string>();
+        await foreach (var item in wire.ReadAsync(TestContext.Current.CancellationToken)) parts.Add(item);
+        Assert.True(parts.Count > 1, $"Expected several parts, got {parts.Count}.");
+        Assert.All(parts, p => Assert.Contains($"\"compression\":\"{senderCodec}\"", p));
+
+        foreach (var part in parts)
+            Assert.Equal(ProcessResult.Completed, await receiver.ProcessAsync(part, null, TestContext.Current.CancellationToken));
+
+        var received = Assert.Single(consumer.Received);
+        Assert.Equal(payload, received.Payload);
     }
 
     [Fact]

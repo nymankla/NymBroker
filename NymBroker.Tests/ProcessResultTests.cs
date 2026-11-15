@@ -222,7 +222,7 @@ public sealed class ProcessResultTests
             CorrelationSequence = 0,
             GroupSize = 1,
             Body = Convert.ToBase64String("payload"u8.ToArray()),
-            Compression = "zstd"
+            Compression = "lz4"
         });
 
         var result = await h.Broker.ProcessAsync(part, source, TestContext.Current.CancellationToken);

@@ -62,7 +62,8 @@ public sealed partial class NymBrokerBuilder
         services.AddSingleton<IMessageSerializer>(sp => sp.GetRequiredService<MessageSerializerJson>());
         services.AddSingleton<IAggregator, AggregatorImpl>();
         services.AddSingleton<ISplitter, SplitterImpl>();
-        services.AddSingleton<ICompressor, BrotliCompressor>();
+        // TryAdd: an ICompressor the app registered before AddNymBroker (e.g. ZstandardCompressor) wins.
+        services.TryAddSingleton<ICompressor, BrotliCompressor>();
         services.AddSingleton<MessageTypeRegistry>();
         services.AddSingleton<ConsumerDispatcher>();
         services.AddSingleton<SubscriberDispatcher>();
