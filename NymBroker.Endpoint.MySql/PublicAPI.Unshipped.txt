@@ -1,1 +1,3 @@
 #nullable enable
+NymBroker.Endpoint.MySql.MySqlSettings.MaxConcurrentCalls.get -> int
+NymBroker.Endpoint.MySql.MySqlSettings.MaxConcurrentCalls.set -> void

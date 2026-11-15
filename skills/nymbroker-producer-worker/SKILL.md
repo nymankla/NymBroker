@@ -79,7 +79,7 @@ await builder.Build().RunAsync();
 
 - The broker starts with the host and listens on every non-`WriteOnly` endpoint. Create consumers with the **nymbroker-consumer** skill.
 - **Leases** (SQL endpoints): a claimed row is locked for `LeaseTimeout`. If a handler can run longer, raise it — otherwise another instance may process the same message concurrently.
-- **Scaling**: PostgreSQL/MySQL/SQL Server claim with `SKIP LOCKED` / `READPAST`, so instances share the table safely. Raise `BatchSize` for throughput. Service Bus: `MaxConcurrentCalls` > 1 processes in parallel within one instance (no ordering). RabbitMQ: competing consumers on one queue.
+- **Scaling**: PostgreSQL/MySQL/SQL Server claim with `SKIP LOCKED` / `READPAST`, so instances share the table safely. Raise `BatchSize` for throughput. SQL endpoints, Service Bus and SQS: `MaxConcurrentCalls` > 1 processes in parallel within one instance (no ordering; consumer singletons must be thread-safe) — the big gain for consumers that wait on I/O. On SQL endpoints raise `BatchSize` with it (at most `BatchSize` run at once) and keep `LeaseTimeout` above `BatchSize` × handler time / `MaxConcurrentCalls`. RabbitMQ: competing consumers on one queue.
 - **Shutdown**: on stop, endpoints finish in-flight messages and settle them; claimed-but-unstarted ones return after the lease/lock expires. Give the host enough `ShutdownTimeout`, and pass the `CancellationToken` through in consumers.
 - **Large messages**: don't use `splitThresholdBytes` with several worker instances — parts are reassembled in memory by one instance and may be claimed by different ones.
 - **Scheduled jobs** run in every instance; see the nymbroker-scheduled skill.

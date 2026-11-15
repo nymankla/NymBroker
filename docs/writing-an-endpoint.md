@@ -490,6 +490,7 @@ What this sample adds beyond Sample B:
       // Optional: delete one batch of old Completed or Failed rows, and return how many. Runs beside the loop, on
       // CleanupInterval, when your settings also implement CompletedRetention, FailedRetention, CleanupInterval and
       // CleanupBatchSize (all off by default). See SqlServerEndPoint.
+      // (Parallel handling needs no override: implement MaxConcurrentCalls on your settings, default 1.)
       // protected override Task<int> DeleteFinishedAsync(QueueMessageStatus status, int olderThanSeconds, CancellationToken ct) => ...;
 
       // Optional, for an endpoint that implements IDeferredEndPoint: make due deferred rows claimable, and return how

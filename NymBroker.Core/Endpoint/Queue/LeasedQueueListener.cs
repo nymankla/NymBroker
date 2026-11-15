@@ -11,6 +11,8 @@ namespace NymBroker.Core.Endpoint.Queue;
 /// poll or an error;</item>
 /// <item>writes the outcomes of batch N in the same call that claims batch N+1 (<see cref="FinalizeAndClaimAsync"/>),
 /// so an implementation can use one round trip and one commit per batch;</item>
+/// <item>handles the messages of a batch one at a time, or up to <see cref="ILeasedQueueSettings.MaxConcurrentCalls"/>
+/// at once; the next batch is claimed when the whole batch is done;</item>
 /// <item>turns each <see cref="ProcessResult"/> into an outcome: Completed; DeadLetter → Failed at once; Retry (or a
 /// handler exception) → Pending, or Failed once <see cref="ILeasedQueueSettings.MaxRetryCount"/> is reached;</item>
 /// <item>on stop, writes the outcomes of messages already handled (<see cref="FinalizeAsync"/>, 10 s timeout); messages
@@ -31,6 +33,8 @@ public abstract class LeasedQueueListener
     private static readonly TimeSpan MinCleanupInterval = TimeSpan.FromMilliseconds(1);
     private static readonly TimeSpan MaxCleanupInterval = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
+    // Read once: the batch loop must not change shape while it runs.
+    private readonly int _maxConcurrentCalls;
     private CancellationTokenSource? _listeningCts;
     private Task? _loop;
     private Task? _cleanup;
@@ -38,13 +42,14 @@ public abstract class LeasedQueueListener
     /// <param name="endpointName">The endpoint's name, used in log messages.</param>
     /// <param name="settings">Batch size, poll interval, lease and retry limit.</param>
     /// <param name="logger">The endpoint's logger, so log categories stay the endpoint's.</param>
-    /// <exception cref="ArgumentException">The retention or cleanup settings are invalid.</exception>
+    /// <exception cref="ArgumentException">The retention, cleanup or concurrency settings are invalid.</exception>
     protected LeasedQueueListener(string endpointName, ILeasedQueueSettings settings, ILogger logger)
     {
-        ValidateCleanupSettings(settings);
+        ValidateSettings(settings);
         EndpointName = endpointName;
         Settings = settings;
         Logger = logger;
+        _maxConcurrentCalls = settings.MaxConcurrentCalls;
     }
 
     protected string EndpointName { get; }
@@ -64,6 +69,10 @@ public abstract class LeasedQueueListener
         ArgumentNullException.ThrowIfNull(handler);
         if (_loop is not null)
             throw new InvalidOperationException($"Endpoint '{EndpointName}' is already listening.");
+
+        if (_maxConcurrentCalls > Settings.BatchSize)
+            Logger.LogWarning("Endpoint '{Name}' has MaxConcurrentCalls {MaxConcurrentCalls} but BatchSize {BatchSize}: at most {BatchSize} messages are handled at once. Raise BatchSize to use them all",
+                EndpointName, _maxConcurrentCalls, Settings.BatchSize, Settings.BatchSize);
 
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = _listeningCts.Token;
@@ -173,11 +182,10 @@ public abstract class LeasedQueueListener
             var batch = await FinalizeAndClaimAsync(outcomes, token);
             outcomes.Clear();   // committed together with the claim
 
-            foreach (var message in batch)
-            {
-                var result = await EndpointHandler.InvokeAsync(handler, message.Payload, Logger, EndpointName, token);
-                outcomes.Add(ToOutcome(message, result));
-            }
+            if (_maxConcurrentCalls > 1 && batch.Count > 1)
+                await HandleConcurrentlyAsync(handler, batch, outcomes, token);
+            else
+                await HandleInOrderAsync(handler, batch, outcomes, token);
             return batch.Count;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -194,6 +202,49 @@ public abstract class LeasedQueueListener
             // attempt-count guard in the finalize statement turns that late write into a no-op.
             Logger.LogError(ex, "Poll error on endpoint '{Name}'", EndpointName);
             return 0;
+        }
+    }
+
+    /// <summary>One message after the other. A stop that reaches a handler ends the batch: the rest is left to lease expiry.</summary>
+    private async Task HandleInOrderAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler,
+        IReadOnlyList<QueueMessage> batch, List<QueueMessageOutcome> outcomes, CancellationToken token)
+    {
+        foreach (var message in batch)
+        {
+            var result = await EndpointHandler.InvokeAsync(handler, message.Payload, Logger, EndpointName, token);
+            outcomes.Add(ToOutcome(message, result));
+        }
+    }
+
+    /// <summary>
+    /// Up to <see cref="ILeasedQueueSettings.MaxConcurrentCalls"/> messages at once; returns when all are done. After a
+    /// stop, no further message starts, and a message whose handler the stop ended has no outcome (left to lease expiry).
+    /// </summary>
+    private async Task HandleConcurrentlyAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler,
+        IReadOnlyList<QueueMessage> batch, List<QueueMessageOutcome> outcomes, CancellationToken token)
+    {
+        var handled = new QueueMessageOutcome?[batch.Count];
+        // Not the stop token: the outcomes of messages already handled must still be collected.
+        await Parallel.ForAsync(0, batch.Count, new ParallelOptions { MaxDegreeOfParallelism = _maxConcurrentCalls },
+            async (i, _) => handled[i] = await TryHandleAsync(handler, batch[i], token));
+
+        foreach (var outcome in handled)
+            if (outcome is { } written)
+                outcomes.Add(written);
+    }
+
+    /// <summary>The message's outcome, or null if the listener is stopping and the message was not handled.</summary>
+    private async Task<QueueMessageOutcome?> TryHandleAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler,
+        QueueMessage message, CancellationToken token)
+    {
+        if (token.IsCancellationRequested) return null;
+        try
+        {
+            return ToOutcome(message, await EndpointHandler.InvokeAsync(handler, message.Payload, Logger, EndpointName, token));
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return null;
         }
     }
 
@@ -272,8 +323,11 @@ public abstract class LeasedQueueListener
         }
     }
 
-    private static void ValidateCleanupSettings(ILeasedQueueSettings settings)
+    private static void ValidateSettings(ILeasedQueueSettings settings)
     {
+        if (settings.MaxConcurrentCalls < 1)
+            throw new ArgumentException("MaxConcurrentCalls must be at least 1.", nameof(settings));
+
         ValidateRetention(settings.CompletedRetention, nameof(settings.CompletedRetention));
         ValidateRetention(settings.FailedRetention, nameof(settings.FailedRetention));
 

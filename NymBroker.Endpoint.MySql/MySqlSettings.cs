@@ -17,6 +17,12 @@ public sealed class MySqlSettings : ILeasedQueueSettings
     public int MaxRetryCount       { get; set; } = 5;
 
     /// <summary>
+    /// Messages of a claimed batch handled at the same time (default 1). Above 1 they finish in any order, and a
+    /// consumer's shared state must be thread-safe; at most <see cref="BatchSize"/> run at once.
+    /// </summary>
+    public int MaxConcurrentCalls  { get; set; } = 1;
+
+    /// <summary>
     /// When true (default), failures are settled in the table: retried until <see cref="MaxRetryCount"/>, and messages
     /// that can never succeed are marked Failed immediately. When false, the broker posts failures to its own
     /// dead-letter endpoint (<c>WithDeadLetterEndpoint</c>) and the row is marked Completed.

@@ -9,6 +9,9 @@ public sealed class CompletionTracker
     /// <summary>Makes the consumer throw, for the dead-letter scenario; the dead-letter endpoint signals instead.</summary>
     public bool ConsumerFails { get; set; }
 
+    /// <summary>How long the consumer waits per message, as one doing I/O would; zero for the throughput scenarios.</summary>
+    public TimeSpan ConsumerDelay { get; set; }
+
     public int Processed => _target - Volatile.Read(ref _remaining);
 
     public Task Prepare(int count)

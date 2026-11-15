@@ -41,6 +41,9 @@ const int    SplitThresholdBytes = 16 * 1024;
 const int    BacklogFactor = 5;       // a drain scenario reads this many times the transport's message count
 const int    SlowPathCount = 10_000;  // scenarios that do far more per message than the fast in-process ones
 const int    LargeCount    = 5_000;
+// A consumer that waits like one doing I/O (#126): one message at a time against MaxConcurrentCalls.
+const int    SlowConsumerCount = 400;
+var SlowConsumerDelay = TimeSpan.FromMilliseconds(5);
 // In-process scenarios finish in about a second, so one run is mostly noise and JIT warm-up. They get their own
 // warm-up pass, then several measured runs; the median run is reported.
 const int    InProcessWarmup = 10_000;
@@ -196,6 +199,17 @@ results.Add(await RunAsync("SQLite – drain backlog", "SqlBench", SqlCount * Ba
 // A time in the past: every message goes through the deferred table and is moved to the queue at once.
 results.Add(await RunAsync("SQLite – deferred", "SqlBench", SqlCount, deferBy: TimeSpan.FromMinutes(-1),
     configureBuilder: b => b.AddSqliteEndPoint("SqlBench", sqliteSettings)));
+results.Add(await RunAsync("SQLite – 5 ms consumer", "SqlBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay,
+    configureBuilder: b => b.AddSqliteEndPoint("SqlBench", sqliteSettings)));
+results.Add(await RunAsync("SQLite – 5 ms consumer ×8", "SqlBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay,
+    configureBuilder: b => b.AddSqliteEndPoint("SqlBench", new SqliteSettings
+    {
+        ConnectionString   = sqliteSettings.ConnectionString,
+        TableName          = sqliteSettings.TableName,
+        BatchSize          = sqliteSettings.BatchSize,
+        PollInterval       = sqliteSettings.PollInterval,
+        MaxConcurrentCalls = 8
+    })));
 
 if (await IsPostgresAvailableAsync())
 {
@@ -219,6 +233,20 @@ if (await IsPostgresAvailableAsync())
     await CleanPgTableAsync();
     results.Add(await RunAsync("Postgres – deferred", "PgBench", PgCount, deferBy: TimeSpan.FromMinutes(-1),
         configureBuilder: b => b.AddPostgresEndPoint("PgBench", pgSettings)));
+    await CleanPgTableAsync();
+    results.Add(await RunAsync("Postgres – 5 ms consumer", "PgBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay,
+        configureBuilder: b => b.AddPostgresEndPoint("PgBench", pgSettings)));
+    await CleanPgTableAsync();
+    results.Add(await RunAsync("Postgres – 5 ms consumer ×8", "PgBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay,
+        configureBuilder: b => b.AddPostgresEndPoint("PgBench", new PostgresSettings
+        {
+            ConnectionString   = pgSettings.ConnectionString,
+            TableName          = pgSettings.TableName,
+            BatchSize          = pgSettings.BatchSize,
+            AutoCreateTable    = pgSettings.AutoCreateTable,
+            PollInterval       = pgSettings.PollInterval,
+            MaxConcurrentCalls = 8
+        })));
     await CleanPgTableAsync();
     results.Add(await RunAsync("Idempotent – Postgres", "Memory", PgCount,
         configureBuilder: b => b.AddPostgresIdempotency(new PostgresIdempotencySettings
@@ -538,7 +566,8 @@ async Task<BenchmarkResult?> RunAsync(
     bool bareInput = false,
     bool consumerFails = false,
     TimeSpan? deferBy = null,
-    bool drainBacklog = false)
+    bool drainBacklog = false,
+    TimeSpan? consumerDelay = null)
 {
     var isWarmup = name.StartsWith('_');
     if (!isWarmup && Filter != null && !name.Contains(Filter, StringComparison.OrdinalIgnoreCase))
@@ -563,6 +592,7 @@ async Task<BenchmarkResult?> RunAsync(
     var broker  = provider.GetRequiredService<INymBroker>();
     var tracker = provider.GetRequiredService<CompletionTracker>();
     tracker.ConsumerFails = consumerFails;
+    tracker.ConsumerDelay = consumerDelay ?? TimeSpan.Zero;
 
     // A drain scenario starts the broker itself, once the backlog is there.
     if (!drainBacklog)

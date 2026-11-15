@@ -39,6 +39,14 @@ public interface ILeasedQueueSettings
 
     /// <summary>Rows deleted per statement during cleanup.</summary>
     int CleanupBatchSize => 1000;
+
+    /// <summary>
+    /// How many messages of a claimed batch are handled at the same time (at least 1). Above 1, messages finish in any
+    /// order and a consumer's shared state must be thread-safe; the real number is at most <see cref="BatchSize"/>.
+    /// The next batch is claimed when the whole batch is done, so <see cref="LeaseTimeout"/> must cover
+    /// about <see cref="BatchSize"/> × handling time / this value.
+    /// </summary>
+    int MaxConcurrentCalls => 1;
 }
 
 /// <summary>Row status in a queue table. The values are stored in the table, so they must not change.</summary>

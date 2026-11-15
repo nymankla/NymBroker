@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- `MaxConcurrentCalls` on the SQLite, PostgreSQL, SQL Server and MySQL endpoints (#126): how many messages of a claimed batch are handled at the same time. The default 1 keeps today's behaviour. Above 1 messages finish in any order, and at most `BatchSize` run at once. The outcomes are still written in one transaction per batch, together with the next claim. In the benchmark, a consumer that waits per message went from 63 to 483 messages per second on SQLite with 8. Custom lease-based transports get it through the new default member `ILeasedQueueSettings.MaxConcurrentCalls`.
+
 ### Changed
 
 - Serializing an envelope reuses one JSON writer and buffer per thread instead of a new writer, stream and copy per message. In the benchmark the allocations per message fell from 4.0 KB to 2.8 KB for a direct post, from 7.5 KB to 4.9 KB for a routed one and from 645 KB to 259 KB for a 64 KB message.

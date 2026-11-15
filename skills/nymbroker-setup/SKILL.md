@@ -92,7 +92,7 @@ Settings per transport (only set what differs from the defaults):
 |---|---|---|
 | Memory | `AddMemoryEndPoint(name, capacity: 1000)` | — |
 | File | `FileSettings { ReadPath, PostPath }` | folders to watch / write to |
-| SQLite | `SqliteSettings { ConnectionString, TableName, AutoCreateTable, BatchSize, PollInterval, LeaseTimeout, MaxRetryCount, CompletedRetention, FailedRetention }` | `Data Source=queue.db` |
+| SQLite | `SqliteSettings { ConnectionString, TableName, AutoCreateTable, BatchSize, PollInterval, LeaseTimeout, MaxRetryCount, MaxConcurrentCalls, CompletedRetention, FailedRetention }` | `Data Source=queue.db` |
 | PostgreSQL | `PostgresSettings { ConnectionString, TableName, AutoCreateTable, UseNotifications, … }` | same SQL options as SQLite |
 | SQL Server | `SqlServerSettings { ConnectionString, TableName = "dbo.x", AutoCreateTable, … }` | same SQL options |
 | MySQL | `MySqlSettings { ConnectionString, TableName, AutoCreateTable, … }` | same SQL options; MySQL 8.0+ / MariaDB 10.6+ |

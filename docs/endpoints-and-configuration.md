@@ -97,6 +97,7 @@ The most important shared settings are:
 | `ConnectionString`, `TableName`, `AutoCreateTable` | SQLite, PostgreSQL, SQL Server, MySQL | where the queue table lives; it is created (and migrated) on first use when `AutoCreateTable` is true |
 | `BatchSize`, `PollInterval` | SQL endpoints | rows claimed per poll; how long to wait after a poll that found nothing |
 | `LeaseTimeout`, `MaxRetryCount` | SQL endpoints | how long a claimed row is locked; attempts before a row becomes `Failed` |
+| `MaxConcurrentCalls` | SQL endpoints | messages of a claimed batch handled at the same time, default 1. Above 1 they finish in any order and a consumer's shared state must be thread-safe (each message still gets its own DI scope). At most `BatchSize` run at once, so raise `BatchSize` with it. The next batch is claimed when the whole batch is done, so `LeaseTimeout` must cover about `BatchSize` × handler time / `MaxConcurrentCalls`. Gains most for consumers that wait on I/O |
 | `CompletedRetention`, `FailedRetention`, `CleanupInterval`, `CleanupBatchSize` | SQL endpoints | when finished rows are deleted (default after 30 and 90 days, checked every 10 minutes) — see [Removing old rows](#removing-old-rows) |
 | `UseNotifications` | PostgreSQL | wake idle listeners with `NOTIFY` instead of waiting out `PollInterval` |
 | `ReadQueueName`, `WriteQueueName` | RabbitMQ | queue to consume from / publish to |

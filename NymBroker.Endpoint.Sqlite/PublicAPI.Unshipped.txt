@@ -1,1 +1,3 @@
 #nullable enable
+NymBroker.Endpoint.Sqlite.SqliteSettings.MaxConcurrentCalls.get -> int
+NymBroker.Endpoint.Sqlite.SqliteSettings.MaxConcurrentCalls.set -> void

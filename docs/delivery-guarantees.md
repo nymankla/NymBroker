@@ -25,7 +25,7 @@ Graceful shutdown waits for in-flight processing where the endpoint supports it,
 
 ### Ordering
 
-NymBroker does **not** guarantee end-to-end ordering. A retry can be delivered after later messages; competing consumers and parallel processing can complete messages in a different order; filesystem enumeration and database polling are not a global ordering contract. Azure Service Bus with `MaxConcurrentCalls` greater than one explicitly permits concurrent handling. If order matters, partition or serialize work at the application/transport level and make retries safe.
+NymBroker does **not** guarantee end-to-end ordering. A retry can be delivered after later messages; competing consumers and parallel processing can complete messages in a different order; filesystem enumeration and database polling are not a global ordering contract. Azure Service Bus, Amazon SQS and the SQL endpoints with `MaxConcurrentCalls` greater than one explicitly permit concurrent handling. If order matters, partition or serialize work at the application/transport level and make retries safe.
 
 ## Endpoint capability matrix
 

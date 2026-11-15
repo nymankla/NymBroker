@@ -1,1 +1,3 @@
 #nullable enable
+NymBroker.Endpoint.SqlServer.SqlServerSettings.MaxConcurrentCalls.get -> int
+NymBroker.Endpoint.SqlServer.SqlServerSettings.MaxConcurrentCalls.set -> void
