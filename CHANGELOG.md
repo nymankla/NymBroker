@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-15
+
 ### Added
 
 - `ZstandardCompressor` (namespace `NymBroker.Core.Splitter`): compresses split messages with Zstandard, built into .NET 11. Opt in with `services.AddSingleton<ICompressor, ZstandardCompressor>()`; Brotli stays the default. In the benchmark split ~270 KB messages were handled 40–80 % faster than with Brotli (706 → 1 273 msg/s in the run in [docs/benchmarks.md](docs/benchmarks.md#example-run-on-net-11)), at a similar size, and decompressing is about three times as fast. Every receiver now decodes both `brotli` and `zstd` parts, whichever compressor it is configured with, so senders and receivers can switch independently. A receiver on 0.24 or earlier dead-letters `zstd` parts as `UnknownCompression`: switch senders only once all their receivers run 0.25 or later.
