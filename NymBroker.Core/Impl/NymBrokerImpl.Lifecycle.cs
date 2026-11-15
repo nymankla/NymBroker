@@ -14,17 +14,20 @@ internal sealed partial class NymBrokerImpl
             if (_started)
                 return;
 
-            _startInitiated = true;
-
             LogRegisteredEndpoints();
             ValidateConfiguration();
 
+            // From here on, received messages wait for the start to finish (on a new gate after a failed start).
+            if (_startGate.Task.IsFaulted)
+                _startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _startInitiated = true;
             StartHoldingMessages();
 
+            var listening = new List<(string Name, IEndPointEventDriven Endpoint)>();
             try
             {
                 StartScheduledActions(ct);
-                await StartListenersAsync(ct);
+                await StartListenersAsync(listening, ct);
 
                 _started = true;
                 _startGate.TrySetResult();
@@ -32,8 +35,8 @@ internal sealed partial class NymBrokerImpl
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Broker failed to start — rolling back scheduled actions");
-                await StopScheduledActionsAsync();
+                _logger.LogError(ex, "Broker failed to start — rolling back scheduled actions and {Count} started listener(s)", listening.Count);
+                await RollBackStartAsync(listening, ex);
 
                 throw;
             }
@@ -41,6 +44,34 @@ internal sealed partial class NymBrokerImpl
         finally
         {
             _lifecycleLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Undoes a failed start, so nothing keeps running behind a broker that reports "not started" and a later
+    /// <see cref="StartAsync"/> can try again. Never throws: the start's own exception is the one to report.
+    /// </summary>
+    private async Task RollBackStartAsync(List<(string Name, IEndPointEventDriven Endpoint)> listening, Exception startFailure)
+    {
+        await StopScheduledActionsAsync();
+
+        // First release the messages already received (they get Retry), so a listener that waits for its handlers can stop.
+        // The faulted gate stays until the next start replaces it, so a message that is just about to wait sees it too.
+        _startGate.TrySetException(new BrokerStartFailedException(startFailure));
+        _ = _startGate.Task.Exception;   // observed: nobody may be waiting
+        _startInitiated = false;
+
+        foreach (var (name, endpoint) in listening)
+        {
+            try
+            {
+                await endpoint.StopListeningAsync();
+                _logger.LogInformation("Stopped listening on endpoint '{Name}' after the failed start", name);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Endpoint '{Name}' failed to stop listening after the failed start", name);
+            }
         }
     }
 
@@ -84,7 +115,8 @@ internal sealed partial class NymBrokerImpl
                 $"Endpoint '{outName}' has an output transformer and the broker also listens on it. Make it WriteOnly, or add an input transformer that reads the transformed format.");
     }
 
-    private async Task StartListenersAsync(CancellationToken ct)
+    /// <param name="listening">Receives each endpoint once it listens, for the rollback of a failed start.</param>
+    private async Task StartListenersAsync(List<(string Name, IEndPointEventDriven Endpoint)> listening, CancellationToken ct)
     {
         foreach (var (name, endpoint) in _endpoints)
         {
@@ -93,6 +125,7 @@ internal sealed partial class NymBrokerImpl
                 await ed.StartListeningAsync(
                     (raw, token) => ProcessAsync(raw, name, token),
                     ct);
+                listening.Add((name, ed));
                 _logger.LogInformation("Started listening on endpoint '{Name}'", name);
             }
             else if (endpoint.Mode == EndpointMode.WriteOnly)

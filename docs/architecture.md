@@ -39,7 +39,7 @@ All packages share one `<Version>` in `Directory.Build.props` ([Versioning](vers
 
 Configuration is **builder-only**. `NymBrokerBuilder` collects endpoints, consumers, routes, topics, transformers, filters, scheduled actions and policies, in code or from `queuesettings.json`. `Build()` validates what it can, registers the core services, and snapshots the builder's state into a private `BrokerBlueprint`; the DI factory replays that blueprint onto a new `NymBrokerImpl` in a fixed order.
 
-`StartAsync` (under the lifecycle lock) logs the endpoints, runs `ValidateConfiguration` — every route, topic, dead-letter and wire-tap target must exist and be writable, and an output-transformed endpoint must not be read back without an input transformer — then starts scheduled actions and one listener per event-driven endpoint that is not `WriteOnly` (`StartListenersAsync`). A failure rolls back what started and rethrows.
+`StartAsync` (under the lifecycle lock) logs the endpoints, runs `ValidateConfiguration` — every route, topic, dead-letter and wire-tap target must exist and be writable, and an output-transformed endpoint must not be read back without an input transformer — then starts scheduled actions and one listener per event-driven endpoint that is not `WriteOnly` (`StartListenersAsync`). A failure rolls back what started — scheduled actions and the listeners already listening are stopped, and messages they delivered meanwhile get `Retry` — and rethrows, so `StartAsync` can be called again.
 
 ## Processing a message
 

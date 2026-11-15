@@ -4,7 +4,15 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+
+- Serializing an envelope reuses one JSON writer and buffer per thread instead of a new writer, stream and copy per message. In the benchmark the allocations per message fell from 4.0 KB to 2.8 KB for a direct post, from 7.5 KB to 4.9 KB for a routed one and from 645 KB to 259 KB for a 64 KB message.
+
 ### Fixed
+
+- A failed `StartAsync` now stops the listeners it had already started, instead of leaving them running behind a broker that reports "not started" and that `StopAsync` no longer stopped. Messages they delivered during the start get `Retry` instead of waiting forever, and `StartAsync` can be called again.
+- After a `StartAsync` that failed (also on a configuration error, such as an unknown dead-letter endpoint), `PublishAsync` and `ProcessAsync` no longer wait forever for the start to finish.
+- The outbox dispatcher, the idempotency cleanup and the RabbitMQ and SQS listeners no longer log a failure (Critical for the dispatcher and the listeners, and the SQS endpoint then reported unhealthy) when they are stopped while a call is being cancelled and the provider reports that as another exception than `OperationCanceledException`.
 
 - Corrected documentation for tracing and raw-message privacy, pipeline ordering, retry settlement, outbox delivery, health checks, and queue listener internals.
 

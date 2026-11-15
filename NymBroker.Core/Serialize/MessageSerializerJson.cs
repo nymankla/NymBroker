@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -49,11 +50,55 @@ public sealed class MessageSerializerJson : IMessageSerializer
     internal static byte[] Write<TMessage>(IMessageContext context, TMessage? message)
         => Default.WriteRegistered(context, message);
 
+    /// <summary>
+    /// A thread's reusable JSON writer and buffer: every envelope sent or forwarded is written here, so a new writer,
+    /// stream and growing buffer per message would be most of what serializing a small envelope allocates.
+    /// </summary>
+    private sealed class EnvelopeWriter
+    {
+        // A larger buffer (one big message) is not kept per thread.
+        private const int MaxRetainedCapacity = 256 * 1024;
+
+        [ThreadStatic] private static EnvelopeWriter? t_cached;
+
+        private readonly ArrayBufferWriter<byte> _buffer = new(1024);
+
+        private EnvelopeWriter() => Json = new Utf8JsonWriter(_buffer);
+
+        public Utf8JsonWriter Json { get; }
+
+        /// <summary>Takes the thread's writer, so a converter that serializes an envelope while this one is written gets its own.</summary>
+        public static EnvelopeWriter Rent()
+        {
+            var writer = t_cached ?? new EnvelopeWriter();
+            t_cached = null;
+            return writer;
+        }
+
+        public byte[] ToArray()
+        {
+            Json.Flush();
+            return _buffer.WrittenSpan.ToArray();
+        }
+
+        /// <summary>Clears what was written, also after a failed write, and gives the writer back to the thread.</summary>
+        public void Return()
+        {
+            Json.Reset();
+            _buffer.ResetWrittenCount();
+            if (_buffer.Capacity <= MaxRetainedCapacity)
+                t_cached = this;
+            else
+                Json.Dispose();
+        }
+    }
+
     internal byte[] WriteRegistered<TMessage>(IMessageContext context, TMessage? message)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
+        var envelope = EnvelopeWriter.Rent();
+        try
         {
+            var writer = envelope.Json;
             writer.WriteStartObject();
             writer.WriteString("id", context.Id);
             writer.WriteString("correlationId", context.CorrelationId);
@@ -66,8 +111,12 @@ public sealed class MessageSerializerJson : IMessageSerializer
             if (context.DeadLetter is not null)
                 WriteValue(writer, "deadLetter", context.DeadLetter, typeof(DeadLetterInfo));
             writer.WriteEndObject();
+            return envelope.ToArray();
         }
-        return stream.ToArray();
+        finally
+        {
+            envelope.Return();
+        }
     }
 
     /// <summary>Before <c>message</c>, so a reader meets it early; absent when the context has none (older envelopes look the same).</summary>

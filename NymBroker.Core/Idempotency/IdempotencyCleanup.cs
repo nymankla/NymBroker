@@ -36,7 +36,7 @@ internal sealed class IdempotencyCleanupService<TStore>(
                     var deleted = await store.DeleteExpiredAsync(stoppingToken);
                     logger.LogDebug("Deleted {Count} expired idempotency row(s) from {Table}", deleted, options.TableName);
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
+                catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
                 {
                     logger.LogError(ex, "Deleting expired idempotency rows from {Table} failed; retrying at the next interval", options.TableName);
                 }
@@ -45,6 +45,11 @@ internal sealed class IdempotencyCleanupService<TStore>(
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Host stopping.
+        }
+        catch (Exception ex) when (stoppingToken.IsCancellationRequested)
+        {
+            // A database provider may report command cancellation as another exception type.
+            logger.LogDebug(ex, "The idempotency cleanup of {Table} stopped while a delete was being cancelled", options.TableName);
         }
     }
 }

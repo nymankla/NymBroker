@@ -25,7 +25,9 @@ internal sealed partial class NymBrokerImpl : INymBroker
     private readonly SubscriberDispatcher _subscriberDispatcher;
     private readonly ILogger<NymBrokerImpl> _logger;
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
-    private readonly TaskCompletionSource _startGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // Holds messages received while the broker starts. Completed by a successful start; a failed start faults it
+    // (the waiting messages get Retry) and replaces it for the next attempt.
+    private volatile TaskCompletionSource _startGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // Scheduled actions: registered start functions, the handles currently running, and whether they run.
     // All three are guarded by _scheduleLock (never held across an await).
     private readonly Lock _scheduleLock = new();

@@ -18,7 +18,8 @@ internal sealed partial class NymBrokerImpl
 
     public async Task<ProcessResult> ProcessAsync(byte[] raw, string? sourceEndpoint = null, CancellationToken ct = default)
     {
-        if (_startInitiated && !_started) await _startGate.Task.WaitAsync(ct);
+        if (_startInitiated && !_started && await WaitForStartAsync(sourceEndpoint, ct) is { } notStarted)
+            return notStarted;
 
         var tags = new TagList { { "source", sourceEndpoint ?? "unknown" } };
         NymBrokerDiagnostics.MessagesReceived.Add(1, tags);
@@ -51,6 +52,28 @@ internal sealed partial class NymBrokerImpl
             NymBrokerDiagnostics.ProcessingDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds, tags);
         }
     }
+
+    /// <summary>
+    /// Holds a message received while the broker is starting. Returns null once it has started, or Retry if the start
+    /// failed: the listener that delivered the message is being stopped, and the transport redelivers it.
+    /// </summary>
+    private async Task<ProcessResult?> WaitForStartAsync(string? sourceEndpoint, CancellationToken ct)
+    {
+        try
+        {
+            await _startGate.Task.WaitAsync(ct);
+            return null;
+        }
+        catch (BrokerStartFailedException ex)
+        {
+            _logger.LogWarning("A message from {Source} arrived while the broker failed to start; returning Retry to the endpoint", sourceEndpoint);
+            return ProcessResult.Retry(ex);
+        }
+    }
+
+    /// <summary>Faults the start gate; never leaves the broker.</summary>
+    private sealed class BrokerStartFailedException(Exception inner)
+        : Exception("The broker failed to start, so the message was not processed.", inner);
 
     /// <summary>One received message on its way through the pipeline; a split message's parts and whole share one.</summary>
     private sealed class ProcessingRun(string? source, bool nativeDeadLetter, Activity? activity, TagList tags)

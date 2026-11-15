@@ -171,6 +171,11 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
             await _reconnectPolicy.ExecuteAsync(t => new ValueTask(ConsumeUntilLostAsync(handler, token, t)), token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) when (token.IsCancellationRequested)
+        {
+            // The client may report a call interrupted by the stop as another exception type (e.g. a closed channel).
+            _logger.LogDebug(ex, "RabbitMQ [{Name}] listener loop ended while stopping", _name);
+        }
         catch (Exception ex)
         {
             _logger.LogCritical(ex, "RabbitMQ [{Name}] listener loop terminated unexpectedly", _name);

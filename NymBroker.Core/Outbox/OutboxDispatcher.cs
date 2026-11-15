@@ -35,6 +35,11 @@ internal sealed partial class OutboxDispatcher(
         {
             // Host stopping.
         }
+        catch (Exception ex) when (stoppingToken.IsCancellationRequested)
+        {
+            // A database provider may report command cancellation as another exception type.
+            logger.LogDebug(ex, "The outbox dispatcher stopped while a store call was being cancelled");
+        }
         catch (Exception ex)
         {
             logger.LogCritical(ex, "The outbox dispatcher stopped unexpectedly; outbox messages are not sent until the application restarts");

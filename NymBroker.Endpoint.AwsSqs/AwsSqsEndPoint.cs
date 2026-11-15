@@ -234,6 +234,11 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) when (token.IsCancellationRequested)
+        {
+            // The SDK may report a request interrupted by the stop as another exception type.
+            _logger.LogDebug(ex, "AWS SQS endpoint '{Name}' listener loop ended while stopping", _name);
+        }
         catch (Exception ex)
         {
             _loopFailed = true;
