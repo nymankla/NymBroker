@@ -196,7 +196,7 @@ internal sealed partial class NymBrokerImpl
         {
             lastRun = await _scheduleStore.GetLastRunAsync(name, token);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+        catch (Exception ex) when (!token.IsCancellationRequested)   // while stopping, RunScheduledLoopAsync ends the loop
         {
             _logger.LogError(ex, "Could not read the last run of scheduled action {Name}; a missed run is not caught up", name);
             return;
@@ -228,7 +228,7 @@ internal sealed partial class NymBrokerImpl
         {
             claimed = await _scheduleStore.TryClaimAsync(name, occurrence.ToUniversalTime(), token);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+        catch (Exception ex) when (!token.IsCancellationRequested)   // while stopping, RunScheduledLoopAsync ends the loop
         {
             _logger.LogError(ex, "Could not claim the run at {Occurrence} of scheduled action {Name}; it is skipped", occurrence, name);
             return;
@@ -273,6 +273,12 @@ internal sealed partial class NymBrokerImpl
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             // Clean shutdown.
+        }
+        catch (Exception ex) when (token.IsCancellationRequested)
+        {
+            // A schedule store's database provider may report command cancellation as another exception type.
+            // (A failing action never gets here: InvokeScheduledActionAsync logs it.)
+            _logger.LogDebug(ex, "Scheduled action loop ended while a schedule store call was being cancelled");
         }
         catch (Exception ex)
         {

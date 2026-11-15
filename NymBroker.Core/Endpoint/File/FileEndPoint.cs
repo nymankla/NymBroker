@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading.Channels;
 using NymBroker.Core.Endpoint.HealthCheck;
@@ -159,6 +160,26 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
         // ReadAndArchiveAsync returns null on the second attempt and no handler call is made.
         _loop = Task.Run(() => ProcessChannelAsync(channel.Reader, handler, stopping, handlerToken), CancellationToken.None);
 
+        try
+        {
+            StartWatching(stopping);
+            return Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            return StopAfterFailedStartAsync(ex);
+        }
+    }
+
+    /// <summary>The folder could not be watched or read (it may be gone): stop the reader loop again, so the endpoint can be started later.</summary>
+    private async Task StopAfterFailedStartAsync(Exception startFailure)
+    {
+        await StopListeningAsync();
+        ExceptionDispatchInfo.Throw(startFailure);
+    }
+
+    private void StartWatching(CancellationToken stopping)
+    {
         _watcher = new FileSystemWatcher(_readDir.FullName, _settings.SearchPattern)
         {
             NotifyFilter       = NotifyFilters.FileName,
@@ -174,8 +195,6 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
         // Periodic poll — catches files whose watcher events were dropped under burst load.
         if (_settings.PollInterval > TimeSpan.Zero)
             _poll = Task.Run(() => PollAsync(stopping), CancellationToken.None);
-
-        return Task.CompletedTask;
     }
 
     private async Task PollAsync(CancellationToken stopping)

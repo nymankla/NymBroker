@@ -1,7 +1,10 @@
 using System.Data.Common;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NymBroker.Core.Endpoint;
+using NymBroker.Core.Endpoint.File;
+using NymBroker.Core.Scheduling;
 using NymBroker.Core.Endpoint.HealthCheck;
 using NymBroker.Core.Impl;
 using NymBroker.Core.Outbox;
@@ -139,6 +142,67 @@ public sealed class BrokerStartRollbackTests
         public Task RetryLaterAsync(long id, Guid claimId, TimeSpan delay, string error, CancellationToken ct = default) => Task.CompletedTask;
         public Task MarkFailedAsync(long id, Guid claimId, string error, CancellationToken ct = default) => Task.CompletedTask;
         public Task ReleaseAsync(long id, Guid claimId, CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    /// <summary>A schedule store whose claim reports cancellation as its own exception type.</summary>
+    private sealed class CancelledAsProviderErrorScheduleStore : IScheduleStore
+    {
+        public TaskCompletionSource Claiming { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask<DateTimeOffset?> GetLastRunAsync(string name, CancellationToken ct = default) => ValueTask.FromResult<DateTimeOffset?>(null);
+
+        public async ValueTask<bool> TryClaimAsync(string name, DateTimeOffset occurrence, CancellationToken ct = default)
+        {
+            Claiming.TrySetResult();
+            try
+            {
+                await Task.Delay(System.Threading.Timeout.Infinite, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw new InvalidOperationException("Operation cancelled by user.");
+            }
+            return true;
+        }
+    }
+
+    [Fact]
+    public async Task NamedScheduledAction_StoppedWhileTheStoreReportsCancellationAsAnotherException_LogsNoFailure()
+    {
+        var store = new CancelledAsProviderErrorScheduleStore();
+        var logger = new CapturingLogger<NymBrokerImpl>();
+        var broker = TestBroker.Create(new ServiceCollection().BuildServiceProvider(), logger: logger);
+        broker.SetScheduleStore(store);
+        broker.AddNamedScheduledAction("cleanup", new GridTiming(TimeSpan.FromMilliseconds(20)), MissedRunPolicy.Skip, null, _ => Task.CompletedTask);
+
+        await broker.StartAsync(Ct);
+        await store.Claiming.Task.WaitAsync(Timeout, Ct);
+        await broker.StopAsync(CancellationToken.None);
+
+        Assert.DoesNotContain(logger.Entries, e => e.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task FileEndPoint_StartFailsBecauseTheFolderIsGone_CanBeStartedAgain()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"nymbroker-start-{Guid.NewGuid():N}");
+        var endpoint = new FileEndPoint("F", new FileSettings { ReadPath = folder, PostPath = folder, IsAbsolutePath = true, PollInterval = TimeSpan.Zero },
+            NullLogger<FileEndPoint>.Instance);
+        Task<ProcessResult> Handle(byte[] raw, CancellationToken ct) => Task.FromResult(ProcessResult.Completed);
+        try
+        {
+            Directory.Delete(folder);
+            await Assert.ThrowsAnyAsync<Exception>(() => endpoint.StartListeningAsync(Handle, Ct));
+
+            // Not "already listening": the failed start left no reader loop behind.
+            Directory.CreateDirectory(folder);
+            await endpoint.StartListeningAsync(Handle, Ct);
+        }
+        finally
+        {
+            await endpoint.StopListeningAsync();
+            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+        }
     }
 
     [Fact]

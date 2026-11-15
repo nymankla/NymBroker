@@ -12,6 +12,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 - A failed `StartAsync` now stops the listeners it had already started, instead of leaving them running behind a broker that reports "not started" and that `StopAsync` no longer stopped. Messages they delivered during the start get `Retry` instead of waiting forever, and `StartAsync` can be called again.
 - After a `StartAsync` that failed (also on a configuration error, such as an unknown dead-letter endpoint), `PublishAsync` and `ProcessAsync` no longer wait forever for the start to finish.
+- A `FileEndPoint` whose start failed (its folder was gone) no longer leaves its reader loop running, so a later start works instead of throwing "already listening".
+- A named scheduled action stopped while its schedule store call is being cancelled no longer logs an error when the provider reports that as another exception than `OperationCanceledException`.
 - The outbox dispatcher, the idempotency cleanup and the RabbitMQ and SQS listeners no longer log a failure (Critical for the dispatcher and the listeners, and the SQS endpoint then reported unhealthy) when they are stopped while a call is being cancelled and the provider reports that as another exception than `OperationCanceledException`.
 
 - Corrected documentation for tracing and raw-message privacy, pipeline ordering, retry settlement, outbox delivery, health checks, and queue listener internals.
