@@ -1,3 +1,1 @@
 #nullable enable
-NymBroker.Endpoint.Postgres.PostgresSettings.MaxConcurrentCalls.get -> int
-NymBroker.Endpoint.Postgres.PostgresSettings.MaxConcurrentCalls.set -> void

@@ -779,3 +779,4 @@ NymBroker.Core.Serialize.RawMessageContext.TraceParent.get -> string?
 NymBroker.Core.Serialize.RawMessageContext.TraceParent.set -> void
 NymBroker.Core.Serialize.RawMessageContext.TraceState.get -> string?
 NymBroker.Core.Serialize.RawMessageContext.TraceState.set -> void
+NymBroker.Core.Endpoint.Queue.ILeasedQueueSettings.MaxConcurrentCalls.get -> int
