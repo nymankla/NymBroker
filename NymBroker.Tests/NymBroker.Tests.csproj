@@ -15,9 +15,9 @@
     <PackageReference Include="Cronos" Version="0.13.0" />
     <!-- Syntax-only code metrics for CodeHealth/CodeHealthTests (docs/architecture.md#code-health); test project only. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.14" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="11.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1">
       <PrivateAssets>all</PrivateAssets>
