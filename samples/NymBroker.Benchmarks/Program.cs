@@ -199,9 +199,10 @@ results.Add(await RunAsync("SQLite – drain backlog", "SqlBench", SqlCount * Ba
 // A time in the past: every message goes through the deferred table and is moved to the queue at once.
 results.Add(await RunAsync("SQLite – deferred", "SqlBench", SqlCount, deferBy: TimeSpan.FromMinutes(-1),
     configureBuilder: b => b.AddSqliteEndPoint("SqlBench", sqliteSettings)));
-results.Add(await RunAsync("SQLite – 5 ms consumer", "SqlBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay,
+// From a backlog: posting one by one would feed the queue more slowly than eight handlers drain it.
+results.Add(await RunAsync("SQLite – 5 ms consumer", "SqlBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay, drainBacklog: true,
     configureBuilder: b => b.AddSqliteEndPoint("SqlBench", sqliteSettings)));
-results.Add(await RunAsync("SQLite – 5 ms consumer ×8", "SqlBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay,
+results.Add(await RunAsync("SQLite – 5 ms consumer ×8", "SqlBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay, drainBacklog: true,
     configureBuilder: b => b.AddSqliteEndPoint("SqlBench", new SqliteSettings
     {
         ConnectionString   = sqliteSettings.ConnectionString,
@@ -234,10 +235,10 @@ if (await IsPostgresAvailableAsync())
     results.Add(await RunAsync("Postgres – deferred", "PgBench", PgCount, deferBy: TimeSpan.FromMinutes(-1),
         configureBuilder: b => b.AddPostgresEndPoint("PgBench", pgSettings)));
     await CleanPgTableAsync();
-    results.Add(await RunAsync("Postgres – 5 ms consumer", "PgBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay,
+    results.Add(await RunAsync("Postgres – 5 ms consumer", "PgBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay, drainBacklog: true,
         configureBuilder: b => b.AddPostgresEndPoint("PgBench", pgSettings)));
     await CleanPgTableAsync();
-    results.Add(await RunAsync("Postgres – 5 ms consumer ×8", "PgBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay,
+    results.Add(await RunAsync("Postgres – 5 ms consumer ×8", "PgBench", SlowConsumerCount, consumerDelay: SlowConsumerDelay, drainBacklog: true,
         configureBuilder: b => b.AddPostgresEndPoint("PgBench", new PostgresSettings
         {
             ConnectionString   = pgSettings.ConnectionString,

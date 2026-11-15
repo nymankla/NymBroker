@@ -6,7 +6,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ### Added
 
-- `MaxConcurrentCalls` on the SQLite, PostgreSQL, SQL Server and MySQL endpoints (#126): how many messages of a claimed batch are handled at the same time. The default 1 keeps today's behaviour. Above 1 messages finish in any order, and at most `BatchSize` run at once. The outcomes are still written in one transaction per batch, together with the next claim. In the benchmark, a consumer that waits per message went from 63 to 483 messages per second on SQLite with 8. Custom lease-based transports get it through the new default member `ILeasedQueueSettings.MaxConcurrentCalls`.
+- `MaxConcurrentCalls` on the SQLite, PostgreSQL, SQL Server and MySQL endpoints (#126): how many messages of a claimed batch are handled at the same time. The default 1 keeps today's behaviour. Above 1 messages finish in any order, and at most `BatchSize` run at once. The outcomes are still written in one transaction per batch, together with the next claim. In the benchmark, a consumer that waits per message went from about 60 to 480 messages per second on SQLite and from 60 to 375 on PostgreSQL with 8. Custom lease-based transports get it through the new default member `ILeasedQueueSettings.MaxConcurrentCalls`.
 
 ### Changed
 
