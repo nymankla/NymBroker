@@ -2,7 +2,7 @@
 
 [![NuGet](https://img.shields.io/nuget/v/NymBroker.svg)](https://www.nuget.org/packages/NymBroker/)
 
-NymBroker is a .NET 10 message-processing framework based on [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). It decouples producers from handlers: post typed messages to named endpoints, then filter, route, and dispatch them to consumers or subscribers. Start with the in-process Memory endpoint and add durable transports as needed.
+NymBroker is a .NET 11 message-processing framework based on [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/). It decouples producers from handlers: post typed messages to named endpoints, then filter, route, and dispatch them to consumers or subscribers. Start with the in-process Memory endpoint and add durable transports as needed.
 
 ## Packages and endpoints
 
@@ -34,7 +34,7 @@ Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org 
 
 ## Quick start
 
-Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). Add the core and hosting packages to a new console app:
+Requires the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0). Add the core and hosting packages to a new console app:
 
 ```bash
 dotnet add package NymBroker

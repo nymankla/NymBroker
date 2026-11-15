@@ -10,7 +10,7 @@ Thanks for considering a contribution. Issues and pull requests are welcome.
 
 ## Development
 
-NymBroker targets .NET 10. From the repository root:
+NymBroker targets .NET 11. From the repository root:
 
 ```bash
 dotnet build

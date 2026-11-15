@@ -1,6 +1,6 @@
 ---
 name: nymbroker-setup
-description: Add NymBroker (a .NET 10 message-processing framework) to an application — install the NuGet packages, choose transports (Memory, File, SQLite, PostgreSQL, SQL Server, MySQL, RabbitMQ, Azure Service Bus, Amazon SQS, HTTP), register endpoints, dead-lettering, duplicate detection, health checks and telemetry in DI. Asks the user which options they want before changing anything. Use when the user wants to set up, install, add, configure or wire up NymBroker, a message broker, a message queue or messaging in their .NET app.
+description: Add NymBroker (a .NET 11 message-processing framework) to an application — install the NuGet packages, choose transports (Memory, File, SQLite, PostgreSQL, SQL Server, MySQL, RabbitMQ, Azure Service Bus, Amazon SQS, HTTP), register endpoints, dead-lettering, duplicate detection, health checks and telemetry in DI. Asks the user which options they want before changing anything. Use when the user wants to set up, install, add, configure or wire up NymBroker, a message broker, a message queue or messaging in their .NET app.
 ---
 
 # Set up NymBroker in an application
@@ -13,7 +13,7 @@ Docs: https://github.com/nymankla/NymBroker/blob/master/docs/user-guide.md · Pa
 
 Inspect the project first so you only ask what the code doesn't answer:
 
-- The target framework must be **net10.0** or later. If it's older, stop and tell the user NymBroker requires .NET 10.
+- The target framework must be **net11.0** or later. If it's older, stop and tell the user NymBroker requires .NET 11.
 - Host type: `WebApplication.CreateBuilder` (ASP.NET Core), `Host.CreateApplicationBuilder` / `Host.CreateDefaultBuilder` (worker / console), or no host.
 - Whether NymBroker is already referenced (`dotnet list package`), and any existing `AddNymBroker()` call — extend it instead of adding a second one.
 - Databases or brokers the app already uses (connection strings in `appsettings*.json`, packages such as Npgsql, Microsoft.Data.SqlClient, RabbitMQ.Client, Azure.Messaging.ServiceBus) — a good hint for the transport.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A .NET 10 message-processing framework following Enterprise Integration Patterns, shipped as NuGet packages. Messages travel as JSON envelopes:
+A .NET 11 message-processing framework following Enterprise Integration Patterns, shipped as NuGet packages. Messages travel as JSON envelopes:
 
 ```
 Source endpoint → deserialize → filter → route / topic / consumer → destination endpoint

@@ -4,7 +4,7 @@
 
 ## Requirements and packages
 
-- .NET 10.
+- .NET 11.
 - The core package, [`NymBroker`](https://www.nuget.org/packages/NymBroker/) (project `NymBroker.Core`), contains the broker plus the **Memory** and **File** endpoints. Each other transport is a separate add-on so you only take the dependencies you use:
 
 | Package | Adds | Builder methods |
@@ -38,7 +38,7 @@ All packages are published on nuget.org — start with [NymBroker](https://www.n
 Create an app and add the core package plus the generic host:
 
 ```bash
-dotnet new console --framework net10.0 --name Quickstart
+dotnet new console --framework net11.0 --name Quickstart
 cd Quickstart
 dotnet add package NymBroker
 dotnet add package Microsoft.Extensions.Hosting
@@ -60,7 +60,7 @@ Or in the project file:
 </ItemGroup>
 ```
 
-NymBroker targets `net10.0` and references the 11.0 `Microsoft.Extensions.*` packages, which also run on .NET 10. Use the same major version for your own `Microsoft.Extensions.*` references.
+NymBroker targets `net11.0` and references the 11.0 `Microsoft.Extensions.*` packages. Use the same major version for your own `Microsoft.Extensions.*` references.
 
 Each optional package adds its builder methods (see the table above) to `AddNymBroker()`, in its own namespace — for example `using NymBroker.Endpoint.Sqlite;` for `AddSqliteEndPoint`.
 
