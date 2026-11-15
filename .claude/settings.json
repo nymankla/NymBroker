@@ -1,0 +1,14 @@
+{
+  "extraKnownMarketplaces": {
+    "dotnet-agent-skills": {
+      "source": {
+        "source": "github",
+        "repo": "dotnet/skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "dotnet11@dotnet-agent-skills": true,
+    "dotnet-upgrade@dotnet-agent-skills": true
+  }
+}
