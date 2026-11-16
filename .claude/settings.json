@@ -1,4 +1,8 @@
 {
+  "enabledPlugins": {
+    "dotnet11@dotnet-agent-skills": true,
+    "dotnet-upgrade@dotnet-agent-skills": true
+  },
   "extraKnownMarketplaces": {
     "dotnet-agent-skills": {
       "source": {
@@ -7,8 +11,9 @@
       }
     }
   },
-  "enabledPlugins": {
-    "dotnet11@dotnet-agent-skills": true,
-    "dotnet-upgrade@dotnet-agent-skills": true
+  "permissions": {
+    "allow": [
+      "ClaudeInChromeDomain(localhost:5299)"
+    ]
   }
 }
