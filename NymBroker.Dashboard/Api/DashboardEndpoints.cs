@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NymBroker.Core;
 using NymBroker.Core.Endpoint.Queue;
@@ -11,7 +12,14 @@ using NymBroker.Dashboard.Metrics;
 
 namespace NymBroker.Dashboard.Api;
 
-/// <summary>The page and its JSON API, mapped under the dashboard's route group. Every route is read-only.</summary>
+/// <summary>
+/// The page and its JSON API, mapped under the dashboard's route group. Every route is read-only.
+/// Handlers take only <see cref="HttpContext"/>, route values and <see cref="CancellationToken"/> (which also keeps an
+/// async handler from matching the <c>RequestDelegate</c> overload, ASP0016) and get their services from
+/// <see cref="DashboardContext.From"/>: the request delegate generator treats a service parameter (direct or through
+/// <c>[AsParameters]</c>) as a possible JSON body and can add <c>IAcceptsMetadata</c>, and then a request without
+/// <c>Content-Type</c> loses to any catch-all endpoint of the host app (#130).
+/// </summary>
 internal static class DashboardEndpoints
 {
     internal const int DefaultPageSize = 50;
@@ -37,16 +45,24 @@ internal static class DashboardEndpoints
         return path.Value?.EndsWith('/') == true ? UiAssets.Serve(http, "index.html") : Results.Redirect(path + "/" + http.Request.QueryString);
     }
 
-    /// <summary>What the handlers take from the request and the container, bound as one parameter.</summary>
+    /// <summary>What the handlers take from the request and the container. Built by <see cref="From"/>, never bound.</summary>
     internal sealed record DashboardContext(HttpContext Http, INymBroker Broker, SnapshotService Snapshots, MetricCollector Metrics,
         NymBrokerDashboardOptions Options, IHostEnvironment Environment)
     {
         public bool ShowPayloads => Options.ShowPayloads ?? Environment.IsDevelopment();
+
+        public static DashboardContext From(HttpContext http)
+        {
+            var services = http.RequestServices;
+            return new DashboardContext(http, services.GetRequiredService<INymBroker>(), services.GetRequiredService<SnapshotService>(),
+                services.GetRequiredService<MetricCollector>(), services.GetRequiredService<NymBrokerDashboardOptions>(),
+                services.GetRequiredService<IHostEnvironment>());
+        }
     }
 
     /// <summary>
-    /// The query string of the messages route, read by hand: the request delegate generator cannot bind nullable
-    /// reference properties through <c>[AsParameters]</c>, and reading it here gives a clear message for a bad value.
+    /// The query string of the messages route, read by hand: handlers bind no query parameters (see the class remarks),
+    /// and reading it here gives a clear message for a bad value.
     /// </summary>
     internal sealed record MessageQuery(QueueInspectionState State, int Limit, string? Cursor, DateTimeOffset? FailedSince)
     {
@@ -75,19 +91,21 @@ internal static class DashboardEndpoints
         private static string? NullIfEmpty(string? text) => string.IsNullOrEmpty(text) ? null : text;
     }
 
-    private static async Task<IResult> OverviewAsync([AsParameters] DashboardContext context)
+    private static async Task<IResult> OverviewAsync(HttpContext http, CancellationToken ct)
     {
-        var (http, options) = (context.Http, context.Options);
+        var context = DashboardContext.From(http);
+        var options = context.Options;
         NoStore(http);
-        var live = await context.Snapshots.GetCurrentAsync(http.RequestAborted);
+        var live = await context.Snapshots.GetCurrentAsync(ct);
         var overview = new DashboardOverview(options.Title, Version, (int)options.RefreshInterval.TotalMilliseconds, (int)options.History.TotalSeconds,
             context.ShowPayloads, context.Broker.Describe(), context.Metrics.History(), live);
         return TypedResults.Json(overview, DashboardJsonContext.Default.DashboardOverview);
     }
 
-    private static IResult Live(HttpContext http, SnapshotService snapshots)
+    private static IResult Live(HttpContext http)
     {
         NoStore(http);
+        var snapshots = http.RequestServices.GetRequiredService<SnapshotService>();
         return TypedResults.ServerSentEvents(StreamAsync(snapshots, http.RequestAborted), eventType: "snapshot");
     }
 
@@ -98,14 +116,16 @@ internal static class DashboardEndpoints
             yield return JsonSerializer.Serialize(snapshot, DashboardJsonContext.Default.LiveSnapshot);
     }
 
-    private static async Task<IResult> HealthAsync(HttpContext http, SnapshotService snapshots)
+    private static async Task<IResult> HealthAsync(HttpContext http, CancellationToken ct)
     {
         NoStore(http);
-        return TypedResults.Json(await snapshots.CheckHealthAsync(http.RequestAborted), DashboardJsonContext.Default.HealthView);
+        var snapshots = http.RequestServices.GetRequiredService<SnapshotService>();
+        return TypedResults.Json(await snapshots.CheckHealthAsync(ct), DashboardJsonContext.Default.HealthView);
     }
 
-    private static async Task<IResult> MessagesAsync(string name, [AsParameters] DashboardContext context)
+    private static async Task<IResult> MessagesAsync(HttpContext http, string name)
     {
+        var context = DashboardContext.From(http);
         NoStore(context.Http);
         if (!MessageQuery.TryRead(context.Http.Request.Query, out var query, out var error)) return Problem(StatusCodes.Status400BadRequest, error);
         if (!TryFindInspector(context.Broker, name, out var inspector)) return Problem(StatusCodes.Status404NotFound, $"No endpoint named '{name}'.");

@@ -6,6 +6,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core;
@@ -25,7 +28,8 @@ public sealed class DashboardApiTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _client = null!;
 
-    private static async Task<(WebApplication App, HttpClient Client)> StartAsync(Action<NymBrokerDashboardOptions>? configure = null)
+    private static async Task<(WebApplication App, HttpClient Client)> StartAsync(Action<NymBrokerDashboardOptions>? configure = null,
+        Action<WebApplication>? mapMore = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -38,6 +42,7 @@ public sealed class DashboardApiTests : IAsyncLifetime
 
         var app = builder.Build();
         app.MapNymBrokerDashboard();
+        mapMore?.Invoke(app);
         await app.StartAsync(TestContext.Current.CancellationToken);
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
         var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = new Uri(address + "/nymbroker/") };
@@ -189,6 +194,36 @@ public sealed class DashboardApiTests : IAsyncLifetime
         var data = await reader.ReadLineAsync(timeout.Token);
         Assert.StartsWith("data: ", data);
         Assert.True(JsonDocument.Parse(data!["data: ".Length..]).RootElement.GetProperty("started").GetBoolean());
+    }
+
+    [Fact]
+    public async Task EveryRoute_AnswersAPlainGet_WhenTheHostHasACatchAllEndpoint()
+    {
+        // #130: an endpoint with accepts metadata loses to a catch-all for a request without Content-Type.
+        var (app, client) = await StartAsync(mapMore: a => a.MapFallback(() => Results.NotFound()));
+        await using var _ = app;
+        using var __ = client;
+
+        foreach (var path in new[] { "", "assets/app.js", "api/overview", "api/health", "api/endpoints/Queue/messages" })
+        {
+            using var response = await client.GetAsync(path, Ct);
+            Assert.True(response.StatusCode == HttpStatusCode.OK, $"GET /nymbroker/{path} returned {(int)response.StatusCode}");
+        }
+
+        using var live = await client.GetAsync("api/live", HttpCompletionOption.ResponseHeadersRead, Ct);
+        Assert.Equal("text/event-stream", live.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public void NoRoute_DeclaresThatItAcceptsARequestBody()
+    {
+        // Guards routes added later: a parameter the generator reads as a JSON body brings #130 back.
+        var dashboard = ((IEndpointRouteBuilder)_app).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
+            .Where(e => e.RoutePattern.RawText?.StartsWith("/nymbroker", StringComparison.Ordinal) == true)
+            .ToList();
+
+        Assert.Equal(6, dashboard.Count);
+        Assert.All(dashboard, e => Assert.Null(e.Metadata.GetMetadata<IAcceptsMetadata>()));
     }
 
     [Fact]
