@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.25.2] - 2026-11-17
+
 ### Fixed
 
 - **Dashboard:** the overview and the message list answered 404 when the host app also maps a catch-all endpoint (Blazor's `MapRazorComponents`, `MapFallback*`, a `{**path}` route) (#130). The request delegate generator had marked these two routes as accepting a JSON body, so a plain GET without `Content-Type` lost to the catch-all. The dashboard's handlers no longer bind services as parameters, so no route carries accepts metadata. Apps that removed `IAcceptsMetadata` with a `Finally` convention as a workaround can drop it.
