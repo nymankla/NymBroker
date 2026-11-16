@@ -13,11 +13,13 @@ flowchart BT
     ID["NymBroker.Idempotency.*<br/>Sqlite · Postgres · SqlServer · MySql"]
     SC["NymBroker.Scheduling.*<br/>Sqlite · Postgres · SqlServer · MySql"]
     OB["NymBroker.Outbox.*<br/>Sqlite · Postgres · SqlServer · MySql"]
+    DB["NymBroker.Dashboard<br/>ASP.NET Core · embedded page"]
     SH["shared/ (source, not a package)"]
     EP --> Core
     ID --> Core
     SC --> Core
     OB --> Core
+    DB --> Core
     SH -. compiled into .-> EP
     SH -. compiled into .-> ID
     SH -. compiled into .-> SC
@@ -29,6 +31,7 @@ flowchart BT
 | `NymBroker.Core` | The broker engine (`NymBrokerImpl`, internal), the public `INymBroker` runtime API, `NymBrokerBuilder` (all configuration), serializer and envelope, routing, topics, consumers, idempotent receiver, scheduling, splitter and aggregator, health checks, the Memory and File endpoints, `RetryPolicy`, and the building blocks endpoint packages derive from. No transport dependency. |
 | `NymBroker.Endpoint.*` | One transport each. Queue-table endpoints (SQLite, PostgreSQL, SQL Server, MySQL) use a nested listener derived from Core's `LeasedQueueListener`; broker transports (RabbitMQ, Service Bus, SQS) push or poll natively; HTTP is send-only. |
 | `NymBroker.Idempotency.*`, `NymBroker.Scheduling.*`, `NymBroker.Outbox.*` | Durable stores behind Core's `IExpiringIdempotencyStore` (and `ITransactionalIdempotencyStore`), `IScheduleStore` and `IOutboxStore`, independent of the endpoint packages. Core's hosted `OutboxDispatcher` sends what the outbox stores hold. |
+| `NymBroker.Dashboard` | The read-only web dashboard: a minimal API route group (request delegate generator, source-generated JSON, no reflection) and an embedded HTML/CSS/JS page. It reads Core only through public API: `INymBroker.Describe()`, `GetQueueInspector`, `CheckHealthAsync` and the broker's meters (a `MeterListener`). The only package that depends on ASP.NET Core. See [Dashboard](dashboard.md). |
 | [`shared/`](../shared/README.md) | Internal source compiled into several packages through `Directory.Build.targets`: identifier quoting per database, the store plumbing, and queue inspection. Shares code without a shared package or public API. |
 | `NymBroker.Tests` | One xUnit project: unit tests always run; integration tests run when their `NYMBROKER_*` variable is set (`scripts/test-all.ps1` sets all of them). |
 | `samples/` | Runnable apps, including the [benchmark](benchmarks.md). |

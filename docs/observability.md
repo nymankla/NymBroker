@@ -4,6 +4,8 @@
 
 NymBroker emits metrics and traces through the standard .NET APIs (`System.Diagnostics.Metrics` and `ActivitySource`), so any OpenTelemetry setup can collect them without an extra NymBroker package. It logs through `Microsoft.Extensions.Logging`.
 
+To look at a running broker without setting any of that up, add the [dashboard](dashboard.md): a page in your app that shows the message flow, queue contents, health and throughput from these same metrics. `INymBroker.Describe()` returns the broker's configuration (endpoints and their capabilities, routes, topics, consumers, scheduled actions with their next run) for your own tools.
+
 ## Enabling collection
 
 ```csharp
@@ -166,7 +168,7 @@ Health checks contact external systems, so don't run them on a hot path; a probe
 
 ## Queue inspection
 
-`INymBroker.GetQueueInspector(endpointName)` counts and lists the messages in an endpoint's queue, for dashboards, support tools and replay. It returns an `IQueueInspector` (namespace `NymBroker.Core.Endpoint.Queue`), or `null` when the endpoint's transport doesn't offer one. The queue-table endpoints offer it: **SQLite, PostgreSQL, SQL Server and MySQL**. RabbitMQ, Azure Service Bus, Amazon SQS, Memory, File and HTTP return `null`: they cannot list messages and tell their states apart without receiving them, which would change what is being inspected. It throws `InvalidOperationException` for an unknown endpoint. It is read-only and safe to call while the broker runs.
+`INymBroker.GetQueueInspector(endpointName)` counts and lists the messages in an endpoint's queue, for dashboards, support tools and replay. It returns an `IQueueInspector` (namespace `NymBroker.Core.Endpoint.Queue`), or `null` when the endpoint's transport doesn't offer one. The queue-table endpoints offer it: **SQLite, PostgreSQL, SQL Server and MySQL**. RabbitMQ, Azure Service Bus, Amazon SQS, Memory, File and HTTP return `null`: they cannot list messages and tell their states apart without receiving them, which would change what is being inspected. It throws `InvalidOperationException` for an unknown endpoint. It is read-only and safe to call while the broker runs. The [dashboard](dashboard.md) shows these counts and lists.
 
 ```csharp
 var inspector = broker.GetQueueInspector("Orders") ?? throw new NotSupportedException();

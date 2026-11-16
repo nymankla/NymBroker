@@ -49,6 +49,7 @@ The fast in-process scenarios finish in a few hundred milliseconds, so warm-up m
 | Scenario | Messages | What it measures |
 |---|---|---|
 | Memory – direct | 50 000 | `PostAsync` to a Memory endpoint → consumer: the broker's own pipeline cost, and the row to compare the others with |
+| Memory – + dashboard | 50 000 | `Memory – direct` with the [dashboard](dashboard.md)'s metric collector listening: what having the dashboard costs per message |
 | Memory – 8 producers | 50 000 | The same, posted from eight tasks at once: contention |
 | Memory – batch/100 | 50 000 | `PostBatchAsync` in batches of 100, without a transport that gains from it: the batch code path |
 | Memory – 64 KB | 5 000 | A 64 KB message instead of a small one: how serialization scales with size |

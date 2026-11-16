@@ -16,6 +16,7 @@ Out of the box, NymBroker is set up for the local Docker containers in `scripts/
 - [ ] Only trusted producers can write to the queues the broker consumes.
 - [ ] Payload logging (`AddMessageLoggingFilter`) is off, and File dead-letter / wire-tap folders are access-controlled.
 - [ ] The health endpoint is not public.
+- [ ] The [dashboard](dashboard.md), if you use it, requires authorization (or stays local-only), and payloads are off or redacted.
 - [ ] The app runs on the latest .NET 11 patch runtime (see [Untrusted producers](#untrusted-producers)).
 
 ## Secrets
@@ -191,6 +192,17 @@ SQLite has no network or authentication: whoever can open the file can read and 
 | SQL queue tables | Payloads, plus exception messages in `last_error` | Database permissions; old rows are [deleted after 30 / 90 days](endpoints-and-configuration.md#removing-old-rows) by default, so set shorter times if your data rules require it |
 | Health endpoint (`AddNymBroker` health check) | Endpoint names and connection error messages | Don't expose `/health` publicly; map it on an internal port or require authorization |
 | Metrics and traces | Endpoint, topic, message-type and consumer names — never payloads | Nothing extra; they are safe to export |
+| [Dashboard](dashboard.md) (`NymBroker.Dashboard`) | The system's shape, queue contents, `last_error` texts, and payloads when `ShowPayloads` is on | See [Dashboard](#dashboard) |
+
+## Dashboard
+
+`NymBroker.Dashboard` is read-only, but it shows your endpoints, routes and queue contents.
+
+- **Require authorization**: `app.MapNymBrokerDashboard().RequireAuthorization("Operations")`. Without a policy it answers only loopback requests, and a request through a reverse proxy (with an `X-Forwarded-For` or `Forwarded` header) counts as remote. Don't set `AllowAnonymousRemoteAccess` on a network others can reach.
+- **Payloads** are hidden outside Development. If you turn them on (`ShowPayloads = true`), mask personal data with `RedactPayload`. Envelope fields and `last_error` are always shown, so keep personal data out of exception messages.
+- Every response has a strict `Content-Security-Policy` (nothing is loaded from elsewhere), `X-Frame-Options: DENY` and `X-Content-Type-Options: nosniff`; API responses are not cached.
+
+Details: [Dashboard → Security](dashboard.md#security).
 
 ## Untrusted producers
 

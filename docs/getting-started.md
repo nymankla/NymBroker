@@ -30,6 +30,7 @@
 | `NymBroker.Scheduling.MySql` | Named scheduled actions run once across instances and catch up missed runs | `AddMySqlScheduleStore` |
 | `NymBroker.Scheduling.Postgres` | Named scheduled actions run once across instances and catch up missed runs | `AddPostgresScheduleStore` |
 | `NymBroker.Scheduling.Sqlite` | Named scheduled actions catch up missed runs, one host | `AddSqliteScheduleStore` |
+| `NymBroker.Dashboard` | A live [dashboard](dashboard.md) in your ASP.NET Core app | `AddNymBrokerDashboard`, `MapNymBrokerDashboard` |
 
 All packages are published on nuget.org — start with [NymBroker](https://www.nuget.org/packages/NymBroker/). They share one version number, so keep them on the same version.
 

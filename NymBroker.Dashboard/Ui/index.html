@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>NymBroker</title>
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/app.css">
+  <script type="module" src="assets/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="7" cy="9" r="3.2"/><circle cx="7" cy="23" r="3.2"/><circle cx="25" cy="16" r="3.6"/>
+        <path d="M10 9.6 C16 10.5 17 15 21.5 15.6 M10 22.4 C16 21.5 17 17 21.5 16.4"/>
+      </svg>
+      <span class="brand-name" id="title">NymBroker</span>
+      <span class="version" id="version"></span>
+    </a>
+    <nav class="tabs" aria-label="Views">
+      <a href="#/" data-tab="overview">Overview</a>
+      <a href="#/endpoints" data-tab="endpoints">Endpoints</a>
+      <a href="#/topology" data-tab="topology">Topology</a>
+      <a href="#/health" data-tab="health">Health</a>
+    </nav>
+    <div class="topbar-status">
+      <span class="pill" id="broker-status">Loading…</span>
+      <span class="live" id="live" title="Live updates"><i></i><span>Connecting</span></span>
+      <button class="icon-button" id="theme" type="button" aria-label="Switch between dark and light theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
+      </button>
+    </div>
+  </header>
+  <main id="view" class="view"></main>
+  <footer class="footer">
+    <span>Read-only view of this process. Rates and latency are kept in memory for this instance; queue counts come from the transport.</span>
+  </footer>
+</body>
+</html>

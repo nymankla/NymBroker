@@ -9,6 +9,8 @@ using NymBroker.Core.Factory;
 using NymBroker.Core;
 using NymBroker.Core.Route;
 using NymBroker.Core.Splitter;
+using NymBroker.Dashboard;
+using Microsoft.Extensions.Hosting;
 using NymBroker.Endpoint.Sqlite;
 using NymBroker.Endpoint.Postgres;
 using NymBroker.Endpoint.RabbitMq;
@@ -98,6 +100,8 @@ var results = new List<BenchmarkResult?>
 {
     // ── The pipeline ─────────────────────────────────────────────────────────────────────────────────────
     await RunAsync("Memory – direct",      "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup),
+    // The same with the dashboard's metric collector listening: what having the dashboard costs per message.
+    await RunAsync("Memory – + dashboard",  "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, dashboard: true),
     await RunAsync("Memory – 8 producers", "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, producers: 8),
     await RunAsync("Memory – batch/100",   "Memory",  MemoryCount, runs: InProcessRuns, warmup: InProcessWarmup, postBatchSize: 100),
     await RunAsync("Memory – 64 KB",       "Memory",  LargeCount,  runs: InProcessRuns, warmup: LargeCount,
@@ -579,7 +583,8 @@ async Task<BenchmarkResult?> RunAsync(
     bool consumerFails = false,
     TimeSpan? deferBy = null,
     bool drainBacklog = false,
-    TimeSpan? consumerDelay = null)
+    TimeSpan? consumerDelay = null,
+    bool dashboard = false)
 {
     var isWarmup = name.StartsWith('_');
     if (!isWarmup && Filter != null && !name.Contains(Filter, StringComparison.OrdinalIgnoreCase))
@@ -599,8 +604,12 @@ async Task<BenchmarkResult?> RunAsync(
 
     configureBuilder?.Invoke(builder);
     builder.Build();
+    if (dashboard) services.AddNymBrokerDashboard();
 
     await using var provider = services.BuildServiceProvider();
+    // The dashboard's metric collector runs as a hosted service; start only those, since the scenario starts the broker itself.
+    var dashboardServices = provider.GetServices<IHostedService>().Where(s => s.GetType().Assembly == typeof(NymBrokerDashboardOptions).Assembly).ToList();
+    foreach (var service in dashboardServices) await service.StartAsync(CancellationToken.None);
     var broker  = provider.GetRequiredService<INymBroker>();
     var tracker = provider.GetRequiredService<CompletionTracker>();
     tracker.ConsumerFails = consumerFails;
@@ -624,6 +633,7 @@ async Task<BenchmarkResult?> RunAsync(
     var result = measuredRuns.OrderBy(r => r.ElapsedMs).ElementAt(runs / 2);   // median run
 
     await broker.StopAsync();
+    foreach (var service in dashboardServices) await service.StopAsync(CancellationToken.None);
 
     if (fileDir != null)
         CleanDir(fileDir);

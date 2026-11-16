@@ -54,6 +54,7 @@ flowchart LR
 | [Pipeline extensions](pipeline-extensions.md) | Filters, input transformers for non-JSON input, output transformers |
 | [Scheduling](scheduling.md) | Interval and cron scheduled actions; named actions that run once across instances and catch up missed runs (schedule stores) |
 | [Observability](observability.md) | Metrics, tracing, logging and health checks |
+| [Dashboard](dashboard.md) | `NymBroker.Dashboard`: a live page in your app with the message flow, queue contents, health and throughput; options, security and cost |
 | [Production security](security.md) | TLS and certificate verification per transport (RabbitMQ, SQL Server, PostgreSQL, MySQL, Service Bus, SQS), secrets, least privilege, what can leak |
 | [Samples](samples.md) | The runnable sample apps, what each shows, and the local infrastructure they need |
 | [MediatR patterns](mediatr-comparison.md) | Commands, notifications, queries and pipeline behaviors as in MediatR, CQRS with NymBroker, and when to use which |

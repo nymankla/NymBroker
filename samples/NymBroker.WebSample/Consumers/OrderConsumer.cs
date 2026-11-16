@@ -13,6 +13,9 @@ public sealed class OrderConsumer : IConsume<OrderMessage>
 
     public Task ConsumeAsync(OrderMessage msg, IMessageContext ctx, CancellationToken ct = default)
     {
+        if (msg.Amount < 0)
+            throw new ArgumentException($"Order {msg.OrderId} has a negative amount ({msg.Amount}).");
+
         _logger.LogInformation(
             "[OrderConsumer] Order {Id} from {Customer} — {Amount:C} [{Priority}]",
             msg.OrderId, msg.Customer, msg.Amount, msg.Priority);

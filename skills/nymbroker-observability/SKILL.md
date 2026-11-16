@@ -9,6 +9,8 @@ NymBroker uses the standard .NET APIs (`System.Diagnostics.Metrics`, `ActivitySo
 
 Docs: https://github.com/nymankla/NymBroker/blob/master/docs/observability.md
 
+For a page that shows a running broker without any telemetry backend (flow map, queue contents, health, throughput), use the `nymbroker-dashboard` skill instead or as well.
+
 ## 1. Ask
 
 Find out (from the code, or ask): where telemetry goes (OTLP collector, Azure Monitor / Application Insights, Prometheus, console for now), whether OpenTelemetry is already configured (`AddOpenTelemetry()` — extend it, don't add a second one), whether the app is ASP.NET Core (health endpoint) or a worker, and which endpoints are optional (audit, wire tap) so they shouldn't fail health.

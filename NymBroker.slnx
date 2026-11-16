@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="NymBroker.Endpoint.AzureServiceBus/NymBroker.Endpoint.AzureServiceBus.csproj" />
+  <Project Path="NymBroker.Dashboard/NymBroker.Dashboard.csproj" />
   <Project Path="NymBroker.Endpoint.AwsSqs/NymBroker.Endpoint.AwsSqs.csproj" />
   <Project Path="NymBroker.Endpoint.Http/NymBroker.Endpoint.Http.csproj" />
   <Project Path="NymBroker.Endpoint.MySql/NymBroker.Endpoint.MySql.csproj" />

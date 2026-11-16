@@ -6,7 +6,7 @@ NymBroker is a .NET 11 message-processing framework based on [Enterprise Integra
 
 ## Packages and endpoints
 
-Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org for the broker, Memory, and File endpoints. Each optional transport, durable idempotency store, transactional outbox and schedule store is a separate package; all packages share one version.
+Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org for the broker, Memory, and File endpoints. Each optional transport, durable idempotency store, transactional outbox, schedule store and the dashboard is a separate package; all packages share one version.
 
 | Package | Endpoint or capability |
 |---|---|
@@ -31,6 +31,7 @@ Install [`NymBroker`](https://www.nuget.org/packages/NymBroker/) from nuget.org 
 | [`NymBroker.Scheduling.Postgres`](https://www.nuget.org/packages/NymBroker.Scheduling.Postgres/) | Scheduled actions that run once per cluster and catch up missed runs |
 | [`NymBroker.Scheduling.SqlServer`](https://www.nuget.org/packages/NymBroker.Scheduling.SqlServer/) | Scheduled actions that run once per cluster and catch up missed runs |
 | [`NymBroker.Scheduling.MySql`](https://www.nuget.org/packages/NymBroker.Scheduling.MySql/) | Scheduled actions that run once per cluster and catch up missed runs |
+| [`NymBroker.Dashboard`](https://www.nuget.org/packages/NymBroker.Dashboard/) | Live web dashboard in your ASP.NET Core app: message flow, queue contents, health, throughput |
 
 ## Quick start
 
@@ -82,6 +83,7 @@ The [user guide](https://github.com/nymankla/NymBroker/blob/master/docs/user-gui
 - [Pipeline extensions](https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md)
 - [Scheduling](https://github.com/nymankla/NymBroker/blob/master/docs/scheduling.md)
 - [Metrics, tracing, and health checks](https://github.com/nymankla/NymBroker/blob/master/docs/observability.md)
+- [Dashboard](https://github.com/nymankla/NymBroker/blob/master/docs/dashboard.md)
 - [Production security](https://github.com/nymankla/NymBroker/blob/master/docs/security.md)
 - [Writing an endpoint](https://github.com/nymankla/NymBroker/blob/master/docs/writing-an-endpoint.md)
 - [Samples](https://github.com/nymankla/NymBroker/blob/master/docs/samples.md)
