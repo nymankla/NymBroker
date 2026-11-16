@@ -78,6 +78,15 @@ public interface INymBroker
     Endpoint.Queue.IQueueInspector? GetQueueInspector(string endpointName) => null;
 
     /// <summary>
+    /// A read-only snapshot of the broker's configuration: endpoints and their capabilities, routes, topics, consumers,
+    /// scheduled actions (with their next run) and broker-wide features. Cheap and without I/O, so a dashboard can call
+    /// it on every request. The default implementation, for custom <see cref="INymBroker"/> implementations, throws
+    /// <see cref="NotSupportedException"/>.
+    /// </summary>
+    Description.BrokerDescription Describe()
+        => throw new NotSupportedException($"{GetType().Name} does not describe its configuration.");
+
+    /// <summary>
     /// Serialize and post several messages to one endpoint in a single endpoint call (<see cref="IEndPoint.PostBatchAsync"/>).
     /// Each message gets its own envelope and is received and settled on its own; order is preserved.
     /// <paramref name="splitThresholdBytes"/> / <paramref name="compress"/> apply per message, as in <c>PostAsync</c>.

@@ -14,6 +14,15 @@ internal sealed partial class NymBrokerImpl
 
     internal void SetScheduleStore(IScheduleStore store) => _scheduleStore = store;
 
+    /// <summary>What <see cref="Describe"/> reports about one scheduled action; <paramref name="Timing"/> gives the next run.</summary>
+    private sealed record ScheduledActionInfo(string? Name, string Schedule, ScheduleTiming? Timing, MissedRunPolicy? MissedRuns);
+
+    // Guarded by _scheduleLock, like _scheduledActions, and added to with it.
+    private ImmutableList<ScheduledActionInfo> _scheduledActionInfos = ImmutableList<ScheduledActionInfo>.Empty;
+
+    /// <summary>A named action's schedule: a cron expression as written, a grid interval as <c>every …</c>.</summary>
+    private static string DescribeTiming(ScheduleTiming timing) => timing is GridTiming ? $"every {timing}" : timing.ToString() ?? string.Empty;
+
     public INymBroker AddScheduledAction(TimeSpan timeSpan, Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
@@ -29,7 +38,8 @@ internal sealed partial class NymBrokerImpl
     public INymBroker AddScheduledAction(TimeSpan interval, Func<CancellationToken, Task> action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        return RegisterScheduledAction(ct => StartIntervalScheduledAction(interval, interval, action, ct));
+        return RegisterScheduledAction(new ScheduledActionInfo(null, $"every {interval}", null, null),
+            ct => StartIntervalScheduledAction(interval, interval, action, ct));
     }
 
     public INymBroker AddScheduledAction(string expression, Func<CancellationToken, Task> action)
@@ -39,7 +49,8 @@ internal sealed partial class NymBrokerImpl
 
         var timing = new CronTiming(CronSchedule.Parse(expression));
         _logger.LogInformation("Scheduled cron action set up, first occurrence at {NextOccurrence}", timing.Next(DateTimeOffset.Now));
-        return RegisterScheduledAction(ct => StartTimedScheduledAction(timing, (_, token) => InvokeScheduledActionAsync(action, token), ct));
+        return RegisterScheduledAction(new ScheduledActionInfo(null, timing.ToString(), timing, null),
+            ct => StartTimedScheduledAction(timing, (_, token) => InvokeScheduledActionAsync(action, token), ct));
     }
 
     /// <summary>
@@ -54,7 +65,8 @@ internal sealed partial class NymBrokerImpl
 
         _logger.LogInformation("Scheduled action {Name} ({Schedule}) set up, first occurrence at {NextOccurrence}, missed runs: {MissedRuns}",
             name, timing, timing.Next(DateTimeOffset.Now), missedRuns);
-        return RegisterScheduledAction(ct => StartTimedScheduledAction(timing, (occurrence, token) => RunClaimedOccurrenceAsync(name, occurrence, action, token), ct,
+        return RegisterScheduledAction(new ScheduledActionInfo(name, DescribeTiming(timing), timing, missedRuns),
+            ct => StartTimedScheduledAction(timing, (occurrence, token) => RunClaimedOccurrenceAsync(name, occurrence, action, token), ct,
             missedRuns == MissedRunPolicy.RunOnce ? token => RunMissedOccurrenceAsync(name, timing, maxCatchUp, action, token) : null));
     }
 
@@ -69,11 +81,12 @@ internal sealed partial class NymBrokerImpl
     /// <c>AddScheduledAction</c> non-blocking and safe to call from a consumer or another scheduled action
     /// while <c>StopAsync</c> is waiting for them.
     /// </remarks>
-    private NymBrokerImpl RegisterScheduledAction(Func<CancellationToken, ScheduledActionHandle> start)
+    private NymBrokerImpl RegisterScheduledAction(ScheduledActionInfo info, Func<CancellationToken, ScheduledActionHandle> start)
     {
         lock (_scheduleLock)
         {
             _scheduledActions = _scheduledActions.Add(start);
+            _scheduledActionInfos = _scheduledActionInfos.Add(info);
 
             if (_scheduledActionsRunning)
             {
