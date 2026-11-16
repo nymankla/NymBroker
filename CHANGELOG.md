@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-11-16
+
 ### Added
 
 - **`NymBroker.Dashboard`** (new package, #129): a live, read-only web dashboard served from your ASP.NET Core app with `services.AddNymBrokerDashboard()` and `app.MapNymBrokerDashboard()`. It shows a flow map of endpoints, routes, topics, wire taps and the dead-letter endpoint; queue contents per state with each message's envelope, dead-letter reason, last error and payload; endpoint health; throughput, p50/p99 processing time and message age over the last 15 minutes; routes, topics, consumers and scheduled actions with their next run. Without an authorization policy it answers only local requests; payloads are shown only in Development unless `ShowPayloads` is set, and `RedactPayload` can mask them. It collects the broker's metrics in-process with no allocation per message (in the benchmark the effect is within run-to-run noise), and queries queue counts only while a page is open. See [docs/dashboard.md](docs/dashboard.md).

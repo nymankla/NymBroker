@@ -785,3 +785,149 @@ NymBroker.Core.Splitter.ZstandardCompressor.ZstandardCompressor(System.IO.Compre
 NymBroker.Core.Splitter.ZstandardCompressor.Compress(byte[]! data) -> byte[]!
 NymBroker.Core.Splitter.ZstandardCompressor.Decompress(byte[]! data) -> byte[]!
 NymBroker.Core.Splitter.ZstandardCompressor.Name.get -> string!
+NymBroker.Core.Description.BrokerDescription
+NymBroker.Core.Description.BrokerDescription.<Clone>$() -> NymBroker.Core.Description.BrokerDescription!
+NymBroker.Core.Description.BrokerDescription.BrokerDescription() -> void
+NymBroker.Core.Description.BrokerDescription.Consumers.get -> System.Collections.Generic.IReadOnlyList<NymBroker.Core.Description.ConsumerDescription!>!
+NymBroker.Core.Description.BrokerDescription.Consumers.init -> void
+NymBroker.Core.Description.BrokerDescription.Endpoints.get -> System.Collections.Generic.IReadOnlyList<NymBroker.Core.Description.EndpointDescription!>!
+NymBroker.Core.Description.BrokerDescription.Endpoints.init -> void
+NymBroker.Core.Description.BrokerDescription.Equals(NymBroker.Core.Description.BrokerDescription? other) -> bool
+NymBroker.Core.Description.BrokerDescription.Features.get -> NymBroker.Core.Description.BrokerFeatures!
+NymBroker.Core.Description.BrokerDescription.Features.init -> void
+NymBroker.Core.Description.BrokerDescription.Routes.get -> System.Collections.Generic.IReadOnlyList<NymBroker.Core.Description.RouteDescription!>!
+NymBroker.Core.Description.BrokerDescription.Routes.init -> void
+NymBroker.Core.Description.BrokerDescription.ScheduledActions.get -> System.Collections.Generic.IReadOnlyList<NymBroker.Core.Description.ScheduledActionDescription!>!
+NymBroker.Core.Description.BrokerDescription.ScheduledActions.init -> void
+NymBroker.Core.Description.BrokerDescription.Started.get -> bool
+NymBroker.Core.Description.BrokerDescription.Started.init -> void
+NymBroker.Core.Description.BrokerDescription.Topics.get -> System.Collections.Generic.IReadOnlyList<NymBroker.Core.Description.TopicDescription!>!
+NymBroker.Core.Description.BrokerDescription.Topics.init -> void
+NymBroker.Core.Description.BrokerFeatures
+NymBroker.Core.Description.BrokerFeatures.<Clone>$() -> NymBroker.Core.Description.BrokerFeatures!
+NymBroker.Core.Description.BrokerFeatures.BrokerFeatures() -> void
+NymBroker.Core.Description.BrokerFeatures.Compressor.get -> string!
+NymBroker.Core.Description.BrokerFeatures.Compressor.init -> void
+NymBroker.Core.Description.BrokerFeatures.DeadLetterEndpoint.get -> string?
+NymBroker.Core.Description.BrokerFeatures.DeadLetterEndpoint.init -> void
+NymBroker.Core.Description.BrokerFeatures.Equals(NymBroker.Core.Description.BrokerFeatures? other) -> bool
+NymBroker.Core.Description.BrokerFeatures.Filters.get -> int
+NymBroker.Core.Description.BrokerFeatures.Filters.init -> void
+NymBroker.Core.Description.BrokerFeatures.HasGlobalInputTransformer.get -> bool
+NymBroker.Core.Description.BrokerFeatures.HasGlobalInputTransformer.init -> void
+NymBroker.Core.Description.BrokerFeatures.IdempotencyStore.get -> string?
+NymBroker.Core.Description.BrokerFeatures.IdempotencyStore.init -> void
+NymBroker.Core.Description.BrokerFeatures.MaxMessageAge.get -> System.TimeSpan?
+NymBroker.Core.Description.BrokerFeatures.MaxMessageAge.init -> void
+NymBroker.Core.Description.BrokerFeatures.WireTaps.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NymBroker.Core.Description.BrokerFeatures.WireTaps.init -> void
+NymBroker.Core.Description.ConsumerDescription
+NymBroker.Core.Description.ConsumerDescription.<Clone>$() -> NymBroker.Core.Description.ConsumerDescription!
+NymBroker.Core.Description.ConsumerDescription.Consumer.get -> string!
+NymBroker.Core.Description.ConsumerDescription.Consumer.init -> void
+NymBroker.Core.Description.ConsumerDescription.ConsumerDescription() -> void
+NymBroker.Core.Description.ConsumerDescription.Equals(NymBroker.Core.Description.ConsumerDescription? other) -> bool
+NymBroker.Core.Description.ConsumerDescription.MessageType.get -> string!
+NymBroker.Core.Description.ConsumerDescription.MessageType.init -> void
+NymBroker.Core.Description.ConsumerDescription.RetryOnFailure.get -> bool
+NymBroker.Core.Description.ConsumerDescription.RetryOnFailure.init -> void
+NymBroker.Core.Description.EndpointDescription
+NymBroker.Core.Description.EndpointDescription.<Clone>$() -> NymBroker.Core.Description.EndpointDescription!
+NymBroker.Core.Description.EndpointDescription.CanDefer.get -> bool
+NymBroker.Core.Description.EndpointDescription.CanDefer.init -> void
+NymBroker.Core.Description.EndpointDescription.EndpointDescription() -> void
+NymBroker.Core.Description.EndpointDescription.Equals(NymBroker.Core.Description.EndpointDescription? other) -> bool
+NymBroker.Core.Description.EndpointDescription.HasInputTransformer.get -> bool
+NymBroker.Core.Description.EndpointDescription.HasInputTransformer.init -> void
+NymBroker.Core.Description.EndpointDescription.HasOutputTransformer.get -> bool
+NymBroker.Core.Description.EndpointDescription.HasOutputTransformer.init -> void
+NymBroker.Core.Description.EndpointDescription.Inspectable.get -> bool
+NymBroker.Core.Description.EndpointDescription.Inspectable.init -> void
+NymBroker.Core.Description.EndpointDescription.IsCritical.get -> bool
+NymBroker.Core.Description.EndpointDescription.IsCritical.init -> void
+NymBroker.Core.Description.EndpointDescription.Kind.get -> string!
+NymBroker.Core.Description.EndpointDescription.Kind.init -> void
+NymBroker.Core.Description.EndpointDescription.Listens.get -> bool
+NymBroker.Core.Description.EndpointDescription.Listens.init -> void
+NymBroker.Core.Description.EndpointDescription.Mode.get -> NymBroker.Core.Endpoint.EndpointMode
+NymBroker.Core.Description.EndpointDescription.Mode.init -> void
+NymBroker.Core.Description.EndpointDescription.Name.get -> string!
+NymBroker.Core.Description.EndpointDescription.Name.init -> void
+NymBroker.Core.Description.EndpointDescription.UsesNativeDeadLetter.get -> bool
+NymBroker.Core.Description.EndpointDescription.UsesNativeDeadLetter.init -> void
+NymBroker.Core.Description.RouteDescription
+NymBroker.Core.Description.RouteDescription.<Clone>$() -> NymBroker.Core.Description.RouteDescription!
+NymBroker.Core.Description.RouteDescription.Condition.get -> string?
+NymBroker.Core.Description.RouteDescription.Condition.init -> void
+NymBroker.Core.Description.RouteDescription.Destination.get -> string!
+NymBroker.Core.Description.RouteDescription.Destination.init -> void
+NymBroker.Core.Description.RouteDescription.Equals(NymBroker.Core.Description.RouteDescription? other) -> bool
+NymBroker.Core.Description.RouteDescription.From.get -> string?
+NymBroker.Core.Description.RouteDescription.From.init -> void
+NymBroker.Core.Description.RouteDescription.MessageType.get -> string!
+NymBroker.Core.Description.RouteDescription.MessageType.init -> void
+NymBroker.Core.Description.RouteDescription.NotFrom.get -> string?
+NymBroker.Core.Description.RouteDescription.NotFrom.init -> void
+NymBroker.Core.Description.RouteDescription.RouteDescription() -> void
+NymBroker.Core.Description.ScheduledActionDescription
+NymBroker.Core.Description.ScheduledActionDescription.<Clone>$() -> NymBroker.Core.Description.ScheduledActionDescription!
+NymBroker.Core.Description.ScheduledActionDescription.Equals(NymBroker.Core.Description.ScheduledActionDescription? other) -> bool
+NymBroker.Core.Description.ScheduledActionDescription.MissedRuns.get -> NymBroker.Core.Scheduling.MissedRunPolicy?
+NymBroker.Core.Description.ScheduledActionDescription.MissedRuns.init -> void
+NymBroker.Core.Description.ScheduledActionDescription.Name.get -> string?
+NymBroker.Core.Description.ScheduledActionDescription.Name.init -> void
+NymBroker.Core.Description.ScheduledActionDescription.NextRun.get -> System.DateTimeOffset?
+NymBroker.Core.Description.ScheduledActionDescription.NextRun.init -> void
+NymBroker.Core.Description.ScheduledActionDescription.Schedule.get -> string!
+NymBroker.Core.Description.ScheduledActionDescription.Schedule.init -> void
+NymBroker.Core.Description.ScheduledActionDescription.ScheduledActionDescription() -> void
+NymBroker.Core.Description.TopicDescription
+NymBroker.Core.Description.TopicDescription.<Clone>$() -> NymBroker.Core.Description.TopicDescription!
+NymBroker.Core.Description.TopicDescription.Condition.get -> string?
+NymBroker.Core.Description.TopicDescription.Condition.init -> void
+NymBroker.Core.Description.TopicDescription.Equals(NymBroker.Core.Description.TopicDescription? other) -> bool
+NymBroker.Core.Description.TopicDescription.MessageType.get -> string!
+NymBroker.Core.Description.TopicDescription.MessageType.init -> void
+NymBroker.Core.Description.TopicDescription.Name.get -> string!
+NymBroker.Core.Description.TopicDescription.Name.init -> void
+NymBroker.Core.Description.TopicDescription.SubscriberEndpoints.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NymBroker.Core.Description.TopicDescription.SubscriberEndpoints.init -> void
+NymBroker.Core.Description.TopicDescription.Subscribers.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NymBroker.Core.Description.TopicDescription.Subscribers.init -> void
+NymBroker.Core.Description.TopicDescription.TopicDescription() -> void
+NymBroker.Core.INymBroker.Describe() -> NymBroker.Core.Description.BrokerDescription!
+override NymBroker.Core.Description.BrokerDescription.Equals(object? obj) -> bool
+override NymBroker.Core.Description.BrokerDescription.GetHashCode() -> int
+override NymBroker.Core.Description.BrokerDescription.ToString() -> string!
+override NymBroker.Core.Description.BrokerFeatures.Equals(object? obj) -> bool
+override NymBroker.Core.Description.BrokerFeatures.GetHashCode() -> int
+override NymBroker.Core.Description.BrokerFeatures.ToString() -> string!
+override NymBroker.Core.Description.ConsumerDescription.Equals(object? obj) -> bool
+override NymBroker.Core.Description.ConsumerDescription.GetHashCode() -> int
+override NymBroker.Core.Description.ConsumerDescription.ToString() -> string!
+override NymBroker.Core.Description.EndpointDescription.Equals(object? obj) -> bool
+override NymBroker.Core.Description.EndpointDescription.GetHashCode() -> int
+override NymBroker.Core.Description.EndpointDescription.ToString() -> string!
+override NymBroker.Core.Description.RouteDescription.Equals(object? obj) -> bool
+override NymBroker.Core.Description.RouteDescription.GetHashCode() -> int
+override NymBroker.Core.Description.RouteDescription.ToString() -> string!
+override NymBroker.Core.Description.ScheduledActionDescription.Equals(object? obj) -> bool
+override NymBroker.Core.Description.ScheduledActionDescription.GetHashCode() -> int
+override NymBroker.Core.Description.ScheduledActionDescription.ToString() -> string!
+override NymBroker.Core.Description.TopicDescription.Equals(object? obj) -> bool
+override NymBroker.Core.Description.TopicDescription.GetHashCode() -> int
+override NymBroker.Core.Description.TopicDescription.ToString() -> string!
+static NymBroker.Core.Description.BrokerDescription.operator !=(NymBroker.Core.Description.BrokerDescription? left, NymBroker.Core.Description.BrokerDescription? right) -> bool
+static NymBroker.Core.Description.BrokerDescription.operator ==(NymBroker.Core.Description.BrokerDescription? left, NymBroker.Core.Description.BrokerDescription? right) -> bool
+static NymBroker.Core.Description.BrokerFeatures.operator !=(NymBroker.Core.Description.BrokerFeatures? left, NymBroker.Core.Description.BrokerFeatures? right) -> bool
+static NymBroker.Core.Description.BrokerFeatures.operator ==(NymBroker.Core.Description.BrokerFeatures? left, NymBroker.Core.Description.BrokerFeatures? right) -> bool
+static NymBroker.Core.Description.ConsumerDescription.operator !=(NymBroker.Core.Description.ConsumerDescription? left, NymBroker.Core.Description.ConsumerDescription? right) -> bool
+static NymBroker.Core.Description.ConsumerDescription.operator ==(NymBroker.Core.Description.ConsumerDescription? left, NymBroker.Core.Description.ConsumerDescription? right) -> bool
+static NymBroker.Core.Description.EndpointDescription.operator !=(NymBroker.Core.Description.EndpointDescription? left, NymBroker.Core.Description.EndpointDescription? right) -> bool
+static NymBroker.Core.Description.EndpointDescription.operator ==(NymBroker.Core.Description.EndpointDescription? left, NymBroker.Core.Description.EndpointDescription? right) -> bool
+static NymBroker.Core.Description.RouteDescription.operator !=(NymBroker.Core.Description.RouteDescription? left, NymBroker.Core.Description.RouteDescription? right) -> bool
+static NymBroker.Core.Description.RouteDescription.operator ==(NymBroker.Core.Description.RouteDescription? left, NymBroker.Core.Description.RouteDescription? right) -> bool
+static NymBroker.Core.Description.ScheduledActionDescription.operator !=(NymBroker.Core.Description.ScheduledActionDescription? left, NymBroker.Core.Description.ScheduledActionDescription? right) -> bool
+static NymBroker.Core.Description.ScheduledActionDescription.operator ==(NymBroker.Core.Description.ScheduledActionDescription? left, NymBroker.Core.Description.ScheduledActionDescription? right) -> bool
+static NymBroker.Core.Description.TopicDescription.operator !=(NymBroker.Core.Description.TopicDescription? left, NymBroker.Core.Description.TopicDescription? right) -> bool
+static NymBroker.Core.Description.TopicDescription.operator ==(NymBroker.Core.Description.TopicDescription? left, NymBroker.Core.Description.TopicDescription? right) -> bool
