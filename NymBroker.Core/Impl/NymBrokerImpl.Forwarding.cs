@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using NymBroker.Core.Diagnostics;
 using NymBroker.Core.Endpoint;
@@ -28,25 +29,8 @@ internal sealed partial class NymBrokerImpl
             }
 
             using var activity = StartSendActivity(route.DestinationEndpoint, context);
-            var routedEnvelope = SerializeForwarded(context, route.DestinationEndpoint, source);
-            var tags = new TagList
-            {
-                { "source", source ?? "unknown" },
-                { "destination", route.DestinationEndpoint },
-                { "message_type", messageTypeName },
-                { "via", "route" }
-            };
-            try
-            {
-                await SendAsync(route.DestinationEndpoint, destEndpoint, routedEnvelope, ct);
-                RecordRouted(tags, 1, "success");
-            }
-            catch (Exception ex)
-            {
-                RecordRouted(tags, 1, "failure");
-                RecordSendFailure(activity, ex);
-                throw;
-            }
+            var target = new ForwardTarget(route.DestinationEndpoint, destEndpoint, RoutedTags(source, route.DestinationEndpoint, messageTypeName, "route"));
+            await ForwardAsync(target, [SerializeForwarded(context, route.DestinationEndpoint, source)], activity, ct);
             LogRouted(messageTypeName, source, route.DestinationEndpoint);
             wasRouted = true;
         }
@@ -131,45 +115,65 @@ internal sealed partial class NymBrokerImpl
     {
         foreach (var endpointName in topic.SubscriberEndpoints)
         {
-            if (!_endpoints.TryGetValue(endpointName, out var endpoint))
-            {
-                _logger.LogWarning("Topic '{Topic}' references unknown endpoint '{Endpoint}'", topic.TopicName, endpointName);
-                continue;
-            }
-            if (endpoint.Mode == EndpointMode.ReadOnly)
-            {
-                _logger.LogWarning("Topic '{Topic}' cannot deliver to read-only endpoint '{Endpoint}'", topic.TopicName, endpointName);
-                continue;
-            }
+            if (!TryGetTopicEndpoint(topic, endpointName, out var endpoint)) continue;
 
             using var activity = StartSendActivity(endpointName, contexts.Count == 1 ? contexts[0] : null, contexts.Count);
             var wire = new List<byte[]>(contexts.Count);
             foreach (var context in contexts)
                 wire.Add(SerializeForwarded(context, endpointName, source));
 
-            var tags = new TagList
-            {
-                { "source", source ?? "unknown" },
-                { "destination", endpointName },
-                { "message_type", messageType },
-                { "via", "topic" },
-                { "topic", topic.TopicName }
-            };
-            try
-            {
-                if (wire.Count == 1)
-                    await SendAsync(endpointName, endpoint, wire[0], ct);
-                else
-                    await SendBatchAsync(endpointName, endpoint, wire, ct);
-                RecordRouted(tags, wire.Count, "success");
-            }
-            catch (Exception ex)
-            {
-                RecordRouted(tags, wire.Count, "failure");
-                RecordSendFailure(activity, ex);
-                throw;
-            }
+            var tags = RoutedTags(source, endpointName, messageType, "topic");
+            tags.Add("topic", topic.TopicName);
+            await ForwardAsync(new ForwardTarget(endpointName, endpoint, tags), wire, activity, ct);
             LogTopicDelivered(topic.TopicName, wire.Count, endpointName);
+        }
+    }
+
+    /// <summary>A subscriber endpoint the topic can deliver to; logs a warning for an unknown or read-only one.</summary>
+    private bool TryGetTopicEndpoint(TopicContext topic, string endpointName, [NotNullWhen(true)] out IEndPoint? endpoint)
+    {
+        if (!_endpoints.TryGetValue(endpointName, out endpoint))
+        {
+            _logger.LogWarning("Topic '{Topic}' references unknown endpoint '{Endpoint}'", topic.TopicName, endpointName);
+            return false;
+        }
+        if (endpoint.Mode != EndpointMode.ReadOnly) return true;
+
+        _logger.LogWarning("Topic '{Topic}' cannot deliver to read-only endpoint '{Endpoint}'", topic.TopicName, endpointName);
+        endpoint = null;
+        return false;
+    }
+
+    /// <summary>A forwarding destination (a route's or a topic's endpoint) and the routed-counter tags for it.</summary>
+    private readonly record struct ForwardTarget(string Name, IEndPoint Endpoint, TagList Tags);
+
+    private static TagList RoutedTags(string? source, string destination, string messageType, string via) => new()
+    {
+        { "source", source ?? "unknown" },
+        { "destination", destination },
+        { "message_type", messageType },
+        { "via", via }
+    };
+
+    /// <summary>
+    /// Sends the forwarded copies to one destination (one <c>PostAsync</c> for a single message, a batch for several) and
+    /// records the routed counter per message; a failed send is recorded on the activity and rethrown.
+    /// </summary>
+    private async Task ForwardAsync(ForwardTarget target, List<byte[]> wire, Activity? activity, CancellationToken ct)
+    {
+        try
+        {
+            if (wire.Count == 1)
+                await SendAsync(target.Name, target.Endpoint, wire[0], ct);
+            else
+                await SendBatchAsync(target.Name, target.Endpoint, wire, ct);
+            RecordRouted(target.Tags, wire.Count, "success");
+        }
+        catch (Exception ex)
+        {
+            RecordRouted(target.Tags, wire.Count, "failure");
+            RecordSendFailure(activity, ex);
+            throw;
         }
     }
 

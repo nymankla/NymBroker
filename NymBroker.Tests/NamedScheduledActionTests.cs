@@ -155,7 +155,7 @@ public sealed class NamedScheduledActionTests
         await store.TryClaimAsync("report", DateTimeOffset.UtcNow.AddHours(-3), Ct);
         var (broker, logger) = BuildBroker(store);
         var counter = new RunCounter();
-        broker.AddNamedScheduledAction("report", new GridTiming(Hour), MissedRunPolicy.RunOnce, null, counter.RunAsync);
+        broker.AddNamedScheduledAction("report", new GridTiming(Hour), new ScheduledActionOptions { MissedRuns = MissedRunPolicy.RunOnce }, counter.RunAsync);
 
         await broker.StartAsync(Ct);
         Assert.True(await counter.WaitForAsync(1, WaitTimeout), "the missed run was not caught up");
@@ -178,8 +178,8 @@ public sealed class NamedScheduledActionTests
             await store.TryClaimAsync("report", DateTimeOffset.UtcNow.AddHours(ago), Ct);
         var (broker, _) = BuildBroker(store);
         var counter = new RunCounter();
-        broker.AddNamedScheduledAction("report", new GridTiming(Hour), policy,
-            maxCatchUpHours is { } h ? TimeSpan.FromHours(h) : null, counter.RunAsync);
+        broker.AddNamedScheduledAction("report", new GridTiming(Hour),
+            new ScheduledActionOptions { MissedRuns = policy, MaxCatchUp = maxCatchUpHours is { } h ? TimeSpan.FromHours(h) : null }, counter.RunAsync);
 
         await broker.StartAsync(Ct);
         await Task.Delay(300, Ct);
@@ -198,7 +198,7 @@ public sealed class NamedScheduledActionTests
         var (first, _) = BuildBroker(store);
         var (second, _) = BuildBroker(store);
         foreach (var broker in new[] { first, second })
-            broker.AddNamedScheduledAction("tick", new GridTiming(TimeSpan.FromMilliseconds(100)), MissedRunPolicy.Skip, null, counter.RunAsync);
+            broker.AddNamedScheduledAction("tick", new GridTiming(TimeSpan.FromMilliseconds(100)), new ScheduledActionOptions(), counter.RunAsync);
 
         await first.StartAsync(Ct);
         await second.StartAsync(Ct);
@@ -217,7 +217,7 @@ public sealed class NamedScheduledActionTests
         store.FailNextClaims(1);
         var (broker, logger) = BuildBroker(store);
         var counter = new RunCounter();
-        broker.AddNamedScheduledAction("tick", new GridTiming(TimeSpan.FromMilliseconds(50)), MissedRunPolicy.Skip, null, counter.RunAsync);
+        broker.AddNamedScheduledAction("tick", new GridTiming(TimeSpan.FromMilliseconds(50)), new ScheduledActionOptions(), counter.RunAsync);
 
         await broker.StartAsync(Ct);
         Assert.True(await counter.WaitForAsync(2, WaitTimeout));
@@ -235,7 +235,7 @@ public sealed class NamedScheduledActionTests
         var store = new InMemoryScheduleStore();
         var (broker, logger) = BuildBroker(store);
         var runs = new RunCounter();
-        broker.AddNamedScheduledAction("fails", new GridTiming(TimeSpan.FromMilliseconds(50)), MissedRunPolicy.Skip, null, async ct =>
+        broker.AddNamedScheduledAction("fails", new GridTiming(TimeSpan.FromMilliseconds(50)), new ScheduledActionOptions(), async ct =>
         {
             await runs.RunAsync(ct);
             throw new InvalidOperationException("boom");

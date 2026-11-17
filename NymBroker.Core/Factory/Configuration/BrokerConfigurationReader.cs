@@ -50,40 +50,44 @@ public static class BrokerConfigurationReader
         var children = section.GetChildren().ToList();
 
         if (children.Count == 0)
-        {
-            var value = section.Value;
-            if (value is null)
-                writer.WriteNullValue();
-            else if (bool.TryParse(value, out var b))
-                writer.WriteBooleanValue(b);
-            else if (long.TryParse(value, out var l))
-                writer.WriteNumberValue(l);
-            else if (double.TryParse(value, System.Globalization.NumberStyles.Float,
-                         System.Globalization.CultureInfo.InvariantCulture, out var d))
-                writer.WriteNumberValue(d);
-            else
-                writer.WriteStringValue(value);
-            return;
-        }
-
-        bool isArray = children.All(c => int.TryParse(c.Key, CultureInfo.InvariantCulture, out _));
-
-        if (isArray)
-        {
-            writer.WriteStartArray();
-            foreach (var child in children.OrderBy(c => int.Parse(c.Key, CultureInfo.InvariantCulture)))
-                WriteSection(writer, child);
-            writer.WriteEndArray();
-        }
+            WriteValue(writer, section.Value);
+        else if (children.All(c => int.TryParse(c.Key, CultureInfo.InvariantCulture, out _)))
+            WriteArray(writer, children);
         else
+            WriteObject(writer, children);
+    }
+
+    /// <summary>A leaf: configuration holds only strings, so a value that parses as a bool or number is written as one.</summary>
+    private static void WriteValue(Utf8JsonWriter writer, string? value)
+    {
+        if (value is null)
+            writer.WriteNullValue();
+        else if (bool.TryParse(value, out var b))
+            writer.WriteBooleanValue(b);
+        else if (long.TryParse(value, out var l))
+            writer.WriteNumberValue(l);
+        else if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+            writer.WriteNumberValue(d);
+        else
+            writer.WriteStringValue(value);
+    }
+
+    private static void WriteArray(Utf8JsonWriter writer, List<IConfigurationSection> children)
+    {
+        writer.WriteStartArray();
+        foreach (var child in children.OrderBy(c => int.Parse(c.Key, CultureInfo.InvariantCulture)))
+            WriteSection(writer, child);
+        writer.WriteEndArray();
+    }
+
+    private static void WriteObject(Utf8JsonWriter writer, List<IConfigurationSection> children)
+    {
+        writer.WriteStartObject();
+        foreach (var child in children)
         {
-            writer.WriteStartObject();
-            foreach (var child in children)
-            {
-                writer.WritePropertyName(child.Key);
-                WriteSection(writer, child);
-            }
-            writer.WriteEndObject();
+            writer.WritePropertyName(child.Key);
+            WriteSection(writer, child);
         }
+        writer.WriteEndObject();
     }
 }

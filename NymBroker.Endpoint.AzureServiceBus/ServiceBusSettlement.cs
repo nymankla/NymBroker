@@ -36,7 +36,7 @@ internal static class ServiceBusSettlement
     internal static async Task SettleAsync(ProcessResult result, ServiceBusSettlementEndpoint endpoint, ServiceBusSettlementMessage message,
         CancellationToken ct)
     {
-        var (logger, endpointName, readingDeadLetterQueue) = endpoint;
+        var (logger, endpointName, _) = endpoint;
         var (settler, messageId, deliveryCount) = message;
         switch (result.Outcome)
         {
@@ -44,19 +44,8 @@ internal static class ServiceBusSettlement
                 await settler.CompleteAsync(ct);
                 break;
 
-            case ProcessOutcome.DeadLetter when readingDeadLetterQueue:
-                // Already in the dead-letter queue: dead-lettering again isn't possible, so remove it and say so.
-                logger.LogWarning("Message {MessageId} read from the dead-letter queue of endpoint '{Name}' still cannot be processed and is removed: {Failure}",
-                    messageId, endpointName, result.FailureText);
-                await settler.CompleteAsync(ct);
-                break;
-
             case ProcessOutcome.DeadLetter:
-                logger.LogWarning("Message {MessageId} on endpoint '{Name}' dead-lettered: {Failure}", messageId, endpointName, result.FailureText);
-                await settler.DeadLetterAsync(
-                    Truncate(result.Reason ?? DeadLetterReasons.ConsumerFailed)!,
-                    Truncate(result.Description),
-                    ct);
+                await DeadLetterAsync(result, endpoint, message, ct);
                 break;
 
             default:
@@ -67,6 +56,23 @@ internal static class ServiceBusSettlement
                 await settler.AbandonAsync(ct);
                 break;
         }
+    }
+
+    private static async Task DeadLetterAsync(ProcessResult result, ServiceBusSettlementEndpoint endpoint, ServiceBusSettlementMessage message,
+        CancellationToken ct)
+    {
+        var (logger, endpointName, readingDeadLetterQueue) = endpoint;
+        if (readingDeadLetterQueue)
+        {
+            // Already in the dead-letter queue: dead-lettering again isn't possible, so remove it and say so.
+            logger.LogWarning("Message {MessageId} read from the dead-letter queue of endpoint '{Name}' still cannot be processed and is removed: {Failure}",
+                message.MessageId, endpointName, result.FailureText);
+            await message.Settler.CompleteAsync(ct);
+            return;
+        }
+
+        logger.LogWarning("Message {MessageId} on endpoint '{Name}' dead-lettered: {Failure}", message.MessageId, endpointName, result.FailureText);
+        await message.Settler.DeadLetterAsync(Truncate(result.Reason ?? DeadLetterReasons.ConsumerFailed)!, Truncate(result.Description), ct);
     }
 
     internal static string? Truncate(string? value)

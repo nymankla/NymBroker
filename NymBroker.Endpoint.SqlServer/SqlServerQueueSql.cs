@@ -267,31 +267,37 @@ internal static class SqlServerQueueSql
         var table = QuoteQualifiedIdentifier(tableName);
         return state switch
         {
-            QueueInspectionState.Pending or QueueInspectionState.InProgress => $"""
-                SELECT TOP (@limit) queue_id, CAST(0 AS BIGINT), message_id, created_at_utc,
-                       CAST(NULL AS DATETIME2(7)), CAST(NULL AS DATETIME2(7)), attempt_count, last_error, payload
-                  FROM {table}
-                 WHERE status = {(state == QueueInspectionState.Pending ? Pending : InProgress)}
-                   AND queue_id > @after1
-                 ORDER BY queue_id
-                """,
-            QueueInspectionState.Failed => $"""
-                SELECT TOP (@limit) failed_at_utc AS key_time, queue_id AS key_id, message_id, created_at_utc,
-                       CAST(NULL AS DATETIME2(7)), failed_at_utc, attempt_count, last_error, payload
-                  FROM {table}
-                 WHERE status = {Failed} AND failed_at_utc >= @since
-                   AND (@hasCursor = 0 OR failed_at_utc > @afterTime
-                        OR (failed_at_utc = @afterTime AND queue_id > @after2))
-                 ORDER BY key_time, key_id
-                """,
-            _ => $"""
-                SELECT TOP (@limit) deliver_at_utc AS key_time, deferred_id AS key_id, message_id, deliver_at_utc,
-                       deliver_at_utc, CAST(NULL AS DATETIME2(7)), 0, CAST(NULL AS NVARCHAR(MAX)), payload
-                  FROM {DeferredTable(tableName)}
-                 WHERE @hasCursor = 0 OR deliver_at_utc > @afterTime
-                       OR (deliver_at_utc = @afterTime AND deferred_id > @after2)
-                 ORDER BY key_time, key_id
-                """
+            QueueInspectionState.Pending or QueueInspectionState.InProgress => InspectQueued(table, state),
+            QueueInspectionState.Failed => InspectFailed(table),
+            _ => InspectDeferred(tableName),
         };
     }
+
+    private static string InspectQueued(string table, QueueInspectionState state) => $"""
+            SELECT TOP (@limit) queue_id, CAST(0 AS BIGINT), message_id, created_at_utc,
+                   CAST(NULL AS DATETIME2(7)), CAST(NULL AS DATETIME2(7)), attempt_count, last_error, payload
+              FROM {table}
+             WHERE status = {(state == QueueInspectionState.Pending ? Pending : InProgress)}
+               AND queue_id > @after1
+             ORDER BY queue_id
+            """;
+
+    private static string InspectFailed(string table) => $"""
+            SELECT TOP (@limit) failed_at_utc AS key_time, queue_id AS key_id, message_id, created_at_utc,
+                   CAST(NULL AS DATETIME2(7)), failed_at_utc, attempt_count, last_error, payload
+              FROM {table}
+             WHERE status = {Failed} AND failed_at_utc >= @since
+               AND (@hasCursor = 0 OR failed_at_utc > @afterTime
+                    OR (failed_at_utc = @afterTime AND queue_id > @after2))
+             ORDER BY key_time, key_id
+            """;
+
+    private static string InspectDeferred(string tableName) => $"""
+            SELECT TOP (@limit) deliver_at_utc AS key_time, deferred_id AS key_id, message_id, deliver_at_utc,
+                   deliver_at_utc, CAST(NULL AS DATETIME2(7)), 0, CAST(NULL AS NVARCHAR(MAX)), payload
+              FROM {DeferredTable(tableName)}
+             WHERE @hasCursor = 0 OR deliver_at_utc > @afterTime
+                   OR (deliver_at_utc = @afterTime AND deferred_id > @after2)
+             ORDER BY key_time, key_id
+            """;
 }

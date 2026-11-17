@@ -182,12 +182,20 @@ internal static class CodeMetrics
         _ => m.Kind().ToString(),
     };
 
-    private static int ParameterCount(SyntaxNode m) => m switch
+    /// <summary>
+    /// Declared parameters, except a <see cref="CancellationToken"/>: .NET requires one on every cancellable async
+    /// method, so it is plumbing rather than a design input, and counting it would push every such method a band down.
+    /// </summary>
+    private static int ParameterCount(SyntaxNode m)
     {
-        BaseMethodDeclarationSyntax b => b.ParameterList.Parameters.Count,
-        LocalFunctionStatementSyntax l => l.ParameterList.Parameters.Count,
-        _ => 0,
-    };
+        var parameters = m switch
+        {
+            BaseMethodDeclarationSyntax b => b.ParameterList.Parameters,
+            LocalFunctionStatementSyntax l => l.ParameterList.Parameters,
+            _ => default,
+        };
+        return parameters.Count(p => p.Type?.ToString() is not ("CancellationToken" or "System.Threading.CancellationToken"));
+    }
 
     private static int LineCount(SyntaxNode node)
     {

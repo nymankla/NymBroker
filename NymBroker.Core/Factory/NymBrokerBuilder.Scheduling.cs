@@ -68,7 +68,8 @@ public sealed partial class NymBrokerBuilder
             throw new ArgumentException($"A scheduled action named '{name}' is already added.", nameof(name));
 
         var (missedRuns, maxCatchUp) = (options.MissedRuns, options.MaxCatchUp);
-        _scheduledActions.Add((broker, sp) => broker.AddNamedScheduledAction(name, timing, missedRuns, maxCatchUp, ct => RunScopedAsync(sp, action, ct)));
+        _scheduledActions.Add((broker, sp) => broker.AddNamedScheduledAction(name, timing,
+            new ScheduledActionOptions { MissedRuns = missedRuns, MaxCatchUp = maxCatchUp }, ct => RunScopedAsync(sp, action, ct)));
         return this;
     }
 

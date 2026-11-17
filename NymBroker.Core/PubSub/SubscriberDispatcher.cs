@@ -23,35 +23,45 @@ public sealed class SubscriberDispatcher(IServiceScopeFactory scopeFactory, ILog
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         List<Exception>? failures = null;
-        foreach (var (subscriberType, serviceKey) in subscribers)
+        foreach (var subscriber in subscribers)
         {
-            var invoked = false;
-            try
-            {
-                var subscriber = scope.ServiceProvider.GetRequiredKeyedService<IMessageSubscriber>(serviceKey);
-                if (!RuntimeFeature.IsDynamicCodeSupported)
-                    throw new InvalidOperationException("Topic subscriber dispatch is not yet supported in Native AOT applications.");
-                var dispatch = DispatchCache.GetOrAdd(subscriberType, BuildDispatcher);
-                invoked = true;
-                await dispatch(subscriber, message, context, ct);
-                RecordConsumed(context, message, serviceKey, "success");
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                if (invoked)
-                    RecordConsumed(context, message, serviceKey, "failure");
-                logger.LogError(ex, "Subscriber {Subscriber} failed processing message type {MessageType}",
-                    subscriberType.Name, message.GetType().Name);
-                (failures ??= []).Add(ex);
-            }
+            if (await InvokeAsync(scope.ServiceProvider, subscriber, message, context, ct) is { } failure)
+                (failures ??= []).Add(failure);
         }
 
         if (failures != null)
             throw new AggregateException("One or more topic subscribers failed.", failures);
+    }
+
+    /// <summary>Runs one subscriber; returns its exception (logged), or null. Only the caller's cancellation is rethrown.</summary>
+    private async Task<Exception?> InvokeAsync(IServiceProvider services, (Type SubscriberType, string ServiceKey) registration,
+        object message, IMessageContext context, CancellationToken ct)
+    {
+        var (subscriberType, serviceKey) = registration;
+        var invoked = false;
+        try
+        {
+            var subscriber = services.GetRequiredKeyedService<IMessageSubscriber>(serviceKey);
+            if (!RuntimeFeature.IsDynamicCodeSupported)
+                throw new InvalidOperationException("Topic subscriber dispatch is not yet supported in Native AOT applications.");
+            var dispatch = DispatchCache.GetOrAdd(subscriberType, BuildDispatcher);
+            invoked = true;
+            await dispatch(subscriber, message, context, ct);
+            RecordConsumed(context, message, serviceKey, "success");
+            return null;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            if (invoked)
+                RecordConsumed(context, message, serviceKey, "failure");
+            logger.LogError(ex, "Subscriber {Subscriber} failed processing message type {MessageType}",
+                subscriberType.Name, message.GetType().Name);
+            return ex;
+        }
     }
 
     private static void RecordConsumed(IMessageContext context, object message, string serviceKey, string outcome)

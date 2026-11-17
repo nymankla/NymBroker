@@ -46,13 +46,17 @@ public sealed class InMemoryIdempotencyStore : IIdempotencyStore
                 continue;   // removed in between — try to add again
 
             if (existing.ExpiresTicks > now)
-                return ValueTask.FromResult(existing.Completed ? IdempotencyClaimResult.Duplicate : IdempotencyClaimResult.InProgress);
+                return ValueTask.FromResult(Unclaimed(existing));
 
             // Expired record or lease: take it over, unless another caller just did.
             if (_entries.TryUpdate(messageId, claim, existing))
                 return ValueTask.FromResult(IdempotencyClaimResult.Claimed);
         }
     }
+
+    /// <summary>A record still valid: a completed one is a duplicate, an open claim is still in progress.</summary>
+    private static IdempotencyClaimResult Unclaimed(Entry existing)
+        => existing.Completed ? IdempotencyClaimResult.Duplicate : IdempotencyClaimResult.InProgress;
 
     public ValueTask CompleteAsync(Guid messageId, CancellationToken ct = default)
     {

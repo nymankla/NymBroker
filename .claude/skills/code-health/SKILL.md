@@ -7,7 +7,7 @@ description: Measure NymBroker code health — method length, cyclomatic and cog
 
 Measure, read the hotspots, recommend. Do **not** change code in this skill; refactors are a follow-up the user picks.
 
-The metrics live in one place: `NymBroker.Tests/CodeHealth/CodeMetrics.cs` (Roslyn, syntax only). `CodeHealthTests` uses them as a gate in every `dotnet test` and in CI; this skill uses the same code for the full report. Limits, the ratchet rule and what each metric counts: [docs/architecture.md#code-health](../../../docs/architecture.md#code-health).
+The metrics live in one place: `NymBroker.Tests/CodeHealth/CodeMetrics.cs` (Roslyn, syntax only). `CodeHealthTests` uses them as a gate in every `dotnet test` and in CI; this skill uses the same code for the full report. The gate, the exceptions and what each metric counts: [docs/architecture.md#code-health](../../../docs/architecture.md#code-health).
 
 ## 1. Measure
 
@@ -25,14 +25,16 @@ The report has every method (`lines`, `cc`, `cognitive`, `nesting`, `parameters`
 
 Report production code (Core, endpoints, stores, `shared/`) separately from `NymBroker.Tests` and `samples/`; only production drives recommendations.
 
-- **Target bands and gate limits** are the `MethodMetrics` table and constants in `CodeHealthTests` (good / acceptable / limit per metric, type size, duplication %, parameter exceptions; explained in docs/architecture.md#code-health). Anything over a limit fails the build — name it first.
-- **Warning band** (above "acceptable", under the limit): the refactoring candidates. Count per metric how many methods are good / acceptable / warning; that shows whether a problem is a few hotspots or spread out. Compare with the baselines below.
+- **Target bands and the gate** are the `MethodMetrics` table and constants in `CodeHealthTests` (good / acceptable per metric, type size, duplication %); the gate is the top of the acceptable band. Anything above it that is not in `CodeHealthTests.Exceptions` fails the build — name it first.
+- **Exceptions**: each has a reason why splitting would make the code worse (shipped public API parameter lists, single SQL scripts). Check each is still needed and its ceiling still equals the method's value; never propose a new exception where a split works.
+- **Upper acceptable band** (close to the gate): the refactoring candidates. Count per metric how many methods are good / acceptable / warning; that shows whether a problem is a few hotspots or spread out. Compare with the baselines below.
 
 | When | Methods | Max lines | Max cc | Max cognitive | Max nesting | Largest type | Duplication |
 |---|---|---|---|---|---|---|---|
 | 0.22.1 (Nov 2026) | 761 | 119 | 36 | 38 (`RouteAndDispatchAsync`) | 4 | 868 | 8 blocks |
 | Hotspot refactor, gate added (Nov 2026) | 781 | 63 | 16 | 20 (`CronSchedule.FindNext`) | 4 | 868 | 5 blocks |
 | Targets of #112 (Nov 2026) | 821 | 47 | 10 | 14 (`CronSchedule.GetNextOccurrence`) | 3 | 437 | 0.95 % |
+| Gate at the acceptable band (Nov 2026) | 1144 | 30 (46 in an SQL exception) | 10 | 10 (`FileEndPoint.ProcessChannelAsync`) | 2 | 466 | 0.74 % |
 
 ## 3. Read before recommending
 
@@ -50,4 +52,4 @@ Open every method in the top ~6 by cognitive complexity and length; never recomm
 2. Production scorecard table, plus one line each for tests and samples.
 3. Ranked refactoring opportunities with clickable `file:line`, metrics, and the specific change.
 4. Refactors touching the broker pipeline, an endpoint or a store need `./scripts/test-all.ps1`; hot-path changes the benchmark before and after ([docs/benchmarks.md](../../../docs/benchmarks.md)).
-5. If a refactor lowered a worst value, remind that the matching limit in `CodeHealthTests` should be lowered (ratchet), and add a baseline row above.
+5. If a refactor brought an exception's method down, lower its ceiling in `CodeHealthTests.Exceptions`, or remove the entry once it is within the band; add a baseline row above.

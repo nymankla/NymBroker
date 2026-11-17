@@ -51,30 +51,11 @@ internal sealed class SqliteStoreConnection(string connectionString, string? cre
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_connection is not null) return _connection;
 
-        var builder = new SqliteConnectionStringBuilder(connectionString);
-        var inMemory = builder.Mode == SqliteOpenMode.Memory
-                       || string.IsNullOrEmpty(builder.DataSource)
-                       || builder.DataSource.Equals(":memory:", StringComparison.OrdinalIgnoreCase);
-
         var connection = new SqliteConnection(connectionString);
         try
         {
             await connection.OpenAsync(ct);
-            await using (var pragma = connection.CreateCommand())
-            {
-                pragma.CommandText = inMemory
-                    ? "PRAGMA busy_timeout=5000;"
-                    : "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;";
-                await pragma.ExecuteNonQueryAsync(ct);
-            }
-
-            if (createSchemaSql is not null)
-            {
-                await using var create = connection.CreateCommand();
-                create.CommandText = createSchemaSql;
-                await create.ExecuteNonQueryAsync(ct);
-                logger.LogDebug("{Description} is ready", description);
-            }
+            await PrepareAsync(connection, ct);
         }
         catch
         {
@@ -84,6 +65,32 @@ internal sealed class SqliteStoreConnection(string connectionString, string? cre
 
         _connection = connection;
         return connection;
+    }
+
+    /// <summary>Sets the pragmas (WAL only for a file: an in-memory database has no journal to share) and creates the schema.</summary>
+    private async Task PrepareAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        await using (var pragma = connection.CreateCommand())
+        {
+            pragma.CommandText = IsInMemory(connectionString)
+                ? "PRAGMA busy_timeout=5000;"
+                : "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;";
+            await pragma.ExecuteNonQueryAsync(ct);
+        }
+
+        if (createSchemaSql is null) return;
+        await using var create = connection.CreateCommand();
+        create.CommandText = createSchemaSql;
+        await create.ExecuteNonQueryAsync(ct);
+        logger.LogDebug("{Description} is ready", description);
+    }
+
+    private static bool IsInMemory(string connectionString)
+    {
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        return builder.Mode == SqliteOpenMode.Memory
+               || string.IsNullOrEmpty(builder.DataSource)
+               || builder.DataSource.Equals(":memory:", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>The connection, held exclusively until this is disposed.</summary>

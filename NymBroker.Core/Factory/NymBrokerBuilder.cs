@@ -124,30 +124,11 @@ public sealed partial class NymBrokerBuilder
             throw new InvalidOperationException($"{typeof(TConsumer).Name} must implement IConsume<T>.");
 
         // Registering the same consumer twice is harmless, unless the options disagree.
-        var registered = _consumers.FirstOrDefault(c => c.ConsumerType == typeof(TConsumer));
-        if (registered.ConsumerType is not null)
-        {
-            if (registered.RetryOnFailure != options.RetryOnFailure)
-                throw new InvalidOperationException(
-                    $"Consumer '{typeof(TConsumer).Name}' is already registered with RetryOnFailure = {registered.RetryOnFailure}; " +
-                    "register it once, with the options it should have.");
-            return this;
-        }
+        if (IsRegistered(typeof(TConsumer), options)) return this;
 
-        // Consumers are keyed services by class name, so two different classes with the same name would collide.
-        var sameName = _consumers.FirstOrDefault(c => c.ConsumerType.Name == typeof(TConsumer).Name);
-        if (sameName.ConsumerType is not null)
-            throw new InvalidOperationException(
-                $"Consumers '{sameName.ConsumerType.FullName}' and '{typeof(TConsumer).FullName}' have the same class name; " +
-                "consumers are registered by class name, so give one of them a different name.");
-
-        // A message type has exactly one consumer: a second one would silently replace the first.
+        EnsureUniqueConsumerName(typeof(TConsumer));
         foreach (var messageType in messageTypes)
-        {
-            var existing = _consumers.FirstOrDefault(c => c.MessageType == messageType);
-            if (existing.ConsumerType is not null)
-                throw DuplicateConsumer(messageType, existing.ConsumerType.Name, typeof(TConsumer).Name);
-        }
+            EnsureNoConsumerFor(messageType, typeof(TConsumer));
 
         foreach (var messageType in messageTypes)
             _consumers.Add((typeof(TConsumer), messageType, options.RetryOnFailure, null));
@@ -156,39 +137,54 @@ public sealed partial class NymBrokerBuilder
         return this;
     }
 
+    /// <summary>True when the consumer is registered already; throws when it was registered with other options.</summary>
+    private bool IsRegistered(Type consumerType, ConsumerOptions options)
+    {
+        var registered = _consumers.FirstOrDefault(c => c.ConsumerType == consumerType);
+        if (registered.ConsumerType is null) return false;
+        if (registered.RetryOnFailure != options.RetryOnFailure)
+            throw new InvalidOperationException(
+                $"Consumer '{consumerType.Name}' is already registered with RetryOnFailure = {registered.RetryOnFailure}; " +
+                "register it once, with the options it should have.");
+        return true;
+    }
+
+    /// <summary>Consumers are keyed services by class name, so two different classes with the same name would collide.</summary>
+    private void EnsureUniqueConsumerName(Type consumerType)
+    {
+        var sameName = _consumers.FirstOrDefault(c => c.ConsumerType.Name == consumerType.Name);
+        if (sameName.ConsumerType is not null)
+            throw new InvalidOperationException(
+                $"Consumers '{sameName.ConsumerType.FullName}' and '{consumerType.FullName}' have the same class name; " +
+                "consumers are registered by class name, so give one of them a different name.");
+    }
+
+    /// <summary>A message type has exactly one consumer: a second one would silently replace the first.</summary>
+    private void EnsureNoConsumerFor(Type messageType, Type consumerType)
+    {
+        var existing = _consumers.FirstOrDefault(c => c.MessageType == messageType);
+        if (existing.ConsumerType is not null)
+            throw DuplicateConsumer(messageType, existing.ConsumerType.Name, consumerType.Name);
+    }
+
     private NymBrokerBuilder AddTypedConsumer<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TConsumer, TMessage>(ConsumerOptions options)
         where TConsumer : class, IMessageConsumer, IConsume<TMessage>
         where TMessage : class
     {
-        var existingConsumer = _consumers.FirstOrDefault(c => c.ConsumerType == typeof(TConsumer));
-        if (existingConsumer.ConsumerType is not null)
+        // A typed consumer is registered once per message type it handles; the first call also adds the keyed service.
+        var known = IsRegistered(typeof(TConsumer), options);
+        if (known)
         {
-            if (existingConsumer.RetryOnFailure != options.RetryOnFailure)
-                throw new InvalidOperationException($"Consumer '{typeof(TConsumer).Name}' is already registered with different options.");
-            if (existingConsumer.Dispatcher is null)
+            if (_consumers.Any(c => c.ConsumerType == typeof(TConsumer) && c.Dispatcher is null))
                 throw new InvalidOperationException($"Consumer '{typeof(TConsumer).Name}' was registered through reflection-based discovery; use either registration style, not both.");
             if (_consumers.Any(c => c.ConsumerType == typeof(TConsumer) && c.MessageType == typeof(TMessage))) return this;
-
-            var existingMessageConsumer = _consumers.FirstOrDefault(c => c.MessageType == typeof(TMessage));
-            if (existingMessageConsumer.ConsumerType is not null)
-                throw DuplicateConsumer(typeof(TMessage), existingMessageConsumer.ConsumerType.Name, typeof(TConsumer).Name);
-
-            _consumers.Add((typeof(TConsumer), typeof(TMessage), options.RetryOnFailure, DispatchTyped<TMessage>));
-            return this;
         }
+        else
+            EnsureUniqueConsumerName(typeof(TConsumer));
 
-        var sameName = _consumers.FirstOrDefault(c => c.ConsumerType.Name == typeof(TConsumer).Name);
-        if (sameName.ConsumerType is not null)
-            throw new InvalidOperationException(
-                $"Consumers '{sameName.ConsumerType.FullName}' and '{typeof(TConsumer).FullName}' have the same class name; " +
-                "consumers are registered by class name, so give one of them a different name.");
-
-        var existing = _consumers.FirstOrDefault(c => c.MessageType == typeof(TMessage));
-        if (existing.ConsumerType is not null)
-            throw DuplicateConsumer(typeof(TMessage), existing.ConsumerType.Name, typeof(TConsumer).Name);
-
+        EnsureNoConsumerFor(typeof(TMessage), typeof(TConsumer));
         _consumers.Add((typeof(TConsumer), typeof(TMessage), options.RetryOnFailure, DispatchTyped<TMessage>));
-        _services.AddKeyedTransient<IMessageConsumer, TConsumer>(typeof(TConsumer).Name);
+        if (!known) _services.AddKeyedTransient<IMessageConsumer, TConsumer>(typeof(TConsumer).Name);
         return this;
     }
 

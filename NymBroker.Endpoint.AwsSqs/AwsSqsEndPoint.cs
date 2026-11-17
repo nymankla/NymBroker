@@ -125,16 +125,7 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
 
         foreach (var chunk in SqsWireFormat.Chunk(messages))
         {
-            var entries = new List<SendMessageBatchRequestEntry>(chunk.Count);
-            for (var i = 0; i < chunk.Count; i++)
-            {
-                var (original, body, isBase64) = chunk[i];
-                var entry = new SendMessageBatchRequestEntry(i.ToString(CultureInfo.InvariantCulture), body) { MessageAttributes = SqsWireFormat.Attributes(isBase64) };
-                if (_settings.IsFifo)
-                    (entry.MessageGroupId, entry.MessageDeduplicationId) = SqsWireFormat.FifoIds(original, _settings.MessageGroupId);
-                entries.Add(entry);
-            }
-
+            var entries = BatchEntries(chunk);
             var response = await _client.SendMessageBatchAsync(new SendMessageBatchRequest(queueUrl, entries), ct);
             if (response.Failed is { Count: > 0 } failed)
             {
@@ -144,6 +135,21 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
             }
             sent += chunk.Count;
         }
+    }
+
+    /// <summary>The request entries of one chunk; the entry id is the index in the chunk, so a failure can name its message.</summary>
+    private List<SendMessageBatchRequestEntry> BatchEntries(IReadOnlyList<(byte[] Original, string Body, bool IsBase64)> chunk)
+    {
+        var entries = new List<SendMessageBatchRequestEntry>(chunk.Count);
+        for (var i = 0; i < chunk.Count; i++)
+        {
+            var (original, body, isBase64) = chunk[i];
+            var entry = new SendMessageBatchRequestEntry(i.ToString(CultureInfo.InvariantCulture), body) { MessageAttributes = SqsWireFormat.Attributes(isBase64) };
+            if (_settings.IsFifo)
+                (entry.MessageGroupId, entry.MessageDeduplicationId) = SqsWireFormat.FifoIds(original, _settings.MessageGroupId);
+            entries.Add(entry);
+        }
+        return entries;
     }
 
     public async Task StartListeningAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken ct)
@@ -216,15 +222,7 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
     {
         try
         {
-            var request = new ReceiveMessageRequest
-            {
-                QueueUrl = await _receivePolicy.ExecuteAsync(async t => await GetQueueUrlAsync(t), token),
-                MaxNumberOfMessages = _settings.MaxNumberOfMessages,
-                WaitTimeSeconds = _settings.WaitTimeSeconds,
-                VisibilityTimeout = _settings.VisibilityTimeout is { } v ? (int)v.TotalSeconds : null,
-                MessageAttributeNames = [SqsWireFormat.EncodingAttribute],
-                MessageSystemAttributeNames = ["ApproximateReceiveCount"]
-            };
+            var request = await CreateReceiveRequestAsync(token);
 
             while (!token.IsCancellationRequested)
             {
@@ -246,38 +244,50 @@ public sealed class AwsSqsEndPoint : IEndPointEventDriven, IDeferredEndPoint, IA
         }
     }
 
+    private async Task<ReceiveMessageRequest> CreateReceiveRequestAsync(CancellationToken token) => new()
+    {
+        QueueUrl = await _receivePolicy.ExecuteAsync(async t => await GetQueueUrlAsync(t), token),
+        MaxNumberOfMessages = _settings.MaxNumberOfMessages,
+        WaitTimeSeconds = _settings.WaitTimeSeconds,
+        VisibilityTimeout = _settings.VisibilityTimeout is { } v ? (int)v.TotalSeconds : null,
+        MessageAttributeNames = [SqsWireFormat.EncodingAttribute],
+        MessageSystemAttributeNames = ["ApproximateReceiveCount"]
+    };
+
     private async Task HandleBatchAsync(string queueUrl, List<Message> messages,
         Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token)
     {
         var outcomes = new ProcessOutcome?[messages.Count];   // null: not handled (stopping)
 
         await Parallel.ForAsync(0, messages.Count, new ParallelOptions { MaxDegreeOfParallelism = _settings.MaxConcurrentCalls },
-            async (i, _) =>
-            {
-                if (token.IsCancellationRequested) return;
-                var message = messages[i];
-                ProcessResult result;
-                try
-                {
-                    result = await EndpointHandler.InvokeAsync(handler, SqsWireFormat.Decode(message), _logger, _name, token, message.MessageId);
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    return;   // the handler saw the stop: leave the message for redelivery
-                }
-
-                if (result.Outcome != ProcessOutcome.Completed)
-                {
-                    // A DeadLetter result only reaches here from a custom handler (the broker dead-letters itself for
-                    // this endpoint); SQS can't dead-letter on request, so it is retried and redrive takes over.
-                    _logger.LogWarning("Message {MessageId} on endpoint '{Name}' will be redelivered (receive {ReceiveCount}): {Failure}",
-                        message.MessageId, _name, ReceiveCount(message), result.FailureText);
-                }
-                outcomes[i] = result.Outcome;
-            });
+            async (i, _) => outcomes[i] = await HandleOneAsync(messages[i], handler, token));
 
         // Not the stop token: a handled message must still be settled, or a stop right after handling would deliver it again.
         await SettleAsync(queueUrl, messages, outcomes);
+    }
+
+    /// <summary>The outcome of one message, or null when it was not handled because the endpoint is stopping.</summary>
+    private async Task<ProcessOutcome?> HandleOneAsync(Message message, Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token)
+    {
+        if (token.IsCancellationRequested) return null;
+        ProcessResult result;
+        try
+        {
+            result = await EndpointHandler.InvokeAsync(handler, SqsWireFormat.Decode(message), _logger, _name, token, message.MessageId);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return null;   // the handler saw the stop: leave the message for redelivery
+        }
+
+        if (result.Outcome != ProcessOutcome.Completed)
+        {
+            // A DeadLetter result only reaches here from a custom handler (the broker dead-letters itself for
+            // this endpoint); SQS can't dead-letter on request, so it is retried and redrive takes over.
+            _logger.LogWarning("Message {MessageId} on endpoint '{Name}' will be redelivered (receive {ReceiveCount}): {Failure}",
+                message.MessageId, _name, ReceiveCount(message), result.FailureText);
+        }
+        return result.Outcome;
     }
 
     private async Task SettleAsync(string queueUrl, List<Message> messages, ProcessOutcome?[] outcomes)

@@ -37,7 +37,7 @@ internal sealed class CronSchedule
         _hours = (uint)ParseSimple(f[1], CronField.Hour, out var hourInterval);
         _interval = minuteInterval || hourInterval;
 
-        ParseDayOfMonth(f[2], out _days, out _lastOffsets, out _nearest, out _lastNearest);
+        (_days, _lastOffsets, _nearest, _lastNearest) = ParseDayOfMonth(f[2]);
         _months = (ushort)ParseSimple(f[3], CronField.Month, out _);
         ParseDayOfWeek(f[4], out _weekdays, out _lastWeekdayOfMonth, out _nth);
     }
@@ -68,29 +68,33 @@ internal sealed class CronSchedule
 
         if (zone.IsAmbiguousTime(local))
         {
-            var offsets = zone.GetAmbiguousTimeOffsets(local);
-            var standard = offsets.Min();
-            var daylight = offsets.Max();
-            var (ambiguousStart, ambiguousEnd) = AmbiguousInterval(zone, Truncate(local.DateTime));
-
-            if (local.Offset == daylight)
-            {
-                var early = FindNext(start);
-                if (early is { } e && e < ambiguousEnd) return new DateTimeOffset(e, daylight);
-                start = ambiguousStart;
-            }
-
-            if (_interval)
-            {
-                var late = FindNext(start);
-                if (late is { } l && l < ambiguousEnd) return new DateTimeOffset(l, standard);
-            }
-
-            start = ambiguousEnd;
+            var (inAmbiguousHour, resumeAt) = NextInAmbiguousHour(local, start, zone);
+            if (inAmbiguousHour is not null) return inAmbiguousHour;
+            start = resumeAt;
         }
 
         var found = FindNext(start);
         return found is { } f ? ToInstant(f, zone) : null;
+    }
+
+    /// <summary>
+    /// <paramref name="local"/> falls in the hour a clock change repeats: the first occurrence from <paramref name="start"/>
+    /// in what is left of it (the daylight pass, then the standard pass for an interval field), or where to search on.
+    /// </summary>
+    private (DateTimeOffset? Found, DateTime ResumeAt) NextInAmbiguousHour(DateTimeOffset local, DateTime start, TimeZoneInfo zone)
+    {
+        var offsets = zone.GetAmbiguousTimeOffsets(local);
+        var (ambiguousStart, ambiguousEnd) = AmbiguousInterval(zone, Truncate(local.DateTime));
+
+        if (local.Offset == offsets.Max())
+        {
+            if (FindNext(start) is { } early && early < ambiguousEnd) return (new DateTimeOffset(early, offsets.Max()), default);
+            start = ambiguousStart;
+        }
+
+        if (_interval && FindNext(start) is { } late && late < ambiguousEnd)
+            return (new DateTimeOffset(late, offsets.Min()), default);
+        return (null, ambiguousEnd);
     }
 
     private static DateTimeOffset ToInstant(DateTime local, TimeZoneInfo zone)
@@ -266,11 +270,12 @@ internal sealed class CronSchedule
         _ => throw new CronFormatException($"Invalid cron expression '{macro}': unknown macro '{macro}'."),
     };
 
-    private static void ParseDayOfMonth(string token, out uint days, out uint lastOffsets, out uint nearest, out uint lastNearest)
-    {
-        days = 0; lastOffsets = 0; nearest = 0; lastNearest = 0;
+    /// <summary>A day-of-month field as bit masks: plain days, <c>L</c>/<c>L-n</c> offsets, <c>nW</c> and <c>LW</c>.</summary>
+    private readonly record struct DayOfMonthMasks(uint Days, uint LastOffsets, uint Nearest, uint LastNearest);
 
-        if (token == "?") { days = AllDays; return; }
+    private static DayOfMonthMasks ParseDayOfMonth(string token)
+    {
+        if (token == "?") return new DayOfMonthMasks(AllDays, 0, 0, 0);
 
         var upper = token.ToUpperInvariant();
         var weekday = upper.Length > 1 && upper.EndsWith('W') && !upper.Contains(',');
@@ -279,17 +284,12 @@ internal sealed class CronSchedule
         if (body == "L" || body.StartsWith("L-", StringComparison.Ordinal))
         {
             var offset = body == "L" ? 0 : Number(body[2..], token, CronField.DayOfMonth with { Max = 30 });
-            if (weekday) lastNearest = 1u << offset; else lastOffsets = 1u << offset;
-            return;
+            return weekday ? new DayOfMonthMasks(0, 0, 0, 1u << offset) : new DayOfMonthMasks(0, 1u << offset, 0, 0);
         }
 
-        if (weekday)
-        {
-            nearest = 1u << Number(body, token, CronField.DayOfMonth);
-            return;
-        }
-
-        days = (uint)ParseSimple(token, CronField.DayOfMonth, out _);
+        return weekday
+            ? new DayOfMonthMasks(0, 0, 1u << Number(body, token, CronField.DayOfMonth), 0)
+            : new DayOfMonthMasks((uint)ParseSimple(token, CronField.DayOfMonth, out _), 0, 0, 0);
     }
 
     private const uint AllDays = 0xFFFFFFFEu;

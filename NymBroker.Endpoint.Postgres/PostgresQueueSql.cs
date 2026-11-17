@@ -142,37 +142,43 @@ internal static class PostgresQueueSql
         var table = QuoteQualifiedIdentifier(tableName);
         return state switch
         {
-            QueueInspectionState.Pending or QueueInspectionState.InProgress => $"""
-                SELECT queue_id, 0::bigint, message_id, created_at_utc, NULL::timestamptz, NULL::timestamptz,
-                       attempt_count, last_error, payload
-                  FROM {table}
-                 WHERE status = {(state == QueueInspectionState.Pending ? Pending : InProgress)}
-                   AND queue_id > @afterId
-                 ORDER BY queue_id
-                 LIMIT @limit
-                """,
-            QueueInspectionState.Failed => $"""
-                SELECT failed_at_utc, queue_id, message_id, created_at_utc, NULL::timestamptz, failed_at_utc,
-                       attempt_count, last_error, payload
-                  FROM {table}
-                 WHERE status = {Failed}
-                   AND failed_at_utc >= COALESCE(@since, '-infinity'::timestamptz)
-                   AND (@afterTime IS NULL OR failed_at_utc > @afterTime OR
-                        (failed_at_utc = @afterTime AND queue_id > @afterId))
-                 ORDER BY failed_at_utc, queue_id
-                 LIMIT @limit
-                """,
-            _ => $"""
-                SELECT deliver_at_utc, deferred_id, message_id, deliver_at_utc, deliver_at_utc, NULL::timestamptz,
-                       0, NULL::text, payload
-                  FROM {DeferredTable(tableName)}
-                 WHERE @afterTime IS NULL OR deliver_at_utc > @afterTime OR
-                       (deliver_at_utc = @afterTime AND deferred_id > @afterId)
-                 ORDER BY deliver_at_utc, deferred_id
-                 LIMIT @limit
-                """
+            QueueInspectionState.Pending or QueueInspectionState.InProgress => InspectQueued(table, state),
+            QueueInspectionState.Failed => InspectFailed(table),
+            _ => InspectDeferred(tableName),
         };
     }
+
+    private static string InspectQueued(string table, QueueInspectionState state) => $"""
+            SELECT queue_id, 0::bigint, message_id, created_at_utc, NULL::timestamptz, NULL::timestamptz,
+                   attempt_count, last_error, payload
+              FROM {table}
+             WHERE status = {(state == QueueInspectionState.Pending ? Pending : InProgress)}
+               AND queue_id > @afterId
+             ORDER BY queue_id
+             LIMIT @limit
+            """;
+
+    private static string InspectFailed(string table) => $"""
+            SELECT failed_at_utc, queue_id, message_id, created_at_utc, NULL::timestamptz, failed_at_utc,
+                   attempt_count, last_error, payload
+              FROM {table}
+             WHERE status = {Failed}
+               AND failed_at_utc >= COALESCE(@since, '-infinity'::timestamptz)
+               AND (@afterTime IS NULL OR failed_at_utc > @afterTime OR
+                    (failed_at_utc = @afterTime AND queue_id > @afterId))
+             ORDER BY failed_at_utc, queue_id
+             LIMIT @limit
+            """;
+
+    private static string InspectDeferred(string tableName) => $"""
+            SELECT deliver_at_utc, deferred_id, message_id, deliver_at_utc, deliver_at_utc, NULL::timestamptz,
+                   0, NULL::text, payload
+              FROM {DeferredTable(tableName)}
+             WHERE @afterTime IS NULL OR deliver_at_utc > @afterTime OR
+                   (deliver_at_utc = @afterTime AND deferred_id > @afterId)
+             ORDER BY deliver_at_utc, deferred_id
+             LIMIT @limit
+            """;
 
     internal static string InsertMessage(string tableName, bool notifyListeners)
     {

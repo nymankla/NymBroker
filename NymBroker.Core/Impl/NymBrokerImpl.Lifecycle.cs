@@ -17,33 +17,42 @@ internal sealed partial class NymBrokerImpl
             LogRegisteredEndpoints();
             ValidateConfiguration();
 
-            // From here on, received messages wait for the start to finish (on a new gate after a failed start).
-            if (_startGate.Task.IsFaulted)
-                _startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _startInitiated = true;
-            StartHoldingMessages();
-
-            var listening = new List<(string Name, IEndPointEventDriven Endpoint)>();
-            try
-            {
-                StartScheduledActions(ct);
-                await StartListenersAsync(listening, ct);
-
-                _started = true;
-                _startGate.TrySetResult();
-                _logger.LogInformation("Broker started");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Broker failed to start — rolling back scheduled actions and {Count} started listener(s)", listening.Count);
-                await RollBackStartAsync(listening, ex);
-
-                throw;
-            }
+            OpenStartGate();
+            await StartUnderLockAsync(ct);
         }
         finally
         {
             _lifecycleLock.Release();
+        }
+    }
+
+    /// <summary>From here on, received messages wait for the start to finish (on a new gate after a failed start).</summary>
+    private void OpenStartGate()
+    {
+        if (_startGate.Task.IsFaulted)
+            _startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _startInitiated = true;
+        StartHoldingMessages();
+    }
+
+    /// <summary>Starts the scheduled actions and the listeners; rolls everything back and rethrows when one fails.</summary>
+    private async Task StartUnderLockAsync(CancellationToken ct)
+    {
+        var listening = new List<(string Name, IEndPointEventDriven Endpoint)>();
+        try
+        {
+            StartScheduledActions(ct);
+            await StartListenersAsync(listening, ct);
+
+            _started = true;
+            _startGate.TrySetResult();
+            _logger.LogInformation("Broker started");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Broker failed to start — rolling back scheduled actions and {Count} started listener(s)", listening.Count);
+            await RollBackStartAsync(listening, ex);
+            throw;
         }
     }
 
@@ -156,23 +165,7 @@ internal sealed partial class NymBrokerImpl
                 return;
 
             await StopScheduledActionsAsync();
-
-            foreach (var (name, endpoint) in _endpoints)
-            {
-                if (endpoint is not IEndPointEventDriven eventDriven)
-                    continue;
-
-                try
-                {
-                    await eventDriven.StopListeningAsync();
-                    _logger.LogInformation("Stopped listening on endpoint '{Name}'", name);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Endpoint '{Name}' failed to stop listening; stopping the other endpoints", name);
-                    (failures ??= []).Add(ex);
-                }
-            }
+            failures = await StopListenersAsync();
 
             _started = false;
             if (failures is null)
@@ -185,10 +178,39 @@ internal sealed partial class NymBrokerImpl
             _lifecycleLock.Release();
         }
 
+        ThrowIfStopFailed(failures);
+    }
+
+    /// <summary>One failure is rethrown as it was; several as an <see cref="AggregateException"/>.</summary>
+    private static void ThrowIfStopFailed(List<Exception>? failures)
+    {
         if (failures is [var single])
             ExceptionDispatchInfo.Throw(single);
         if (failures is not null)
             throw new AggregateException("One or more endpoints failed to stop listening.", failures);
+    }
+
+    /// <summary>Stops every listener, also after one fails; returns the failures (logged), or null.</summary>
+    private async Task<List<Exception>?> StopListenersAsync()
+    {
+        List<Exception>? failures = null;
+        foreach (var (name, endpoint) in _endpoints)
+        {
+            if (endpoint is not IEndPointEventDriven eventDriven)
+                continue;
+
+            try
+            {
+                await eventDriven.StopListeningAsync();
+                _logger.LogInformation("Stopped listening on endpoint '{Name}'", name);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Endpoint '{Name}' failed to stop listening; stopping the other endpoints", name);
+                (failures ??= []).Add(ex);
+            }
+        }
+        return failures;
     }
 
     // A missing target would only show up when the first message is lost, so fail at startup instead.

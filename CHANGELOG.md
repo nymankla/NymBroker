@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+
+- Every production method is now within the acceptable code-health band (at most 30 lines, nesting 2, 4 parameters not counting a `CancellationToken`); the few exceptions — shipped public API parameter lists and single SQL scripts — are listed with their reasons in `CodeHealthTests` ([docs/architecture.md](docs/architecture.md#code-health)). About 40 methods in Core and the endpoint packages were split; behaviour is unchanged, except that registering the same typed consumer (`AddConsumer<TConsumer, TMessage>`) twice with a different `RetryOnFailure` now gives the same, more specific error message as the reflection-based `AddConsumer<TConsumer>`.
+
 ## [0.25.2] - 2026-11-17
 
 ### Fixed

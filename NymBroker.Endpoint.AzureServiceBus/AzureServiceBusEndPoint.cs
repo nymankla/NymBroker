@@ -66,23 +66,7 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IDeferredEnd
         try
         {
             foreach (var body in messages)
-            {
-                var message = CreateMessage(body);
-                if (batch.TryAddMessage(message))
-                    continue;
-
-                if (batch.Count > 0)
-                {
-                    await sender.SendMessagesAsync(batch, ct);
-                    batch.Dispose();
-                    batch = await sender.CreateMessageBatchAsync(ct);
-                    if (batch.TryAddMessage(message))
-                        continue;
-                }
-
-                throw new InvalidOperationException(
-                    $"A message of {body.Length} bytes does not fit in a Service Bus batch (max {batch.MaxSizeInBytes} bytes) on endpoint '{_name}'. Post it with splitThresholdBytes.");
-            }
+                batch = await AddToBatchAsync(sender, batch, body, ct);
 
             if (batch.Count > 0)
                 await sender.SendMessagesAsync(batch, ct);
@@ -91,6 +75,31 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IDeferredEnd
         {
             batch.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Adds the message to the batch; when the batch is full, sends it and returns a new batch that holds the message.
+    /// Throws when the message does not fit even in an empty batch.
+    /// </summary>
+    private async Task<ServiceBusMessageBatch> AddToBatchAsync(ServiceBusSender sender, ServiceBusMessageBatch batch, byte[] body, CancellationToken ct)
+    {
+        var message = CreateMessage(body);
+        if (batch.TryAddMessage(message))
+            return batch;
+
+        var maxSize = batch.MaxSizeInBytes;
+        if (batch.Count > 0)
+        {
+            await sender.SendMessagesAsync(batch, ct);
+            batch.Dispose();
+            batch = await sender.CreateMessageBatchAsync(ct);
+            if (batch.TryAddMessage(message))
+                return batch;
+            batch.Dispose();   // the caller disposes the batch it passed in
+        }
+
+        throw new InvalidOperationException(
+            $"A message of {body.Length} bytes does not fit in a Service Bus batch (max {maxSize} bytes) on endpoint '{_name}'. Post it with splitThresholdBytes.");
     }
 
     private static ServiceBusMessage CreateMessage(byte[] body) => new(body) { ContentType = "application/json" };
@@ -103,33 +112,8 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IDeferredEnd
             if (_processor is not null)
                 throw new InvalidOperationException($"Azure Service Bus endpoint '{_name}' is already listening.");
 
-            var options = new ServiceBusProcessorOptions
-            {
-                AutoCompleteMessages = false,
-                ReceiveMode = ServiceBusReceiveMode.PeekLock,
-                MaxConcurrentCalls = _settings.MaxConcurrentCalls,
-                PrefetchCount = _settings.PrefetchCount,
-                MaxAutoLockRenewalDuration = _settings.MaxAutoLockRenewalDuration,
-                SubQueue = _settings.ReadDeadLetterQueue ? SubQueue.DeadLetter : SubQueue.None
-            };
-
-            var processor = _settings.QueueName is not null
-                ? _client.Value.CreateProcessor(_settings.QueueName, options)
-                : _client.Value.CreateProcessor(_settings.TopicName!, RequireSubscription(), options);
-
-            processor.ProcessMessageAsync += args => OnMessageAsync(args, handler);
-            processor.ProcessErrorAsync += OnErrorAsync;
-
-            // Starts the receive loop in the background and returns; connection problems surface via ProcessErrorAsync.
-            try
-            {
-                await processor.StartProcessingAsync(ct);
-            }
-            catch
-            {
-                await processor.DisposeAsync();   // not yet in _processor, so StopListeningAsync could not release it
-                throw;
-            }
+            var processor = CreateProcessor(handler);
+            await StartProcessorAsync(processor, ct);
             _processor = processor;
             _logger.LogInformation("Azure Service Bus endpoint '{Name}' listening on '{Entity}'{SubQueue}",
                 _name, processor.EntityPath, _settings.ReadDeadLetterQueue ? " (dead-letter queue)" : "");
@@ -137,6 +121,41 @@ public sealed class AzureServiceBusEndPoint : IEndPointEventDriven, IDeferredEnd
         finally
         {
             _lifecycleLock.Release();
+        }
+    }
+
+    private ServiceBusProcessor CreateProcessor(Func<byte[], CancellationToken, Task<ProcessResult>> handler)
+    {
+        var options = new ServiceBusProcessorOptions
+        {
+            AutoCompleteMessages = false,
+            ReceiveMode = ServiceBusReceiveMode.PeekLock,
+            MaxConcurrentCalls = _settings.MaxConcurrentCalls,
+            PrefetchCount = _settings.PrefetchCount,
+            MaxAutoLockRenewalDuration = _settings.MaxAutoLockRenewalDuration,
+            SubQueue = _settings.ReadDeadLetterQueue ? SubQueue.DeadLetter : SubQueue.None
+        };
+
+        var processor = _settings.QueueName is not null
+            ? _client.Value.CreateProcessor(_settings.QueueName, options)
+            : _client.Value.CreateProcessor(_settings.TopicName!, RequireSubscription(), options);
+
+        processor.ProcessMessageAsync += args => OnMessageAsync(args, handler);
+        processor.ProcessErrorAsync += OnErrorAsync;
+        return processor;
+    }
+
+    /// <summary>Starts the receive loop in the background and returns; connection problems surface via ProcessErrorAsync.</summary>
+    private static async Task StartProcessorAsync(ServiceBusProcessor processor, CancellationToken ct)
+    {
+        try
+        {
+            await processor.StartProcessingAsync(ct);
+        }
+        catch
+        {
+            await processor.DisposeAsync();   // not yet in _processor, so StopListeningAsync could not release it
+            throw;
         }
     }
 

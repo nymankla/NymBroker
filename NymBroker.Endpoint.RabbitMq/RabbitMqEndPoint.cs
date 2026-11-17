@@ -191,10 +191,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     private async Task ConsumeUntilLostAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler, CancellationToken token,
         CancellationToken attemptToken)
     {
-        var channel = await PrepareConsumeChannelAsync(attemptToken);
-        await channel.QueueDeclareAsync(_settings.ReadQueueName, durable: true,
-            exclusive: false, autoDelete: false, cancellationToken: attemptToken);
-        await channel.BasicQosAsync(0, (ushort)_settings.PrefetchCount, global: false, attemptToken);
+        var channel = await OpenConsumeChannelAsync(attemptToken);
 
         var lost = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         Task OnChannelShutdown(object sender, ShutdownEventArgs args)
@@ -209,17 +206,7 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         channel.ChannelShutdownAsync += OnChannelShutdown;
         try
         {
-            var consumer = new AsyncEventingBasicConsumer(channel);
-            consumer.ReceivedAsync += (_, ea) => OnDeliveryAsync(channel, ea, handler, token);
-            consumer.UnregisteredAsync += (_, _) =>
-            {
-                if (!_stopping) lost.TrySetResult("the server cancelled the consumer");
-                return Task.CompletedTask;
-            };
-
-            _consumerTag = await channel.BasicConsumeAsync(_settings.ReadQueueName, autoAck: false, consumer: consumer, cancellationToken: attemptToken);
-            if (!channel.IsOpen && !_stopping && _connection?.IsOpen == true)
-                lost.TrySetResult("the server closed the channel");   // closed before the handler was attached
+            await SubscribeAsync(channel, handler, lost, token, attemptToken);
 
             // The policy logs this as a warning and subscribes again after its delay.
             throw new InvalidOperationException(await lost.Task.WaitAsync(attemptToken));
@@ -230,28 +217,39 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         }
     }
 
+    private async Task<IChannel> OpenConsumeChannelAsync(CancellationToken attemptToken)
+    {
+        var channel = await PrepareConsumeChannelAsync(attemptToken);
+        await channel.QueueDeclareAsync(_settings.ReadQueueName, durable: true,
+            exclusive: false, autoDelete: false, cancellationToken: attemptToken);
+        await channel.BasicQosAsync(0, (ushort)_settings.PrefetchCount, global: false, attemptToken);
+        return channel;
+    }
+
+    /// <summary>Starts the consumer; <paramref name="lost"/> is set when the server cancels it or the channel is already closed.</summary>
+    private async Task SubscribeAsync(IChannel channel, Func<byte[], CancellationToken, Task<ProcessResult>> handler,
+        TaskCompletionSource<string> lost, CancellationToken token, CancellationToken attemptToken)
+    {
+        var consumer = new AsyncEventingBasicConsumer(channel);
+        consumer.ReceivedAsync += (_, ea) => OnDeliveryAsync(channel, ea, handler, token);
+        consumer.UnregisteredAsync += (_, _) =>
+        {
+            if (!_stopping) lost.TrySetResult("the server cancelled the consumer");
+            return Task.CompletedTask;
+        };
+
+        _consumerTag = await channel.BasicConsumeAsync(_settings.ReadQueueName, autoAck: false, consumer: consumer, cancellationToken: attemptToken);
+        if (!channel.IsOpen && !_stopping && _connection?.IsOpen == true)
+            lost.TrySetResult("the server closed the channel");   // closed before the handler was attached
+    }
+
     private async Task OnDeliveryAsync(IChannel channel, BasicDeliverEventArgs ea, Func<byte[], CancellationToken, Task<ProcessResult>> handler,
         CancellationToken token)
     {
         await _deliveryLock.WaitAsync(CancellationToken.None);
         try
         {
-            // Already dispatched before the consumer was cancelled or the channel closed: leave it unacked, RabbitMQ
-            // requeues it on close (handling it now would run it twice).
-            if (_stopping || !channel.IsOpen) return;
-
-            ProcessResult result;
-            try
-            {
-                result = await EndpointHandler.InvokeAsync(handler, ea.Body.ToArray(), _logger, _name, token, ea.DeliveryTag);
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                return;   // the handler stopped because we are stopping: unsettled, requeued when the channel closes
-            }
-
-            // Settled with CancellationToken.None: a handled message must be acked even while stopping, or it is redelivered.
-            await SettleAsync(channel, ea, result);
+            await HandleDeliveryAsync(channel, ea, handler, token);
         }
         catch (Exception ex)
         {
@@ -261,6 +259,28 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
         {
             _deliveryLock.Release();
         }
+    }
+
+    // Must be called while holding _deliveryLock.
+    private async Task HandleDeliveryAsync(IChannel channel, BasicDeliverEventArgs ea, Func<byte[], CancellationToken, Task<ProcessResult>> handler,
+        CancellationToken token)
+    {
+        // Already dispatched before the consumer was cancelled or the channel closed: leave it unacked, RabbitMQ
+        // requeues it on close (handling it now would run it twice).
+        if (_stopping || !channel.IsOpen) return;
+
+        ProcessResult result;
+        try
+        {
+            result = await EndpointHandler.InvokeAsync(handler, ea.Body.ToArray(), _logger, _name, token, ea.DeliveryTag);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return;   // the handler stopped because we are stopping: unsettled, requeued when the channel closes
+        }
+
+        // Settled with CancellationToken.None: a handled message must be acked even while stopping, or it is redelivered.
+        await SettleAsync(channel, ea, result);
     }
 
     // Must be called while holding _deliveryLock.
@@ -278,7 +298,12 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
 
         // Ack the successful messages before this one, then settle this one on its own.
         await FlushAcksAsync(channel);
+        await RejectAsync(channel, ea, result);
+    }
 
+    /// <summary>Settles a failed message: dead-letter it, or requeue it unless it already failed after a redelivery.</summary>
+    private async Task RejectAsync(IChannel channel, BasicDeliverEventArgs ea, ProcessResult result)
+    {
         if (result.Outcome == ProcessOutcome.DeadLetter)
         {
             // Reject without requeue: RabbitMQ routes it to the queue's dead-letter exchange, if one is configured.
@@ -354,11 +379,21 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
     /// </summary>
     private async Task<IChannel> PrepareConsumeChannelAsync(CancellationToken ct)
     {
-        IChannel? old;
+        var old = await DetachConsumeChannelAsync(ct);
+
+        // Outside the lock: closing waits for deliveries already queued on the channel, and they wait for the lock.
+        if (old is not null)
+            await CloseOldChannelAsync(old);
+        return await EnsureConsumeChannelAsync(ct);
+    }
+
+    /// <summary>Takes the consume channel away under the delivery lock, after acking what was handled on it.</summary>
+    private async Task<IChannel?> DetachConsumeChannelAsync(CancellationToken ct)
+    {
         await _deliveryLock.WaitAsync(ct);
         try
         {
-            old = _consumeChannel;
+            var old = _consumeChannel;
             _consumeChannel = null;
             if (old?.IsOpen == true)
             {
@@ -366,22 +401,23 @@ public sealed class RabbitMqEndPoint : IEndPointEventDriven, IAsyncDisposable
                 catch (Exception ex) { _logger.LogWarning(ex, "RabbitMQ [{Name}] could not ack {Count} handled message(s); they will be redelivered", _name, _pendingAcks); }
             }
             _pendingAcks = 0;
+            return old;
         }
         finally
         {
             _deliveryLock.Release();
         }
+    }
 
-        // Outside the lock: closing waits for deliveries already queued on the channel, and they wait for the lock.
-        if (old is not null)
-        {
-            // CloseAsync also removes it from the client's recovery records; otherwise the next connection recovery
-            // would bring it back with its old consumer, next to the new one.
-            try { await old.CloseAsync(CancellationToken.None); }
-            catch (Exception ex) { _logger.LogDebug(ex, "RabbitMQ [{Name}] closing the old consume channel failed", _name); }
-            await old.DisposeAsync();
-        }
-        return await EnsureConsumeChannelAsync(ct);
+    /// <summary>
+    /// CloseAsync also removes the channel from the client's recovery records; otherwise the next connection recovery
+    /// would bring it back with its old consumer, next to the new one.
+    /// </summary>
+    private async Task CloseOldChannelAsync(IChannel old)
+    {
+        try { await old.CloseAsync(CancellationToken.None); }
+        catch (Exception ex) { _logger.LogDebug(ex, "RabbitMQ [{Name}] closing the old consume channel failed", _name); }
+        await old.DisposeAsync();
     }
 
     private async Task<IChannel> EnsureConsumeChannelAsync(CancellationToken ct)

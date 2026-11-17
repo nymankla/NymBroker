@@ -83,7 +83,7 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 Before saying a change is finished:
 
 - [ ] `dotnet build` — **0 warnings, 0 errors** (RS0026 and nullable warnings count).
-- [ ] Tests added or updated for the behaviour; `dotnet test` passes — it includes `CodeHealthTests`: a method over a code-health limit is split, never the limit raised; when the worst value drops, lower the limit ([docs/architecture.md](docs/architecture.md#code-health)). If an endpoint, idempotency store or the broker pipeline changed: `./scripts/test-all.ps1` passes too. For a bug fix, the new test fails without the fix.
+- [ ] Tests added or updated for the behaviour; `dotnet test` passes — it includes `CodeHealthTests`: a method above the acceptable band is split; an entry in `CodeHealthTests.Exceptions` needs a reason why splitting would make the code worse, and its ceiling is lowered when the method improves ([docs/architecture.md](docs/architecture.md#code-health)). If an endpoint, idempotency store or the broker pipeline changed: `./scripts/test-all.ps1` passes too. For a bug fix, the new test fails without the fix.
 - [ ] Public API changed → `PublicAPI.Unshipped.txt` of that project (removals as `*REMOVED*<line>`); never delete lines from `PublicAPI.Shipped.txt` by hand.
 - [ ] `CHANGELOG.md` → entry under `[Unreleased]` (Added / Changed / Fixed / Removed; mark breaking changes **Breaking** with the migration).
 - [ ] User-visible behaviour → `docs/` updated; public API or setup the client skills describe → `skills/*/SKILL.md` updated; the project's folder `CLAUDE.md` updated if its internals changed.

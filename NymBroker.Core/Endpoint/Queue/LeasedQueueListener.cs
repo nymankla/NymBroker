@@ -181,11 +181,7 @@ public abstract class LeasedQueueListener
 
             var batch = await FinalizeAndClaimAsync(outcomes, token);
             outcomes.Clear();   // committed together with the claim
-
-            if (_maxConcurrentCalls > 1 && batch.Count > 1)
-                await HandleConcurrentlyAsync(handler, batch, outcomes, token);
-            else
-                await HandleInOrderAsync(handler, batch, outcomes, token);
+            await HandleBatchAsync(handler, batch, outcomes, token);
             return batch.Count;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -204,6 +200,12 @@ public abstract class LeasedQueueListener
             return 0;
         }
     }
+
+    private Task HandleBatchAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler,
+        IReadOnlyList<QueueMessage> batch, List<QueueMessageOutcome> outcomes, CancellationToken token)
+        => _maxConcurrentCalls > 1 && batch.Count > 1
+            ? HandleConcurrentlyAsync(handler, batch, outcomes, token)
+            : HandleInOrderAsync(handler, batch, outcomes, token);
 
     /// <summary>One message after the other. A stop that reaches a handler ends the batch: the rest is left to lease expiry.</summary>
     private async Task HandleInOrderAsync(Func<byte[], CancellationToken, Task<ProcessResult>> handler,

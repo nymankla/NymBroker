@@ -57,7 +57,12 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
         _readDir.Create();
         _postDir.Create();
 
-        _fileReadyPolicy = new RetryPolicy(new RetryOptions
+        _fileReadyPolicy = CreateFileReadyPolicy();
+    }
+
+    /// <summary>Retries a read while another process still holds the file (an <see cref="IOException"/>).</summary>
+    private RetryPolicy CreateFileReadyPolicy()
+        => new(new RetryOptions
         {
             MaxRetryAttempts = 4,
             Delay = TimeSpan.FromMilliseconds(25),
@@ -73,7 +78,6 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
                 return ValueTask.CompletedTask;
             }
         });
-    }
 
     public Task PostAsync(byte[] message, CancellationToken ct = default)
     {
@@ -121,21 +125,27 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
         {
             try
             {
-                try
-                {
-                    var wait = GetDeliverAt(file)!.Value - DateTimeOffset.UtcNow;
-                    if (wait > TimeSpan.Zero)
-                        await Task.Delay(wait < MaxDelayStep ? wait : MaxDelayStep, stopping);
-                }
-                finally
-                {
-                    _waitingFiles.TryRemove(file.FullName, out _);   // before the write: the reader may need a new wake-up
-                }
+                await WaitUntilDueAsync(file, stopping);
                 _fileChannel?.Writer.TryWrite(file);
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }   // read again at the next start
             catch (Exception ex) { _logger.LogError(ex, "Error waiting for deferred file '{File}'", file.Name); }
         }, CancellationToken.None);
+    }
+
+    /// <summary>Waits until the file is due, or at most <see cref="MaxDelayStep"/>, and then lets it be woken again.</summary>
+    private async Task WaitUntilDueAsync(FileInfo file, CancellationToken stopping)
+    {
+        try
+        {
+            var wait = GetDeliverAt(file)!.Value - DateTimeOffset.UtcNow;
+            if (wait > TimeSpan.Zero)
+                await Task.Delay(wait < MaxDelayStep ? wait : MaxDelayStep, stopping);
+        }
+        finally
+        {
+            _waitingFiles.TryRemove(file.FullName, out _);   // before the caller writes: the reader may need a new wake-up
+        }
     }
 
     /// <summary>Starts reading on the thread pool and returns.</summary>
@@ -231,21 +241,31 @@ public sealed class FileEndPoint : IEndPointEventDriven, IDeferredEndPoint
         if (_loop is null) return;
 
         await _stopping!.CancelAsync();
+        await WaitForLoopAsync(_loop);
+        if (_poll is not null) await _poll;
+        ReleaseListener();
+    }
+
+    /// <summary>Waits for the read loop; after <see cref="StopTimeout"/> cancels the running handler and waits on.</summary>
+    private async Task WaitForLoopAsync(Task loop)
+    {
         try
         {
-            await _loop.WaitAsync(StopTimeout);
+            await loop.WaitAsync(StopTimeout);
         }
         catch (TimeoutException)
         {
             _logger.LogWarning("File endpoint '{Name}' was still handling a file after {Timeout}; cancelling its handler", _name, StopTimeout);
             await _handlerCts!.CancelAsync();
-            await _loop;
+            await loop;
         }
-        if (_poll is not null) await _poll;
+    }
 
+    private void ReleaseListener()
+    {
         _loop = null;
         _poll = null;
-        _stopping.Dispose();
+        _stopping!.Dispose();
         _stopping = null;
         _handlerCts!.Dispose();
         _handlerCts = null;

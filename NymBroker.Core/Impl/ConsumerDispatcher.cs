@@ -32,15 +32,16 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogge
         string serviceKey,
         Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? dispatcher)
     {
-        ImmutableInterlocked.Update(ref _consumers, consumers =>
-        {
-            if (consumers.TryGetValue(messageType, out var existing))
-            {
-                if (existing.ServiceKey == serviceKey) return consumers;
-                throw Factory.NymBrokerBuilder.DuplicateConsumer(messageType, existing.ServiceKey, serviceKey);
-            }
-            return consumers.Add(messageType, (serviceKey, dispatcher));
-        });
+        ImmutableInterlocked.Update(ref _consumers, static (consumers, add) => WithConsumer(consumers, add), (messageType, serviceKey, dispatcher));
+    }
+
+    private static ImmutableDictionary<Type, (string ServiceKey, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> WithConsumer(
+        ImmutableDictionary<Type, (string ServiceKey, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> consumers,
+        (Type MessageType, string ServiceKey, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher) add)
+    {
+        if (!consumers.TryGetValue(add.MessageType, out var existing)) return consumers.Add(add.MessageType, (add.ServiceKey, add.Dispatcher));
+        if (existing.ServiceKey == add.ServiceKey) return consumers;
+        throw Factory.NymBrokerBuilder.DuplicateConsumer(add.MessageType, existing.ServiceKey, add.ServiceKey);
     }
 
     public async Task DispatchAsync(Type messageType, object message, IMessageContext context, CancellationToken ct)
@@ -51,23 +52,10 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogge
             return;
         }
 
-        var serviceKey = registration.ServiceKey;
         await using var scope = scopeFactory.CreateAsyncScope();
-        var consumer = scope.ServiceProvider.GetRequiredKeyedService<IMessageConsumer>(serviceKey);
-        var dispatcher = registration.Dispatcher;
-        if (dispatcher is null)
-        {
-            if (!RuntimeFeature.IsDynamicCodeSupported)
-                throw new InvalidOperationException("Native AOT requires AddConsumer<TConsumer, TMessage>() for consumer dispatch.");
-            dispatcher = DispatchCache.GetOrAdd(messageType, BuildDispatcher);
-        }
-        var tags = new TagList
-        {
-            { "source", context.Address?.From ?? "unknown" },
-            { "message_type", MessageTypeName.Get(messageType) },
-            { "consumer", serviceKey },
-            { "kind", "consumer" }
-        };
+        var consumer = scope.ServiceProvider.GetRequiredKeyedService<IMessageConsumer>(registration.ServiceKey);
+        var dispatcher = registration.Dispatcher ?? ReflectionDispatcher(messageType);
+        var tags = ConsumedTags(messageType, context, registration.ServiceKey);
         try
         {
             await dispatcher(consumer, message, context, ct);
@@ -84,6 +72,22 @@ public sealed class ConsumerDispatcher(IServiceScopeFactory scopeFactory, ILogge
             NymBrokerDiagnostics.MessagesConsumed.Add(1, tags);
             throw;
         }
+    }
+
+    private static TagList ConsumedTags(Type messageType, IMessageContext context, string serviceKey) => new()
+    {
+        { "source", context.Address?.From ?? "unknown" },
+        { "message_type", MessageTypeName.Get(messageType) },
+        { "consumer", serviceKey },
+        { "kind", "consumer" }
+    };
+
+    /// <summary>The compiled dispatcher for a consumer registered through reflection-based discovery (not under Native AOT).</summary>
+    private static Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task> ReflectionDispatcher(Type messageType)
+    {
+        if (!RuntimeFeature.IsDynamicCodeSupported)
+            throw new InvalidOperationException("Native AOT requires AddConsumer<TConsumer, TMessage>() for consumer dispatch.");
+        return DispatchCache.GetOrAdd(messageType, BuildDispatcher);
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "This reflection fallback is used only when dynamic code is supported; Native AOT dispatch uses registered delegates.")]

@@ -57,11 +57,13 @@ internal sealed partial class NymBrokerImpl
     /// A named action: each occurrence is claimed in the schedule store before it runs, so brokers sharing the store run
     /// it once, and with <see cref="MissedRunPolicy.RunOnce"/> an occurrence missed while the broker was down runs on start.
     /// </summary>
-    internal INymBroker AddNamedScheduledAction(string name, ScheduleTiming timing, MissedRunPolicy missedRuns, TimeSpan? maxCatchUp, Func<CancellationToken, Task> action)
+    internal INymBroker AddNamedScheduledAction(string name, ScheduleTiming timing, ScheduledActionOptions options, Func<CancellationToken, Task> action)
     {
         ScheduledActionName.Validate(name);
         ArgumentNullException.ThrowIfNull(timing);
+        ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(action);
+        var (missedRuns, maxCatchUp) = (options.MissedRuns, options.MaxCatchUp);
 
         _logger.LogInformation("Scheduled action {Name} ({Schedule}) set up, first occurrence at {NextOccurrence}, missed runs: {MissedRuns}",
             name, timing, timing.Next(DateTimeOffset.Now), missedRuns);
@@ -133,19 +135,19 @@ internal sealed partial class NymBrokerImpl
     {
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = linkedCts.Token;
-        var task = Task.Run(() => RunScheduledLoopAsync(async () =>
-        {
-            await Task.Delay(initialDelay, token);
-            using var timer = new PeriodicTimer(interval);
-
-            do
-            {
-                await InvokeScheduledActionAsync(action, token);
-            }
-            while (await timer.WaitForNextTickAsync(token));
-        }, token), token);
-
+        var task = Task.Run(() => RunScheduledLoopAsync(() => RunEveryIntervalAsync(initialDelay, interval, action, token), token), token);
         return new ScheduledActionHandle(linkedCts, task, _logger);
+    }
+
+    private async Task RunEveryIntervalAsync(TimeSpan initialDelay, TimeSpan interval, Func<CancellationToken, Task> action, CancellationToken token)
+    {
+        await Task.Delay(initialDelay, token);
+        using var timer = new PeriodicTimer(interval);
+        do
+        {
+            await InvokeScheduledActionAsync(action, token);
+        }
+        while (await timer.WaitForNextTickAsync(token));
     }
 
     /// <summary>
@@ -160,14 +162,16 @@ internal sealed partial class NymBrokerImpl
     {
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var token = linkedCts.Token;
-        var task = Task.Run(() => RunScheduledLoopAsync(async () =>
-        {
-            if (beforeFirst is not null)
-                await beforeFirst(token);
-            await RunOccurrencesAsync(timing, runOccurrence, token);
-        }, token), token);
-
+        var task = Task.Run(() => RunScheduledLoopAsync(() => RunTimedAsync(timing, runOccurrence, beforeFirst, token), token), token);
         return new ScheduledActionHandle(linkedCts, task, _logger);
+    }
+
+    private static async Task RunTimedAsync(ScheduleTiming timing, Func<DateTimeOffset, CancellationToken, Task> runOccurrence,
+        Func<CancellationToken, Task>? beforeFirst, CancellationToken token)
+    {
+        if (beforeFirst is not null)
+            await beforeFirst(token);
+        await RunOccurrencesAsync(timing, runOccurrence, token);
     }
 
     /// <summary>Waits for each occurrence of <paramref name="timing"/> and runs it, until stopped or there is no next one.</summary>

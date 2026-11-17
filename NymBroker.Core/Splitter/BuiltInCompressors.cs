@@ -10,9 +10,10 @@ internal static class BuiltInCompressors
     private static readonly ZstandardCompressor Zstandard = new();
 
     /// <summary>The compressor that decodes <paramref name="name"/>: the configured one when its name matches, else a built-in codec, else null.</summary>
-    public static ICompressor? ForDecoding(string name, ICompressor configured) =>
-        string.Equals(name, configured.Name, StringComparison.Ordinal) ? configured
-        : string.Equals(name, Zstandard.Name, StringComparison.Ordinal) ? Zstandard
-        : string.Equals(name, Brotli.Name, StringComparison.Ordinal) ? Brotli
-        : null;
+    public static ICompressor? ForDecoding(string name, ICompressor configured)
+    {
+        if (string.Equals(name, configured.Name, StringComparison.Ordinal)) return configured;
+        if (string.Equals(name, Zstandard.Name, StringComparison.Ordinal)) return Zstandard;
+        return string.Equals(name, Brotli.Name, StringComparison.Ordinal) ? Brotli : null;
+    }
 }

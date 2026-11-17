@@ -145,11 +145,16 @@ public sealed partial class PostgresEndPoint : IEndPointEventDriven, IDeferredEn
         claim.Parameters.Add(new NpgsqlParameter<int>("leaseTimeout", LeasedQueueListener.GetLeaseTimeoutSeconds(_settings)));
         batch.BatchCommands.Add(claim);
 
-        var claimed = new List<QueueMessage>();
         await using var reader = await batch.ExecuteReaderAsync(ct);
+        return await ReadClaimedAsync(reader, ct);
+    }
+
+    /// <summary>The claim's RETURNING rows; the finalize UPDATE returns no rows, so its result set has no fields.</summary>
+    private static async Task<List<QueueMessage>> ReadClaimedAsync(NpgsqlDataReader reader, CancellationToken ct)
+    {
+        var claimed = new List<QueueMessage>();
         do
         {
-            // The finalize UPDATE returns no rows; the claim's RETURNING rows are the only result set with fields.
             if (reader.FieldCount == 0)
                 continue;
 

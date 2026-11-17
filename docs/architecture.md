@@ -84,26 +84,28 @@ The checklist for a change is in [CONTRIBUTING.md](../CONTRIBUTING.md#developmen
 
 ## Code health
 
-`NymBroker.Tests/CodeHealth/CodeHealthTests.cs` measures the production code — Core, the endpoint, idempotency, scheduling and outbox packages, and `shared/` — from the syntax tree (Roslyn, no compilation) and fails when something is over a limit. Tests and samples are measured but not gated. The targets come from [#112](https://github.com/nymankla/NymBroker/issues/112).
+`NymBroker.Tests/CodeHealth/CodeHealthTests.cs` measures the production code — Core, the endpoint, idempotency, scheduling and outbox packages, and `shared/` — from the syntax tree (Roslyn, no compilation) and fails when anything is above the acceptable band. Tests and samples are measured but not gated. The targets come from [#112](https://github.com/nymankla/NymBroker/issues/112).
 
-| Metric | What it counts | Good | Acceptable | Limit |
-|---|---|---|---|---|
-| Method lines | The declaration, signature to closing brace | 1–15 | 16–30 | 50 |
-| Cyclomatic complexity | 1 + each `if`, loop, `case`, switch arm, `catch`, `?:`, `&&`, `\|\|`, `??`, `?.` | 1–5 | 6–10 | 10 |
-| Cognitive complexity | Sonar-style: each branch or loop costs 1 plus its nesting depth; `else` and each run of `&&` / `\|\|` cost 1 | 1–5 | 6–15 | 15 |
-| Nesting | Deepest control-flow nesting; the method body is level 0, so an `if` in a loop is 2 | 1 | 2 | 3 |
-| Parameters | Declared parameters | 0–3 | 4 | 5 |
-| Type size | Lines of one type declaration; each file of a partial class counts on its own | < 200 | 200–500 | 500 |
-| Duplication | Production code lines inside a 10-line block that also appears elsewhere | 0 % | < 3 % | 3 % |
+| Metric | What it counts | Good | Acceptable (the gate) |
+|---|---|---|---|
+| Method lines | The declaration, signature to closing brace | 1–15 | 16–30 |
+| Cyclomatic complexity | 1 + each `if`, loop, `case`, switch arm, `catch`, `?:`, `&&`, `\|\|`, `??`, `?.` | 1–5 | 6–10 |
+| Cognitive complexity | Sonar-style: each branch or loop costs 1 plus its nesting depth; `else` and each run of `&&` / `\|\|` cost 1 | 1–5 | 6–15 |
+| Nesting | Deepest control-flow nesting; the method body is level 0, so an `if` in a loop is 2 | 1 | 2 |
+| Parameters | Declared parameters, not counting a `CancellationToken` | 0–3 | 4 |
+| Type size | Lines of one type declaration; each file of a partial class counts on its own | < 200 | 200–500 |
+| Duplication | Production code lines inside a 10-line block that also appears elsewhere | 0 % | < 3 % |
 
-Above "acceptable" is the warning band: refactor. Ways out, in the order to try them: guard clauses and early returns for nesting; extract a well-named method for length and complexity; a small record (parameter object) for parameters that travel together; a partial-class file per concern, or a new type, for size; `shared/` or a base class for duplication.
+Above "acceptable" is the warning band, and production code may not be in it: split the code. Ways out, in the order to try them: guard clauses and early returns for nesting; extract a well-named method for length and complexity; a small record (parameter object) for parameters that travel together; a partial-class file per concern, or a new type, for size; `shared/` or a base class for duplication.
 
-Not gated on parameters: constructors (the DI container fills them) and public API whose signature can't change without a breaking release (`EndpointHandler.InvokeAsync`, `HealthCheckResult.FromProbeAsync`, `INymBroker.PostBatchAsync`; the list is `ParameterExceptions` in the test).
+Two rules are part of the metrics, not exceptions: a `CancellationToken` parameter is not counted (.NET requires one on every cancellable async method, so it says nothing about the design), and constructors are not gated on parameters (the DI container fills them).
 
-**The limits are a ratchet.** If a change pushes something over a limit, split it; never raise the limit. When the worst value drops, lower the limit towards the top of the acceptable band. In the November 2026 measurement every limit held; the worst values were 47 lines, cyclomatic 10, cognitive 14, nesting 3, and a 431-line type, with 0.80 % duplication. Re-run the report below for current values.
+**Exceptions** are listed in `CodeHealthTests.Exceptions`, each with the metric, a ceiling and a reason why splitting would make the code worse rather than just longer. Today there are two kinds: shipped public API whose parameter list can't change without a breaking release (`EndpointHandler.InvokeAsync`, `HealthCheckResult.FromProbe(Async)`, `INymBroker.PostBatchAsync`, the health-check `AddNymBroker`), and SQL scripts kept in one raw string literal (the SQL Server and PostgreSQL `CreateSchema` methods, `SqlServerScheduleSql.Claim`). An exception is not a way to let new code in: "it is easier this way" is not a reason. `Exceptions_AreJustified_AndStillNeeded` fails when an exception has no real reason, names a method that no longer exists, or is no longer needed, and when the method improves its ceiling must be lowered to the new value — so the list only shrinks.
+
+In the November 2026 measurement, after moving the gate to the acceptable band, the worst values outside the exceptions were 30 lines, cyclomatic 10, cognitive 10, nesting 2 and 4 parameters, with a 466-line type and 0.74 % duplication. Re-run the report below for current values.
 
 Running it:
 
 - It runs with every `dotnet test`. To run it alone: `dotnet test --project NymBroker.Tests -- --filter-class "*CodeHealthTests"`.
-- In CI it appends a summary to the job summary: for each metric, how many methods are good, acceptable or in the warning band, the worst one, and the limit; then the ten most complex methods.
+- In CI it appends a summary to the job summary: for each metric, how many methods are good, acceptable or in the warning band, the worst one, and the gate; then the ten most complex methods.
 - For a full report, set `NYMBROKER_CODE_HEALTH_REPORT` to a file path; the test writes every method, type, file and duplicated block as JSON. The `code-health` agent skill (`.claude/skills/code-health`) does this, summarizes it and ranks refactoring candidates.

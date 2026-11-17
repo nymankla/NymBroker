@@ -173,7 +173,7 @@ public sealed class BrokerStartRollbackTests
         var logger = new CapturingLogger<NymBrokerImpl>();
         var broker = TestBroker.Create(new ServiceCollection().BuildServiceProvider(), logger: logger);
         broker.SetScheduleStore(store);
-        broker.AddNamedScheduledAction("cleanup", new GridTiming(TimeSpan.FromMilliseconds(20)), MissedRunPolicy.Skip, null, _ => Task.CompletedTask);
+        broker.AddNamedScheduledAction("cleanup", new GridTiming(TimeSpan.FromMilliseconds(20)), new ScheduledActionOptions(), _ => Task.CompletedTask);
 
         await broker.StartAsync(Ct);
         await store.Claiming.Task.WaitAsync(Timeout, Ct);

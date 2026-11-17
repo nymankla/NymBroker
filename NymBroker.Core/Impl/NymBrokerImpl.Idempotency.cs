@@ -43,20 +43,8 @@ internal sealed partial class NymBrokerImpl
             return await RouteAndDispatchAsync(raw, context, messageType, run, ct);
         }
 
-        IdempotencyClaimResult claim;
-        try
-        {
-            claim = await store.TryClaimAsync(messageId, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-        {
-            run.RecordFailure(ex);
-            _logger.LogError(ex, "Idempotency store failed to claim message {MessageId}; returning Retry so it is not processed without the duplicate check", messageId);
-            return ProcessResult.Retry(ex);
-        }
-
-        if (UnclaimedResult(claim, messageId, run.Source) is { } unclaimed)
-            return unclaimed;
+        if (await ClaimAsync(store, messageId, run, ct) is { } notClaimed)
+            return notClaimed;
 
         ProcessResult result;
         try
@@ -71,6 +59,23 @@ internal sealed partial class NymBrokerImpl
 
         await SettleClaimAsync(store, messageId, complete: result.Outcome != ProcessOutcome.Retry);
         return result;
+    }
+
+    /// <summary>Claims the message id; null when claimed, otherwise the result to return (the store failing to claim is a Retry).</summary>
+    private async Task<ProcessResult?> ClaimAsync(IIdempotencyStore store, Guid messageId, ProcessingRun run, CancellationToken ct)
+    {
+        IdempotencyClaimResult claim;
+        try
+        {
+            claim = await store.TryClaimAsync(messageId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            run.RecordFailure(ex);
+            _logger.LogError(ex, "Idempotency store failed to claim message {MessageId}; returning Retry so it is not processed without the duplicate check", messageId);
+            return ProcessResult.Retry(ex);
+        }
+        return UnclaimedResult(claim, messageId, run.Source);
     }
 
     /// <summary>The result for a message this delivery did not claim (a duplicate, or another delivery is running it); null when claimed.</summary>

@@ -30,28 +30,39 @@ internal sealed partial class NymBrokerImpl
         using var activity = StartProcessActivity(sourceEndpoint, decoding.Context);
         var run = new ProcessingRun(sourceEndpoint, UsesNativeDeadLetter(sourceEndpoint), activity, tags);
 
-        var resultTag = "cancelled";
+        ProcessResult? result = null;   // stays null when cancelled
         try
         {
-            var result = await ProcessMessageAsync(raw, decoding, run, ct);
-            resultTag = ResultTag(result.Outcome);
-            return result;
+            result = await ProcessMessageAsync(raw, decoding, run, ct);
+            return result.Value;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            // Unexpected failure (e.g. posting to a route's destination threw): the source endpoint
-            // decides what Retry means for its transport (redeliver, or log and drop).
-            run.RecordFailure(ex);
-            _logger.LogError(ex, "Processing failed for a message from {Source}; returning Retry to the endpoint", sourceEndpoint);
-            resultTag = ResultTag(ProcessOutcome.Retry);
-            return ProcessResult.Retry(ex);
+            result = FailedUnexpectedly(ex, run);
+            return result.Value;
         }
         finally
         {
-            tags.Add("outcome", run.Failed ? "failure" : "success");
-            tags.Add("result", resultTag);
-            NymBrokerDiagnostics.ProcessingDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds, tags);
+            RecordProcessingDuration(tags, run, result, startedAt);
         }
+    }
+
+    /// <summary>
+    /// An unexpected failure (e.g. posting to a route's destination threw): the source endpoint decides what Retry
+    /// means for its transport (redeliver, or log and drop).
+    /// </summary>
+    private ProcessResult FailedUnexpectedly(Exception ex, ProcessingRun run)
+    {
+        run.RecordFailure(ex);
+        _logger.LogError(ex, "Processing failed for a message from {Source}; returning Retry to the endpoint", run.Source);
+        return ProcessResult.Retry(ex);
+    }
+
+    private static void RecordProcessingDuration(TagList tags, ProcessingRun run, ProcessResult? result, long startedAt)
+    {
+        tags.Add("outcome", run.Failed ? "failure" : "success");
+        tags.Add("result", result is { } done ? ResultTag(done.Outcome) : "cancelled");
+        NymBrokerDiagnostics.ProcessingDuration.Record(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds, tags);
     }
 
     /// <summary>
@@ -129,22 +140,24 @@ internal sealed partial class NymBrokerImpl
             _logger.LogWarning("Unexpected context type: {Type}", context.GetType().Name);
             return ProcessResult.Completed;
         }
+        return await ProcessFilteredAsync(raw, rawContext, run, ct);
+    }
 
-        // ── Resolve CLR type ──────────────────────────────────────────────────
-        var messageType = _messageTypeRegistry.Resolve(rawContext.MessageType);
+    /// <summary>After the filters: reassembles a split part, or routes and dispatches (under an idempotency claim when configured).</summary>
+    private async Task<ProcessResult> ProcessFilteredAsync(byte[] raw, RawMessageContext context, ProcessingRun run, CancellationToken ct)
+    {
+        var messageType = _messageTypeRegistry.Resolve(context.MessageType);
 
-        // ── Aggregator ────────────────────────────────────────────────────────
         if (messageType == typeof(SplitMessage))
         {
-            var split = _serializer.DeserializeMessageRegistered<SplitMessage>(rawContext);
+            var split = _serializer.DeserializeMessageRegistered<SplitMessage>(context);
             return split == null ? ProcessResult.Completed : await ProcessSplitPartAsync(raw, split, context, run, ct);
         }
 
-        // ── Idempotent receiver ───────────────────────────────────────────────
         // Claimed after reassembly, so a split message is claimed once by its own ID, not per part.
         return _idempotencyStore is not null
-            ? await ProcessIdempotentlyAsync(raw, rawContext, messageType, run, ct)
-            : await RouteAndDispatchAsync(raw, rawContext, messageType, run, ct);
+            ? await ProcessIdempotentlyAsync(raw, context, messageType, run, ct)
+            : await RouteAndDispatchAsync(raw, context, messageType, run, ct);
     }
 
     /// <summary>
@@ -155,13 +168,13 @@ internal sealed partial class NymBrokerImpl
     {
         foreach (var tapName in _wireTapEndpoints)
         {
-            if (_endpoints.TryGetValue(tapName, out var tapEndpoint))
+            if (!_endpoints.TryGetValue(tapName, out var tapEndpoint))
             {
-                try { await SendAsync(tapName, tapEndpoint, raw, ct); }
-                catch (Exception ex) { _logger.LogError(ex, "Wire tap failed for endpoint '{Endpoint}'", tapName); }
-            }
-            else
                 _logger.LogWarning("Wire tap references unknown endpoint '{Endpoint}'", tapName);
+                continue;
+            }
+            try { await SendAsync(tapName, tapEndpoint, raw, ct); }
+            catch (Exception ex) { _logger.LogError(ex, "Wire tap failed for endpoint '{Endpoint}'", tapName); }
         }
     }
 
@@ -240,17 +253,12 @@ internal sealed partial class NymBrokerImpl
         var reassembled = await _aggregator.AddAsync(split, context, ct);
         if (reassembled == null) return ProcessResult.Completed;
 
-        var decoded = reassembled;
-        if (!string.IsNullOrEmpty(split.Compression))
+        var decoded = Decompress(split, reassembled);
+        if (decoded is null)
         {
-            var decompressor = BuiltInCompressors.ForDecoding(split.Compression, _compressor);
-            if (decompressor is null)
-            {
-                _logger.LogError("Reassembled message uses unknown compression '{Compression}' — cannot decode.", split.Compression);
-                run.RecordFailure();
-                return await DeadLetterAsync(raw, run, new DeadLetterCause(DeadLetterReasons.UnknownCompression, $"Unknown compression '{split.Compression}'", null), ct);
-            }
-            decoded = decompressor.Decompress(reassembled);
+            _logger.LogError("Reassembled message uses unknown compression '{Compression}' — cannot decode.", split.Compression);
+            run.RecordFailure();
+            return await DeadLetterAsync(raw, run, new DeadLetterCause(DeadLetterReasons.UnknownCompression, $"Unknown compression '{split.Compression}'", null), ct);
         }
 
         // Same run: one received message, one processing duration.
@@ -269,6 +277,12 @@ internal sealed partial class NymBrokerImpl
             _aggregator.KeepForRetry(split.CorrelationId, reassembled);
         return result;
     }
+
+    /// <summary>The reassembled bytes, decompressed if the parts say so; null for a compression this receiver can't decode.</summary>
+    private byte[]? Decompress(SplitMessage split, byte[] reassembled)
+        => string.IsNullOrEmpty(split.Compression)
+            ? reassembled
+            : BuiltInCompressors.ForDecoding(split.Compression, _compressor)?.Decompress(reassembled);
 
     /// <summary>Routes, fans out to topics and dispatches to the consumer — the part of processing an idempotency claim covers.</summary>
     private async Task<ProcessResult> RouteAndDispatchAsync(byte[] raw, RawMessageContext context, Type? messageType, ProcessingRun run, CancellationToken ct)
