@@ -72,7 +72,7 @@ internal sealed partial class NymBrokerImpl : INymBroker
         // Optional, trailing parameters: keeps existing positional constructor call sites
         // (tests that new-up NymBrokerImpl directly) source-compatible.
         _splitter = splitter ?? new SplitterImpl();
-        _compressor = compressor ?? new BrotliCompressor();
+        _compressor = compressor ?? new ZstandardCompressor();
     }
 
     private static FrozenDictionary<string, T> EmptyRegistry<T>()

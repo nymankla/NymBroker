@@ -64,10 +64,10 @@ The fast in-process scenarios finish in a few hundred milliseconds, so warm-up m
 | Idempotent – SQLite / Postgres | 1 000 | A durable duplicate check on a Memory endpoint: all the time above direct is the store |
 | Consumer fails → DLQ | 10 000 | Every consumer call throws and the message goes to the dead-letter endpoint: what a run of poison messages costs |
 | Deferred – in broker | 20 000 | Deferred one second on an endpoint that cannot defer. Msg/sec mostly shows that wait; read Alloc/msg, the cost of holding a message |
-| Split+Compress – direct | 200 | ~270 KB compressible messages split at 16 KB, Brotli-compressed first |
+| Split+Compress – direct | 200 | ~270 KB compressible messages split at 16 KB, compressed first with the default Zstandard |
 | Split – no compress | 200 | The same messages split without compression |
 | Split+Compress – random | 200 | ~270 KB of Base64 random data, compressed first: what `compress` costs when it gains little |
-| Split+Compress – zstd, Split+zstd – random | 200 | The two compressed rows above with `ZstandardCompressor` instead of the default Brotli |
+| Split+Compress – brotli, Split+brotli – random | 200 | The two compressed rows above with `BrotliCompressor` instead of the default Zstandard |
 | File – direct | 100 | File endpoint: one file written and picked up per message |
 | HTTP – no network | 10 000 | HTTP endpoint with a handler that answers at once: what the endpoint and `HttpClient` add per request, without a server |
 | SQLite – direct / batch/100 | 1 000 | SQLite queue table (in-memory database, `BatchSize = 100`), single posts and batches of 100 |
@@ -170,7 +170,7 @@ SQS – drain backlog               1 234    4 050 ms      3      0      0    8,
 What it shows:
 
 - **The broker's own cost** is a few microseconds and about 2.7 KB per message (`Memory – direct`); a route adds a second endpoint hop and deserialization (4.9 KB).
-- **Zstandard** (`ZstandardCompressor`, built into .NET 11) handled split ~270 KB messages about 80 % faster than the default Brotli (1 273 against 706 msg/s), with fewer garbage collections at the same allocation. On random data the gain is smaller (138 against 102), and `compress: false` is still the better choice there. See [Large messages](sending-messages.md#large-messages-split-and-compress).
+- **Zstandard** (`ZstandardCompressor`, built into .NET 11, the default since 0.26) handled split ~270 KB messages about 80 % faster than Brotli (1 273 against 706 msg/s; this run is from 0.25, when Brotli was the default and the rows were named the other way round), with fewer garbage collections at the same allocation. On random data the gain is smaller (138 against 102), and `compress: false` is still the better choice there. See [Large messages](sending-messages.md#large-messages-split-and-compress).
 - **`MaxConcurrentCalls = 8`** multiplied the throughput of a consumer that waits 5 ms per message by about 7 (SQLite 64 → 478, PostgreSQL 62 → 420 msg/s).
 - **Transports** are limited by the server, not by NymBroker: batching (`batch/100`) and reading a backlog (`drain backlog`) are 10–100 times faster than one durable post per message. The Service Bus emulator caps its row.
 

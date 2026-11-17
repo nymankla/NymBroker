@@ -3,8 +3,11 @@ using System.IO.Compression;
 namespace NymBroker.Core.Splitter;
 
 /// <summary>
-/// Default <see cref="ICompressor"/> — Brotli, built into .NET (no extra package) and typically
-/// compresses text/JSON meaningfully better than GZip/Deflate at comparable speed.
+/// Brotli <see cref="ICompressor"/>, built into .NET (no extra package); it compresses text/JSON
+/// meaningfully better than GZip/Deflate at comparable speed. The default up to NymBroker 0.25; since
+/// 0.26 <see cref="ZstandardCompressor"/> is. Register it
+/// (<c>services.AddSingleton&lt;ICompressor, BrotliCompressor&gt;()</c>) for receivers on 0.24 or earlier,
+/// which cannot decode <c>zstd</c> parts.
 /// </summary>
 public sealed class BrotliCompressor(CompressionLevel level = CompressionLevel.Fastest) : ICompressor
 {

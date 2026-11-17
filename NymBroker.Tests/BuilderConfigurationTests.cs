@@ -445,27 +445,27 @@ public sealed class BuilderConfigurationTests
     // --- Compressor registration ---
 
     [Fact]
-    public async Task Compressor_DefaultsToBrotli()
+    public async Task Compressor_DefaultsToZstandard()
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddNymBroker().Build();
 
         await using var sp = services.BuildServiceProvider();
-        Assert.IsType<BrotliCompressor>(sp.GetRequiredService<ICompressor>());
+        Assert.IsType<ZstandardCompressor>(sp.GetRequiredService<ICompressor>());
     }
 
-    // Build used AddSingleton, so a compressor the app registered before AddNymBroker was silently replaced by Brotli.
+    // Build used AddSingleton, so a compressor the app registered before AddNymBroker was silently replaced by the default.
     [Fact]
     public async Task Compressor_RegisteredBeforeAddNymBroker_IsUsed()
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<ICompressor, ZstandardCompressor>();
+        services.AddSingleton<ICompressor, BrotliCompressor>();
         services.AddNymBroker().Build();
 
         await using var sp = services.BuildServiceProvider();
-        Assert.IsType<ZstandardCompressor>(sp.GetRequiredService<ICompressor>());
+        Assert.IsType<BrotliCompressor>(sp.GetRequiredService<ICompressor>());
     }
 
     [Fact]
@@ -474,9 +474,9 @@ public sealed class BuilderConfigurationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddNymBroker().Build();
-        services.AddSingleton<ICompressor, ZstandardCompressor>();
+        services.AddSingleton<ICompressor, BrotliCompressor>();
 
         await using var sp = services.BuildServiceProvider();
-        Assert.IsType<ZstandardCompressor>(sp.GetRequiredService<ICompressor>());
+        Assert.IsType<BrotliCompressor>(sp.GetRequiredService<ICompressor>());
     }
 }

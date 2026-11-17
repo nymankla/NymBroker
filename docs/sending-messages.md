@@ -129,16 +129,16 @@ flowchart LR
 ```
 
 - Compression is on by default (`compress: true`) and only used when it actually shrinks the payload, so already-compressed or binary data isn't compressed twice.
-- The codec is Brotli by default. Zstandard (built into .NET 11) is faster: in the [benchmark](benchmarks.md#example-run-on-net-11) split messages were handled 40–80 % faster than with Brotli, at a similar size. Register it before or after `AddNymBroker`:
+- The codec is Zstandard (`ZstandardCompressor`, built into .NET 11) by default since 0.26; before that it was Brotli. In the [benchmark](benchmarks.md#example-run-on-net-11) Zstandard handled split messages 40–80 % faster than Brotli, at a similar size. To choose another codec or level, register it before or after `AddNymBroker`:
 
   ```csharp
   using NymBroker.Core.Splitter;
 
-  services.AddSingleton<ICompressor, ZstandardCompressor>();                                         // Fastest
+  services.AddSingleton<ICompressor, BrotliCompressor>();                                            // receivers on 0.24 or earlier
   // services.AddSingleton<ICompressor>(new ZstandardCompressor(CompressionLevel.SmallestSize));     // smaller, slower
   ```
 
-  Each part names its codec, and every receiver from 0.25 on decodes both `brotli` and `zstd`, whichever it sends with. A receiver on 0.24 or earlier dead-letters `zstd` parts as `UnknownCompression`, so switch a sender only once all its receivers run 0.25 or later.
+  Each part names its codec, and every receiver from 0.25 on decodes both `brotli` and `zstd`, whichever it sends with. A receiver on 0.24 or earlier dead-letters `zstd` parts as `UnknownCompression`: upgrade those receivers first, or register `BrotliCompressor` on the sender until they are.
 - Only the part that completes the message triggers processing; consumers see the original message once.
 - **Reassembly happens in memory in the receiving broker.** All parts of one message must reach the same broker instance; incomplete messages are discarded after 2 hours, with a logged warning. If processing a reassembled message ends in Retry, the broker keeps it in memory, also for up to 2 hours, so the redelivered last part brings it back without the other parts. A crash or restart in that time loses it, as it loses parts already received. If several instances compete for the same queue, avoid splitting (or keep messages under the transport's limit).
 

@@ -3,14 +3,14 @@ using System.IO.Compression;
 namespace NymBroker.Core.Splitter;
 
 /// <summary>
-/// Zstandard <see cref="ICompressor"/>, built into .NET 11 (no extra package). Compared with
+/// Default <see cref="ICompressor"/> since NymBroker 0.26 — Zstandard, built into .NET 11 (no extra package). Compared with
 /// <see cref="BrotliCompressor"/> at <see cref="CompressionLevel.Fastest"/> it compresses text/JSON
 /// faster and to a similar size, and decompresses about three times as fast.
 /// </summary>
 /// <remarks>
 /// Every receiver from NymBroker 0.25 on decompresses both <c>zstd</c> and <c>brotli</c> parts,
 /// whichever compressor it uses itself. A receiver on 0.24 or earlier dead-letters <c>zstd</c> parts
-/// as <c>UnknownCompression</c>, so switch senders only once every receiver is upgraded.
+/// as <c>UnknownCompression</c>: until every receiver is upgraded, register <see cref="BrotliCompressor"/> on the sender.
 /// </remarks>
 public sealed class ZstandardCompressor : ICompressor
 {

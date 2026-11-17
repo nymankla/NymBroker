@@ -82,7 +82,7 @@ if (Latency) Console.WriteLine("  --latency        : broker metrics collected; M
 Console.WriteLine();
 
 // Large, highly compressible payload — big enough to require several split parts at
-// SplitThresholdBytes, and repetitive enough that Brotli compression noticeably shrinks it.
+// SplitThresholdBytes, and repetitive enough that compression noticeably shrinks it.
 var splitPayload = string.Concat(Enumerable.Repeat("The quick brown fox jumps over the lazy dog. ", 6_000));
 // As large, but about as hard to compress as text gets: Base64 of random bytes.
 var randomPayload = Convert.ToBase64String(RandomNumberGenerator.GetBytes(200_000));
@@ -179,15 +179,15 @@ var results = new List<BenchmarkResult?>
         messageFactory: i => new BenchmarkMessage(i, randomPayload),
         splitThresholdBytes: SplitThresholdBytes, compress: true),
 
-    await RunAsync("Split+Compress – zstd",   "Memory", SplitCount,
+    await RunAsync("Split+Compress – brotli", "Memory", SplitCount,
         messageFactory: i => new BenchmarkMessage(i, splitPayload),
         splitThresholdBytes: SplitThresholdBytes, compress: true,
-        configureBuilder: b => b.Services.AddSingleton<ICompressor, ZstandardCompressor>()),
+        configureBuilder: b => b.Services.AddSingleton<ICompressor, BrotliCompressor>()),
 
-    await RunAsync("Split+zstd – random",     "Memory", SplitCount,
+    await RunAsync("Split+brotli – random",   "Memory", SplitCount,
         messageFactory: i => new BenchmarkMessage(i, randomPayload),
         splitThresholdBytes: SplitThresholdBytes, compress: true,
-        configureBuilder: b => b.Services.AddSingleton<ICompressor, ZstandardCompressor>()),
+        configureBuilder: b => b.Services.AddSingleton<ICompressor, BrotliCompressor>()),
 
     // ── Transports that need no service ──────────────────────────────────────────────────────────────────
     await RunAsync("File   – direct",     "FileLoop", FileCount, fileDir: "bench-in"),

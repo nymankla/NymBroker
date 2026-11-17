@@ -39,7 +39,7 @@ public sealed class BrokerDescriptionTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<ICompressor, ZstandardCompressor>();
+        services.AddSingleton<ICompressor, BrotliCompressor>();
         services.AddNymBroker()
             .AddMemoryEndPoint("In")
             .AddMemoryEndPoint("Archive", mode: EndpointMode.WriteOnly)
@@ -144,7 +144,7 @@ public sealed class BrokerDescriptionTests
         Assert.Equal(["Tap"], features.WireTaps);
         Assert.Equal(TimeSpan.FromHours(1), features.MaxMessageAge);
         Assert.NotNull(features.IdempotencyStore);
-        Assert.Equal("zstd", features.Compressor);
+        Assert.Equal("brotli", features.Compressor);
         Assert.False(broker.Describe().Started);
 
         await broker.StartAsync(TestContext.Current.CancellationToken);

@@ -279,7 +279,7 @@ public sealed class NymBrokerAdditionalTests
         // Note: highly repetitive text like this can compress well enough that even the
         // compressed form collapses to a single part — the meaningful assertion is total wire
         // size, not part count.
-        Assert.Contains(compressedItems, item => item.Contains("\"compression\":\"brotli\""));
+        Assert.Contains(compressedItems, item => item.Contains("\"compression\":\"zstd\""));
 
         var compressedTotalBytes = compressedItems.Sum(i => Encoding.UTF8.GetByteCount(i));
         var uncompressedTotalBytes = uncompressedItems.Sum(i => Encoding.UTF8.GetByteCount(i));
@@ -347,7 +347,7 @@ public sealed class NymBrokerAdditionalTests
 
         Assert.Single(items);
         Assert.Contains("\"groupSize\":1", items[0]);
-        Assert.Contains("\"compression\":\"brotli\"", items[0]);
+        Assert.Contains("\"compression\":\"zstd\"", items[0]);
 
         await broker.ProcessAsync(items[0], null, TestContext.Current.CancellationToken);
 

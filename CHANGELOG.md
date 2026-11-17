@@ -6,6 +6,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ### Changed
 
+- **Breaking:** split messages are now compressed with Zstandard (`ZstandardCompressor`) by default instead of Brotli (#127). In the benchmark split ~270 KB messages were handled 40–80 % faster, at a similar size. Receivers on 0.25 or later decode both codecs, whatever they send with. A receiver on 0.24 or earlier dead-letters `zstd` parts as `UnknownCompression`. **Migration:** upgrade those receivers first, or keep Brotli on the sender with `services.AddSingleton<ICompressor, BrotliCompressor>()`, before or after `AddNymBroker`.
 - Every production method is now within the acceptable code-health band (at most 30 lines, nesting 2, 4 parameters not counting a `CancellationToken`); the few exceptions — shipped public API parameter lists and single SQL scripts — are listed with their reasons in `CodeHealthTests` ([docs/architecture.md](docs/architecture.md#code-health)). About 40 methods in Core and the endpoint packages were split; behaviour is unchanged, except that registering the same typed consumer (`AddConsumer<TConsumer, TMessage>`) twice with a different `RetryOnFailure` now gives the same, more specific error message as the reflection-based `AddConsumer<TConsumer>`.
 
 ## [0.25.2] - 2026-11-17
