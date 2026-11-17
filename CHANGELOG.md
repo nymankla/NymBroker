@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-17
+
 ### Changed
 
 - **Breaking:** split messages are now compressed with Zstandard (`ZstandardCompressor`) by default instead of Brotli (#127). In the benchmark split ~270 KB messages were handled 40–80 % faster, at a similar size. Receivers on 0.25 or later decode both codecs, whatever they send with. A receiver on 0.24 or earlier dead-letters `zstd` parts as `UnknownCompression`. **Migration:** upgrade those receivers first, or keep Brotli on the sender with `services.AddSingleton<ICompressor, BrotliCompressor>()`, before or after `AddNymBroker`.
