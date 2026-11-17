@@ -43,7 +43,7 @@ Local Docker infrastructure for integration tests (ports, per-service setup scri
 | `shared/` | Internal source compiled into several packages through `Directory.Build.targets`, so they share code without a shared package or public API ([shared/README.md](shared/README.md)) |
 | `NymBroker.Tests` | xUnit. Unit tests use Memory and SQLite `:memory:`; integration test classes need their `NYMBROKER_*` variable (their unit tests always run; the `*ScheduleStoreTests` share `ScheduleStoreContractTests`, the `*IdempotencyStoreTests` share `IdempotencyStoreContractTests` and the `*OutboxStoreTests` share `OutboxStoreContractTests`; SQLite always runs) |
 | `samples/*` | Runnable apps — table in [docs/samples.md](docs/samples.md). Self-checking: `NymBroker.MediatRSample -- --demo`, `NymBroker.EfCoreTransactionSample` (needs SQL Server), `NymBroker.AwsSqsSample` (needs ElasticMQ), `NymBroker.RabbitSqlServerSample -- --demo` (needs RabbitMQ and SQL Server), `NymBroker.WebhookSample -- --demo` |
-| `skills/` | Agent skills for **client** apps (`nymbroker-*`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`, `make-release`, `code-health`); `.claude/settings.json` also enables Microsoft's `dotnet11` (new .NET 11 APIs) and `dotnet-upgrade` (incl. `migrate-dotnet10-to-dotnet11`) plugins from [dotnet/skills](https://github.com/dotnet/skills) |
+| `skills/` | Agent skills for **client** apps (`nymbroker-*`); zipped by `pack.ps1`, attached to each GitHub release. Skills for developing *this* repo are in `.claude/skills/` (`write-endpoint`, `write-idempotency-store`, `add-database`, `work-issue`, `merge-dependabot`, `make-release`, `code-health`); `.claude/settings.json` also enables Microsoft's `dotnet11` (new .NET 11 APIs) and `dotnet-upgrade` (incl. `migrate-dotnet10-to-dotnet11`) plugins from [dotnet/skills](https://github.com/dotnet/skills) |
 | `docs/` | User documentation, index in [docs/user-guide.md](docs/user-guide.md) |
 
 ## Key abstractions
@@ -60,6 +60,9 @@ The broker starts a listener on every `IEndPointEventDriven` endpoint that isn't
 | The dashboard | `NymBroker.Dashboard/CLAUDE.md`, [docs/dashboard.md](docs/dashboard.md) |
 | RabbitMQ / Service Bus / SQS | `NymBroker.Endpoint.RabbitMq/`, `.AzureServiceBus/`, `.AwsSqs/` `CLAUDE.md` |
 | A new endpoint or idempotency store | `.claude/skills/write-endpoint`, `.claude/skills/write-idempotency-store`, [docs/writing-an-endpoint.md](docs/writing-an-endpoint.md) |
+| A new database (endpoint + idempotency, schedule and outbox stores) | `.claude/skills/add-database` |
+| A GitHub issue (plan comment, then implementation) | `.claude/skills/work-issue` |
+| Dependabot updates | `.claude/skills/merge-dependabot` |
 | Architecture overview, quality gates, code-health limits | [docs/architecture.md](docs/architecture.md); measure and rank hotspots with `.claude/skills/code-health` |
 | User-facing behaviour | `docs/` — the docs describe the public contract; keep them in step with the code |
 | Production configuration (TLS, secrets, permissions) | [docs/security.md](docs/security.md) |
