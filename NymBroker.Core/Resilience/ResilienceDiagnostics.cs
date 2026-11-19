@@ -25,6 +25,16 @@ internal static class ResilienceDiagnostics
         Meter.CreateCounter<long>("nymbroker.circuit_breaker.held", "{message}",
             "Messages the broker held because their consumer's circuit was open.");
 
+    /// <summary>A call that had to wait for a throttle (#136); tags <c>scope</c> (consumer|endpoint), <c>name</c>, <c>limit</c> (rate|concurrency).</summary>
+    internal static readonly Counter<long> ThrottleWaits =
+        Meter.CreateCounter<long>("nymbroker.throttle.waits", "{call}",
+            "Calls that waited for a consumer's or an endpoint's rate or concurrency limit.");
+
+    /// <summary>How long a throttled call waited; tags <c>scope</c>, <c>name</c>. Only calls that waited are recorded.</summary>
+    internal static readonly Histogram<double> ThrottleWaitDuration =
+        Meter.CreateHistogram<double>("nymbroker.throttle.wait.duration", "ms",
+            "How long throttled calls waited for their limit.");
+
     /// <summary>A consumer that did not finish within its timeout; tag <c>consumer</c>.</summary>
     internal static readonly Counter<long> ConsumerTimeouts =
         Meter.CreateCounter<long>("nymbroker.consumer.timeouts", "{message}",

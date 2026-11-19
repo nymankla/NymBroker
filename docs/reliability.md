@@ -72,7 +72,7 @@ services.AddNymBroker()
 
 ### Timeout and circuit breaker for one consumer
 
-`AddConsumer<T>(o => { o.Timeout = …; o.CircuitBreaker = new CircuitBreakerOptions { … }; })` limits how long one call may take and stops calling a consumer whose downstream keeps failing. A timeout is settled like a consumer failure above, with reason `ConsumerTimedOut`. While the circuit is open the broker holds messages for that consumer instead of failing them, so they don't use up their delivery count. Details: [Resilience](resilience.md#consumer-timeout-and-circuit-breaker).
+`AddConsumer<T>(o => { o.Timeout = …; o.CircuitBreaker = new CircuitBreakerOptions { … }; })` limits how long one call may take and stops calling a consumer whose downstream keeps failing. A timeout is settled like a consumer failure above, with reason `ConsumerTimedOut`. While the circuit is open the broker holds messages for that consumer instead of failing them, so they don't use up their delivery count. Details: [Resilience](resilience.md#consumer-timeout-and-circuit-breaker). [Rate and concurrency limits](resilience.md#rate-and-concurrency-limits) work the same way: over the limit a message waits and is never failed.
 
 ## The broker's dead-letter endpoint
 

@@ -147,6 +147,10 @@ The HTTP endpoint only **sends**: each message posted or routed to it becomes on
 - **HttpClient.** `AddHttpEndPoint` registers a named client (`"NymBroker.Http." + name`) with `IHttpClientFactory`. Its last parameter configures it, e.g. `client => client.AddHttpMessageHandler<MyAuthHandler>()` for OAuth tokens or a proxy.
 - **Receiving webhooks** belongs in your ASP.NET Core app: verify the request (signature or API key), `await broker.PostRawAsync("Inbox", body)` to a **durable** queue, and return `202 Accepted`. Never run the consumer inside the request — the response would then depend on the consumer and its retries. Use an [input transformer](pipeline-extensions.md#input-transformers) for another system's JSON. [NymBroker.WebhookSample](../samples/NymBroker.WebhookSample) shows both directions, including signature verification with replay protection.
 
+### Limiting what an endpoint receives or sends
+
+The settings above limit how much an endpoint *takes in* at a time. To limit the *pace* of a downstream system, use a consumer's `RateLimit` / `ConcurrencyLimit` (shared across the endpoints that feed it) or `.LimitSendsTo("PartnerApi", o => …)` for everything the broker sends to an endpoint, an HTTP endpoint for example. Over the limit the message waits instead of failing, and it is still leased or locked while it waits, so keep `BatchSize` (SQL), `PrefetchCount` (RabbitMQ, Service Bus) or `MaxNumberOfMessages` (SQS) small enough to get through the limit within the lease. The table per transport is in [Resilience](resilience.md#rate-and-concurrency-limits).
+
 ## Endpoint modes
 
 Every `Add…EndPoint` takes an optional `EndpointMode`:

@@ -30,6 +30,7 @@ public sealed partial class NymBrokerBuilder
             throw new InvalidOperationException("NymBrokerBuilder.Build() can only be called once.");
 
         ValidateHealthCheckEndpoints();
+        ValidateSendLimitEndpoints();
         _built = true;
 
         RegisterCoreServices(_services, _jsonContexts);
@@ -54,6 +55,14 @@ public sealed partial class NymBrokerBuilder
             throw new InvalidOperationException(
                 $"ConfigureHealthCheck marks unknown endpoint(s) as non-critical: {string.Join(", ", unknownNonCritical)}. " +
                 "Register the endpoint, or remove it from NonCritical(...).");
+    }
+
+    private void ValidateSendLimitEndpoints()
+    {
+        var unknown = _sendLimits.Keys.Where(n => !_endpoints.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (unknown.Count > 0)
+            throw new InvalidOperationException(
+                $"LimitSendsTo names unknown endpoint(s): {string.Join(", ", unknown)}. Register the endpoint, or remove the limit.");
     }
 
     private static void RegisterCoreServices(IServiceCollection services, IEnumerable<System.Text.Json.Serialization.JsonSerializerContext> jsonContexts)
@@ -88,6 +97,7 @@ public sealed partial class NymBrokerBuilder
         private readonly List<Action<NymBrokerImpl, IServiceProvider>> _scheduledActions = builder._scheduledActions.ToList();
         private readonly List<string> _wireTapEndpoints = builder._wireTapEndpoints.ToList();
         private readonly string? _deadLetterEndpoint = builder._deadLetterEndpoint;
+        private readonly List<KeyValuePair<string, (Resilience.RateLimitOptions? RateLimit, int? ConcurrencyLimit)>> _sendLimits = builder._sendLimits.ToList();
         private readonly TimeSpan? _maxMessageAge = builder._maxMessageAge;
         private readonly bool _idempotentReceiver = builder._idempotentReceiver;
         private readonly bool _scheduleStore = builder._scheduleStore;
@@ -168,6 +178,9 @@ public sealed partial class NymBrokerBuilder
 
             if (_maxMessageAge.HasValue)
                 broker.SetMaxMessageAge(_maxMessageAge.Value);
+
+            foreach (var (endpoint, (rateLimit, concurrencyLimit)) in _sendLimits)
+                broker.LimitSends(endpoint, rateLimit, concurrencyLimit);
 
             if (_idempotentReceiver)
                 broker.SetIdempotencyStore(sp.GetRequiredService<IIdempotencyStore>());

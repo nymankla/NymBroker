@@ -79,7 +79,7 @@ The [user guide](https://github.com/nymankla/NymBroker/blob/master/docs/user-gui
 - [Reliability and idempotency](https://github.com/nymankla/NymBroker/blob/master/docs/reliability.md)
 - [Transactional outbox and inbox](https://github.com/nymankla/NymBroker/blob/master/docs/transactional-outbox.md)
 - [Delivery guarantees](https://github.com/nymankla/NymBroker/blob/master/docs/delivery-guarantees.md)
-- [Resilience: retry, timeout, circuit breaker](https://github.com/nymankla/NymBroker/blob/master/docs/resilience.md)
+- [Resilience: retry, timeout, circuit breaker, rate limits](https://github.com/nymankla/NymBroker/blob/master/docs/resilience.md)
 - [Pipeline extensions](https://github.com/nymankla/NymBroker/blob/master/docs/pipeline-extensions.md)
 - [Scheduling](https://github.com/nymankla/NymBroker/blob/master/docs/scheduling.md)
 - [Metrics, tracing, and health checks](https://github.com/nymankla/NymBroker/blob/master/docs/observability.md)

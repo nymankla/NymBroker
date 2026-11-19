@@ -180,12 +180,13 @@ internal sealed partial class NymBrokerImpl
             await SendAsync(name, endpoint, wire, ct);
     }
 
-    // Every send to an endpoint goes through SendAsync / SendBatchAsync, so its output transformer sees all of them.
+    // Every send to an endpoint goes through SendAsync / SendBatchAsync, so its output transformer sees all of them; every
+    // write goes through WriteAsync / WriteBatchAsync / WriteDeferredAsync, so its send limit covers all of them.
     private Task SendAsync(string name, IEndPoint endpoint, byte[] envelope, CancellationToken ct)
     {
-        if (!_outputTransformers.TryGetValue(name, out var transformer)) return endpoint.PostAsync(envelope, ct);
+        if (!_outputTransformers.TryGetValue(name, out var transformer)) return WriteAsync(name, endpoint, envelope, ct);
         var output = Transform(transformer, name, envelope);
-        return output == null ? Task.CompletedTask : endpoint.PostAsync(output, ct);
+        return output == null ? Task.CompletedTask : WriteAsync(name, endpoint, output, ct);
     }
 
     private async Task SendDeferredAsync(string name, byte[] envelope, DateTimeOffset deliverAt, CancellationToken ct)
@@ -199,7 +200,7 @@ internal sealed partial class NymBrokerImpl
         {
             try
             {
-                await deferred.PostDeferredAsync(output, deliverAt, ct);
+                await WriteDeferredAsync(name, deferred, output, deliverAt, ct);
                 return;
             }
             catch (NotSupportedException ex)
@@ -210,16 +211,16 @@ internal sealed partial class NymBrokerImpl
 
         ct.ThrowIfCancellationRequested();
         if (deliverAt <= DateTimeOffset.UtcNow)
-            await endpoint.PostAsync(output, ct);
+            await WriteAsync(name, endpoint, output, ct);
         else
             HoldUntilDue(name, endpoint, output, deliverAt);
     }
 
     private Task SendBatchAsync(string name, IEndPoint endpoint, IReadOnlyList<byte[]> envelopes, CancellationToken ct)
     {
-        if (!_outputTransformers.TryGetValue(name, out var transformer)) return endpoint.PostBatchAsync(envelopes, ct);
+        if (!_outputTransformers.TryGetValue(name, out var transformer)) return WriteBatchAsync(name, endpoint, envelopes, ct);
         var output = envelopes.Select(e => Transform(transformer, name, e)).OfType<byte[]>().ToList();
-        return output.Count == 0 ? Task.CompletedTask : endpoint.PostBatchAsync(output, ct);
+        return output.Count == 0 ? Task.CompletedTask : WriteBatchAsync(name, endpoint, output, ct);
     }
 
     private byte[]? Transform(IOutputTransformer transformer, string name, byte[] envelope)

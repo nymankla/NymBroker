@@ -15,6 +15,24 @@ public sealed partial class NymBrokerBuilder
         return this;
     }
 
+    /// <summary>
+    /// Limits what the broker sends to <paramref name="endpointName"/>: posts, routes, topics, wire taps, dead letters,
+    /// deferred and outbox sends. A send over the limit waits (backpressure) instead of failing: <c>PostAsync</c> returns
+    /// later, and a route or topic forward holds its source message. Per process. Throws for an endpoint limited already;
+    /// <see cref="Build"/> throws for an endpoint that is not registered.
+    /// </summary>
+    public NymBrokerBuilder LimitSendsTo(string endpointName, Action<Resilience.SendLimitOptions> configure)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(endpointName);
+        ArgumentNullException.ThrowIfNull(configure);
+        var options = new Resilience.SendLimitOptions();
+        configure(options);
+        options.Validate();
+        if (!_sendLimits.TryAdd(endpointName, (options.RateLimit, options.ConcurrencyLimit)))
+            throw new InvalidOperationException($"Sends to endpoint '{endpointName}' are limited already; call LimitSendsTo once per endpoint.");
+        return this;
+    }
+
     /// <summary>Copy every incoming raw message to this endpoint before processing.</summary>
     public NymBrokerBuilder AddWireTap(string endpointName)
     {

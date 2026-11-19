@@ -634,7 +634,7 @@ function endpointRow(endpoint) {
     ? h("td", { class: "error", colspan: 4, title: live?.countError ?? "" }, live?.countError ?? "Counting…")
     : h("td", { class: "faint", colspan: 4, title: "This transport cannot list or count its messages without receiving them." }, "not inspectable");
   const row = h("tr", { class: endpoint.inspectable ? "link" : null },
-    h("td", null, h("strong", null, endpoint.name), h("span", { class: "sub" }, `${endpoint.kind} · ${modeText(endpoint.mode)}${endpoint.isCritical ? "" : " · non-critical"}`)),
+    h("td", null, h("strong", null, endpoint.name), h("span", { class: "sub" }, `${endpoint.kind} · ${modeText(endpoint.mode)}${endpoint.isCritical ? "" : " · non-critical"}${limitText(endpoint.sendRateLimit, endpoint.sendConcurrencyLimit, " · sends ")}`)),
     h("td", { title: health?.message ?? "" }, h("span", { class: "dot " + healthClass(health?.status) }), health?.status ?? "—"),
     h("td", { class: "num" }, live ? fmtRate(live.rates.received) : "—"),
     h("td", { class: "num" }, live ? fmtRate(live.rates.failed + live.rates.deadLettered) : "—"),
@@ -842,11 +842,12 @@ function topologyView(root) {
       h("span", { class: "mono" }, t.messageType),
       h("div", { class: "chips" }, t.subscriberEndpoints.map(e => h("span", { class: "chip topic" }, e))),
       h("div", { class: "chips" }, t.subscribers.map(e => h("span", { class: "chip" }, e)))])) : empty("No topics.")),
-    card("Consumers", b.consumers.length ? table(["Message type", "Consumer", "On failure", "Timeout", "Circuit"], b.consumers.map(c => [
+    card("Consumers", b.consumers.length ? table(["Message type", "Consumer", "On failure", "Timeout", "Circuit", "Limits"], b.consumers.map(c => [
       h("span", { class: "mono" }, c.messageType), h("strong", null, c.consumer),
       c.retryOnFailure ? h("span", { class: "muted" }, "retry") : h("span", { class: "chip bad" }, "dead-letter at once"),
       c.timeout ? h("span", { class: "mono" }, c.timeout) : h("span", { class: "faint" }, "—"),
-      circuitChip(c.circuitState)])) : empty("No consumers.")),
+      circuitChip(c.circuitState),
+      limitText(c.rateLimit, c.concurrencyLimit) ? h("span", { class: "mono" }, limitText(c.rateLimit, c.concurrencyLimit)) : h("span", { class: "faint" }, "—")])) : empty("No consumers.")),
     card("Scheduled actions", b.scheduledActions.length ? table(["Action", "Schedule", "Next run", "Missed runs"], b.scheduledActions.map(a => [
       a.name ? h("strong", null, a.name) : h("span", { class: "faint" }, "unnamed"),
       h("span", { class: "mono" }, a.schedule),
@@ -854,6 +855,12 @@ function topologyView(root) {
       a.missedRuns ?? h("span", { class: "faint" }, "—")])) : empty("No scheduled actions.")),
     card("Broker settings", h("div", { class: "card-body" }, settingsList(b))));
   return {};
+}
+
+// A rate limit ("50/1s, burst 50") and a concurrency limit as one short text; "" when there is neither.
+function limitText(rate, concurrency, prefix = "") {
+  const parts = [rate, concurrency ? `≤ ${concurrency} at once` : null].filter(Boolean);
+  return parts.length ? prefix + parts.join(", ") : "";
 }
 
 // A consumer's circuit breaker state, as Describe() reported it when the page loaded.

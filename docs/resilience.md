@@ -1,4 +1,4 @@
-# Resilience: retry, timeout and circuit breaker
+# Resilience: retry, timeout, circuit breaker and rate limits
 
 [← User guide](user-guide.md)
 
@@ -7,8 +7,9 @@ Namespace `NymBroker.Core.Resilience` (in the `NymBroker` package) has three bui
 - [`RetryPolicy`](#retry-policy): retries transient failures. NymBroker's own transports use it.
 - [Consumer timeout and circuit breaker](#consumer-timeout-and-circuit-breaker): `ConsumerOptions.Timeout` and `ConsumerOptions.CircuitBreaker` protect a consumer and its downstream. Both are off by default.
 - [`CircuitBreaker`](#circuitbreaker): the standalone breaker the consumer option uses, for your own calls.
+- [Rate and concurrency limits](#rate-and-concurrency-limits): `ConsumerOptions.RateLimit` / `ConcurrencyLimit` and `LimitSendsTo` for a destination endpoint. Over the limit, messages wait instead of failing.
 
-There is no fallback or hedging. Endpoint sends (routes, topics, destination endpoints) don't have a timeout or breaker yet.
+There is no fallback or hedging. Endpoint sends (routes, topics, destination endpoints) can have a rate and concurrency limit, but no timeout or breaker yet.
 
 ## Retry policy
 
@@ -187,6 +188,59 @@ catch (BrokenCircuitException ex)
 
 Unlike the consumer option, `ExecuteAsync` **fails fast** while the circuit is open: it throws `BrokenCircuitException` without calling the action. `State` reads the current `CircuitState` (`Closed`, `Open`, `HalfOpen`). Exceptions from the action propagate unchanged. To combine it with `RetryPolicy`, call the breaker inside the retry, so each attempt is counted.
 
+## Rate and concurrency limits
+
+Limit how fast and how much in parallel the broker calls a downstream system: a rate-limited API, an SMS provider, or a database that copes with only a few writers. A limit is set per consumer or per destination endpoint. Both are off by default.
+
+```csharp
+using NymBroker.Core.Resilience;
+
+services.AddNymBroker()
+    .AddSqlServerEndPoint("Notifications", queueSettings)
+    .AddHttpEndPoint("PartnerApi", httpSettings)
+    // At most 5 calls per second and 2 at a time, across every endpoint that feeds this consumer.
+    .AddConsumer<SmsConsumer>(o =>
+    {
+        o.RateLimit = new RateLimitOptions { PermitsPerPeriod = 5, Period = TimeSpan.FromSeconds(1) };
+        o.ConcurrencyLimit = 2;
+    })
+    // Everything the broker sends to PartnerApi: posts, routes, topics, wire taps, dead letters, deferred and outbox sends.
+    .LimitSendsTo("PartnerApi", o =>
+    {
+        o.RateLimit = new RateLimitOptions { PermitsPerPeriod = 50, Burst = 10 };
+        o.ConcurrencyLimit = 4;
+    })
+    .Build();
+```
+
+**A call over the limit waits; it never fails.** If the broker answered `Retry` instead, the message would be redelivered at once and use up its delivery count, so a burst would dead-letter good messages. Waiting is backpressure:
+
+- A consumer limit holds the message on its listener, so the endpoint takes no more work while it waits. This works on every transport, push ones included: each listener waits for the broker before it takes the next message.
+- A send limit makes `PostAsync` / `PostBatchAsync` return later (the caller's token ends the wait). A route or topic forward holds its source message.
+- Stopping the broker ends every wait at once; the message stays in its transport. A wait is never counted by the [circuit breaker](#circuit-breaker), and a consumer's [timeout](#timeout) counts only the call, not the wait.
+
+Behaviour:
+
+- **Order of the checks for a consumer:** circuit breaker → concurrency limit → rate limit → the call within its timeout. While the circuit is open, no rate permits are used.
+- **The rate limit** is a token bucket: `PermitsPerPeriod` calls per `Period`, spread evenly, and up to `Burst` calls at once after a quiet time (default `Burst` = `PermitsPerPeriod`; use `Burst = 1` for an even pace). Waiting callers are served in the order they arrived. A batch send takes one permit per message, so `PostBatchAsync` of 100 messages at 10 per second waits about 10 s and then sends the batch at once.
+- **The concurrency limit** counts calls that run at the same time. For a consumer it is shared by all its message types and all endpoints that feed it, on top of the endpoints' own `MaxConcurrentCalls` / `PrefetchCount`. A batch send counts as one. A consumer call that passed its timeout and keeps running in the background no longer counts.
+- **Per process.** A limit of 50 per second on 3 instances is 150 per second overall. Divide by the number of instances, or put the limit where it is shared (for example in the downstream API's gateway).
+- Invalid values throw from `AddConsumer` / `LimitSendsTo`. `LimitSendsTo` once per endpoint; `Build()` throws for an endpoint that is not registered. `Describe()` shows the limits (`ConsumerDescription.RateLimit` / `ConcurrencyLimit`, `EndpointDescription.SendRateLimit` / `SendConcurrencyLimit`), and so does the [dashboard](dashboard.md).
+
+**Keep waits within the transport's lease or lock.** A message that waits is still leased or locked by its transport. The whole batch or prefetch has to get through the limit before that time is up, or the transport hands the messages to another listener:
+
+| Transport | What must fit | Roughly |
+|---|---|---|
+| SQLite, PostgreSQL, SQL Server, MySQL | the claimed batch, within `LeaseTimeout` (5 min) | `BatchSize` / rate < `LeaseTimeout` |
+| RabbitMQ | the unacked prefetch, within the server's `consumer_timeout` (30 min) | `PrefetchCount` / rate < `consumer_timeout` |
+| Azure Service Bus | each message within its lock; handled messages are renewed up to `MaxAutoLockRenewalDuration` (5 min), prefetched ones are not | `MaxConcurrentCalls` / rate < `MaxAutoLockRenewalDuration`; keep `PrefetchCount` low |
+| Amazon SQS | the receive batch, within the visibility timeout | `MaxNumberOfMessages` / rate < visibility timeout |
+| Memory, File | nothing: one message at a time, no lease | — |
+
+With the [idempotent receiver](reliability.md#duplicate-detection) the claim lease runs while a message waits too.
+
+The limiter itself is internal; only `RateLimitOptions` and `SendLimitOptions` are public. Use `PostDeferredAsync` instead when you know *when* the downstream is free again ([Deferring a message](sending-messages.md#deferring-a-message)).
+
 ## Resilience metrics
 
-All on the `NymBroker.Resilience` meter ([Observability](observability.md#metrics)): `nymbroker.retries`, `nymbroker.circuit_breaker.state_changes` (tags `circuit`, `state`), `nymbroker.circuit_breaker.held` (messages the broker held, tag `circuit`), `nymbroker.circuit_breaker.rejected` (calls `ExecuteAsync` refused, tag `circuit`) and `nymbroker.consumer.timeouts` (tag `consumer`). A consumer's circuit is named after the consumer class. A standalone `CircuitBreaker` is named `default`. State changes are also logged (opened at `Warning`, half-open and closed at `Information`).
+All on the `NymBroker.Resilience` meter ([Observability](observability.md#metrics)): `nymbroker.retries`, `nymbroker.circuit_breaker.state_changes` (tags `circuit`, `state`), `nymbroker.circuit_breaker.held` (messages the broker held, tag `circuit`), `nymbroker.circuit_breaker.rejected` (calls `ExecuteAsync` refused, tag `circuit`) `nymbroker.consumer.timeouts` (tag `consumer`), `nymbroker.throttle.waits` (calls that waited for a limit, tags `scope` = `consumer`/`endpoint`, `name`, `limit` = `rate`/`concurrency`) and `nymbroker.throttle.wait.duration` (ms, tags `scope`, `name`; only calls that waited). A consumer's circuit is named after the consumer class. A standalone `CircuitBreaker` is named `default`. State changes are also logged (opened at `Warning`, half-open and closed at `Information`).

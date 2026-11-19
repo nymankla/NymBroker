@@ -25,6 +25,8 @@ internal sealed partial class NymBrokerImpl
 
     private EndpointDescription DescribeEndpoint(string name, IEndPoint endpoint) => new()
     {
+        SendRateLimit = SendThrottleFor(name)?.RateLimit?.ToString(),
+        SendConcurrencyLimit = SendThrottleFor(name)?.ConcurrencyLimit,
         Name = name,
         Kind = EndpointKind(endpoint.GetType()),
         Mode = endpoint.Mode,
@@ -78,7 +80,9 @@ internal sealed partial class NymBrokerImpl
             Consumer = registration.ServiceKey,
             RetryOnFailure = !_noRetryMessageTypes.Contains(registration.MessageType),
             Timeout = resilience?.Timeout,
-            CircuitState = resilience?.Breaker?.State
+            CircuitState = resilience?.Breaker?.State,
+            RateLimit = resilience?.Throttle?.RateLimit?.ToString(),
+            ConcurrencyLimit = resilience?.Throttle?.ConcurrencyLimit
         };
     }
 

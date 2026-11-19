@@ -6,23 +6,23 @@ using NymBroker.Core.Resilience;
 
 namespace NymBroker.Core.Impl;
 
-/// <summary>A consumer's timeout and circuit breaker (#134), shared by every message type it consumes.</summary>
-internal sealed record ConsumerResilience(string Consumer, TimeSpan? Timeout, CircuitBreaker? Breaker);
+/// <summary>A consumer's timeout and circuit breaker (#134) and its rate and concurrency limit (#136), shared by every message type it consumes.</summary>
+internal sealed record ConsumerResilience(string Consumer, TimeSpan? Timeout, CircuitBreaker? Breaker, ThrottleGate? Throttle = null);
 
 /// <summary>Raised by the broker when a consumer passes its <see cref="ConsumerOptions.Timeout"/>; settled with reason <c>ConsumerTimedOut</c>.</summary>
 internal sealed class ConsumerTimeoutException(string message, Exception innerException) : TimeoutException(message, innerException);
 
 internal sealed partial class NymBrokerImpl
 {
-    // Message types whose consumer has a timeout or a circuit breaker. Read for every consumed message.
+    // Message types whose consumer has a timeout, a circuit breaker or a limit. Read for every consumed message.
     private ImmutableDictionary<Type, ConsumerResilience> _consumerResilience = ImmutableDictionary<Type, ConsumerResilience>.Empty;
 
-    /// <summary>The consumer's timeout and breaker for a message type, if it has either.</summary>
+    /// <summary>The consumer's timeout, breaker and limits for a message type, if it has any.</summary>
     internal ConsumerResilience? ResilienceFor(Type messageType) => _consumerResilience.GetValueOrDefault(messageType);
 
     private void RegisterConsumerResilience(Type messageType, string serviceKey, ConsumerSettings settings)
     {
-        if (settings.Timeout is null && settings.CircuitBreaker is null) return;
+        if (!settings.HasResilience) return;
 
         // One breaker per consumer, created per broker, so the message types of one consumer share its state.
         var resilience = _consumerResilience.Values.FirstOrDefault(r => r.Consumer == serviceKey) ?? CreateResilience(serviceKey, settings);
@@ -34,13 +34,15 @@ internal sealed partial class NymBrokerImpl
         CircuitBreaker? breaker = null;
         if (settings.CircuitBreaker is { } options)
             breaker = new CircuitBreaker(options, consumer) { StateChanged = state => LogCircuitStateChanged(consumer, state, options.BreakDuration) };
-        return new ConsumerResilience(consumer, settings.Timeout, breaker);
+        return new ConsumerResilience(consumer, settings.Timeout, breaker,
+            ThrottleGate.For("consumer", consumer, settings.RateLimit, settings.ConcurrencyLimit));
     }
 
     /// <summary>
-    /// Calls the consumer, through its circuit breaker and within its timeout when it has them. While the circuit is
-    /// open the message is held here (backpressure) rather than failed: a Retry would be redelivered at once and use up
-    /// its delivery count. Only the stop token's cancellation ends the wait.
+    /// Calls the consumer through its circuit breaker, then its limits, then within its timeout, as far as it has them.
+    /// While the circuit is open or a limit is reached the message waits here (backpressure) rather than failing: a Retry
+    /// would be redelivered at once and use up its delivery count. Only the stop token's cancellation ends a wait; the
+    /// timeout counts only the call itself.
     /// </summary>
     private async Task InvokeConsumerAsync(Type messageType, object message, IMessageContext context, CancellationToken ct)
     {
@@ -52,7 +54,7 @@ internal sealed partial class NymBrokerImpl
         if (resilience.Breaker is not null)
             await DispatchThroughBreakerAsync(resilience, messageType, message, context, ct);
         else
-            await DispatchWithinTimeoutAsync(resilience, messageType, message, context, ct);
+            await DispatchThrottledAsync(resilience, messageType, message, context, ct);
     }
 
     private async Task DispatchThroughBreakerAsync(ConsumerResilience resilience, Type messageType, object message, IMessageContext context, CancellationToken ct)
@@ -62,7 +64,7 @@ internal sealed partial class NymBrokerImpl
         if (waited) LogReleasedByCircuit(resilience.Consumer, messageType.Name);
         try
         {
-            await DispatchWithinTimeoutAsync(resilience, messageType, message, context, ct);
+            await DispatchThrottledAsync(resilience, messageType, message, context, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -75,6 +77,21 @@ internal sealed partial class NymBrokerImpl
             throw;
         }
         breaker.RecordSuccess(permit);
+    }
+
+    /// <summary>
+    /// Waits for a concurrency slot and a rate permit, then calls the consumer. The slot is freed when the broker is done
+    /// with the call, so a timed-out call that keeps running in the background no longer counts.
+    /// </summary>
+    private async Task DispatchThrottledAsync(ConsumerResilience resilience, Type messageType, object message, IMessageContext context, CancellationToken ct)
+    {
+        if (resilience.Throttle is not { } throttle)
+        {
+            await DispatchWithinTimeoutAsync(resilience, messageType, message, context, ct);
+            return;
+        }
+        using var lease = await throttle.EnterAsync(1, ct);
+        await DispatchWithinTimeoutAsync(resilience, messageType, message, context, ct);
     }
 
     /// <summary>

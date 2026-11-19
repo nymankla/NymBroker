@@ -75,7 +75,7 @@ Batches of 100 raise throughput 10–20× on the SQL endpoints and RabbitMQ; see
 
 ## Deferring a message
 
-Use `PostDeferredAsync` when a message must not be delivered before a given time, for example because a rate-limited service is free again in five minutes:
+Use `PostDeferredAsync` when a message must not be delivered before a given time, for example because a rate-limited service is free again in five minutes. For a fixed pace (at most 50 calls per second), use a [rate limit](resilience.md#rate-and-concurrency-limits) on the consumer or `LimitSendsTo` on the endpoint instead; the broker then waits for you:
 
 ```csharp
 public async Task ConsumeAsync(FetchPage job, IMessageContext context, CancellationToken ct = default)

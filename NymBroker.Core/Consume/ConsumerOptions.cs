@@ -28,6 +28,19 @@ public sealed class ConsumerOptions
     /// </summary>
     public CircuitBreakerOptions? CircuitBreaker { get; set; }
 
+    /// <summary>
+    /// At most this many calls of the consumer per period, shared by every message type it consumes. Null (default):
+    /// no limit. A message over the limit waits in the broker (its listener waits) instead of failing, so it never uses
+    /// up its delivery count. Per process: on three instances the overall rate is three times this.
+    /// </summary>
+    public RateLimitOptions? RateLimit { get; set; }
+
+    /// <summary>
+    /// At most this many calls of the consumer at the same time, across every endpoint that feeds it. Null (default): no
+    /// limit beyond the endpoints' own. At least 1. A message over the limit waits, like <see cref="RateLimit"/>.
+    /// </summary>
+    public int? ConcurrencyLimit { get; set; }
+
     /// <summary>Throws for an invalid <see cref="Timeout"/> or <see cref="CircuitBreaker"/>.</summary>
     internal void Validate()
     {
@@ -38,20 +51,28 @@ public sealed class ConsumerOptions
         }
         if (CircuitBreaker is { } breaker)
             Resilience.CircuitBreaker.Validate(breaker);
+        RateLimit?.Validate();
+        if (ConcurrencyLimit is { } limit)
+            ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1, nameof(ConcurrencyLimit));
     }
 
     /// <summary>The options as registered: a copy, so a later change to this instance has no effect.</summary>
-    internal ConsumerSettings ToSettings() => new(RetryOnFailure, Timeout, CircuitBreaker);
+    internal ConsumerSettings ToSettings() => new(RetryOnFailure, Timeout, CircuitBreaker, RateLimit, ConcurrencyLimit);
 }
 
 /// <summary>A consumer's options as registered (see <see cref="ConsumerOptions"/>).</summary>
-internal sealed record ConsumerSettings(bool RetryOnFailure, TimeSpan? Timeout, CircuitBreakerOptions? CircuitBreaker)
+internal sealed record ConsumerSettings(
+    bool RetryOnFailure, TimeSpan? Timeout, CircuitBreakerOptions? CircuitBreaker, RateLimitOptions? RateLimit = null, int? ConcurrencyLimit = null)
 {
     public static readonly ConsumerSettings Default = new(true, null, null);
 
+    /// <summary>Whether the consumer needs a <c>ConsumerResilience</c>: any option besides <see cref="RetryOnFailure"/>.</summary>
+    public bool HasResilience => Timeout is not null || CircuitBreaker is not null || RateLimit is not null || ConcurrencyLimit is not null;
+
     /// <summary>The same options: a breaker counts as the same when every option has the same value.</summary>
     public bool SameAs(ConsumerSettings other)
-        => RetryOnFailure == other.RetryOnFailure && Timeout == other.Timeout && SameBreaker(CircuitBreaker, other.CircuitBreaker);
+        => RetryOnFailure == other.RetryOnFailure && Timeout == other.Timeout && SameBreaker(CircuitBreaker, other.CircuitBreaker)
+           && (RateLimit is null ? other.RateLimit is null : RateLimit.SameAs(other.RateLimit)) && ConcurrencyLimit == other.ConcurrencyLimit;
 
     private static bool SameBreaker(CircuitBreakerOptions? a, CircuitBreakerOptions? b)
         => ReferenceEquals(a, b) || (a is not null && b is not null
@@ -60,5 +81,6 @@ internal sealed record ConsumerSettings(bool RetryOnFailure, TimeSpan? Timeout, 
             && a.ShouldHandle == b.ShouldHandle && a.TimeProvider == b.TimeProvider);
 
     public override string ToString()
-        => $"RetryOnFailure = {RetryOnFailure}, Timeout = {Timeout?.ToString() ?? "none"}, CircuitBreaker = {(CircuitBreaker is null ? "none" : "set")}";
+        => $"RetryOnFailure = {RetryOnFailure}, Timeout = {Timeout?.ToString() ?? "none"}, CircuitBreaker = {(CircuitBreaker is null ? "none" : "set")}, " +
+           $"RateLimit = {RateLimit?.ToString() ?? "none"}, ConcurrencyLimit = {ConcurrencyLimit?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none"}";
 }

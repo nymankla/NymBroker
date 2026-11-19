@@ -23,6 +23,7 @@ public sealed partial class NymBrokerBuilder
     private readonly IServiceCollection _services;
     private readonly List<JsonSerializerContext> _jsonContexts = [];
     private readonly List<string> _endpoints = [];
+    private readonly Dictionary<string, (Resilience.RateLimitOptions? RateLimit, int? ConcurrencyLimit)> _sendLimits = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<(Type ConsumerType, Type MessageType, ConsumerSettings Settings, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> _consumers = [];
     private readonly List<TopicContext> _topicContexts = [];
     private readonly List<TopicConfiguration> _configTopics = [];

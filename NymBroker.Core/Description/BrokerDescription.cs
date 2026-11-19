@@ -48,6 +48,12 @@ public sealed record EndpointDescription
 
     public required bool HasInputTransformer { get; init; }
     public required bool HasOutputTransformer { get; init; }
+
+    /// <summary>The send rate limit set with <c>LimitSendsTo</c>, as text; null when there is none.</summary>
+    public string? SendRateLimit { get; init; }
+
+    /// <summary>The send concurrency limit set with <c>LimitSendsTo</c>; null when there is none.</summary>
+    public int? SendConcurrencyLimit { get; init; }
 }
 
 /// <summary>A route: messages of <see cref="MessageType"/> that meet the conditions are forwarded to <see cref="Destination"/>.</summary>
@@ -94,6 +100,12 @@ public sealed record ConsumerDescription
 
     /// <summary>The state of the consumer's circuit breaker now; null when it has none.</summary>
     public CircuitState? CircuitState { get; init; }
+
+    /// <summary>The consumer's <c>ConsumerOptions.RateLimit</c> as text (e.g. <c>50/1s, burst 50</c>); null when it has none.</summary>
+    public string? RateLimit { get; init; }
+
+    /// <summary>The consumer's <c>ConsumerOptions.ConcurrencyLimit</c>; null when it has none.</summary>
+    public int? ConcurrencyLimit { get; init; }
 }
 
 /// <summary>A scheduled action.</summary>

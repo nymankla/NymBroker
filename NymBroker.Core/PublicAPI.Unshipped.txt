@@ -37,3 +37,33 @@ NymBroker.Core.Resilience.CircuitState.Closed = 0 -> NymBroker.Core.Resilience.C
 NymBroker.Core.Resilience.CircuitState.HalfOpen = 2 -> NymBroker.Core.Resilience.CircuitState
 NymBroker.Core.Resilience.CircuitState.Open = 1 -> NymBroker.Core.Resilience.CircuitState
 const NymBroker.Core.Endpoint.DeadLetterReasons.ConsumerTimedOut = "ConsumerTimedOut" -> string!
+NymBroker.Core.Consume.ConsumerOptions.ConcurrencyLimit.get -> int?
+NymBroker.Core.Consume.ConsumerOptions.ConcurrencyLimit.set -> void
+NymBroker.Core.Consume.ConsumerOptions.RateLimit.get -> NymBroker.Core.Resilience.RateLimitOptions?
+NymBroker.Core.Consume.ConsumerOptions.RateLimit.set -> void
+NymBroker.Core.Description.ConsumerDescription.ConcurrencyLimit.get -> int?
+NymBroker.Core.Description.ConsumerDescription.ConcurrencyLimit.init -> void
+NymBroker.Core.Description.ConsumerDescription.RateLimit.get -> string?
+NymBroker.Core.Description.ConsumerDescription.RateLimit.init -> void
+NymBroker.Core.Description.EndpointDescription.SendConcurrencyLimit.get -> int?
+NymBroker.Core.Description.EndpointDescription.SendConcurrencyLimit.init -> void
+NymBroker.Core.Description.EndpointDescription.SendRateLimit.get -> string?
+NymBroker.Core.Description.EndpointDescription.SendRateLimit.init -> void
+NymBroker.Core.Factory.NymBrokerBuilder.LimitSendsTo(string! endpointName, System.Action<NymBroker.Core.Resilience.SendLimitOptions!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Resilience.RateLimitOptions
+NymBroker.Core.Resilience.RateLimitOptions.Burst.get -> int?
+NymBroker.Core.Resilience.RateLimitOptions.Burst.init -> void
+NymBroker.Core.Resilience.RateLimitOptions.Period.get -> System.TimeSpan
+NymBroker.Core.Resilience.RateLimitOptions.Period.init -> void
+NymBroker.Core.Resilience.RateLimitOptions.PermitsPerPeriod.get -> int
+NymBroker.Core.Resilience.RateLimitOptions.PermitsPerPeriod.init -> void
+NymBroker.Core.Resilience.RateLimitOptions.RateLimitOptions() -> void
+NymBroker.Core.Resilience.RateLimitOptions.TimeProvider.get -> System.TimeProvider!
+NymBroker.Core.Resilience.RateLimitOptions.TimeProvider.init -> void
+NymBroker.Core.Resilience.SendLimitOptions
+NymBroker.Core.Resilience.SendLimitOptions.ConcurrencyLimit.get -> int?
+NymBroker.Core.Resilience.SendLimitOptions.ConcurrencyLimit.set -> void
+NymBroker.Core.Resilience.SendLimitOptions.RateLimit.get -> NymBroker.Core.Resilience.RateLimitOptions?
+NymBroker.Core.Resilience.SendLimitOptions.RateLimit.set -> void
+NymBroker.Core.Resilience.SendLimitOptions.SendLimitOptions() -> void
+override NymBroker.Core.Resilience.RateLimitOptions.ToString() -> string!

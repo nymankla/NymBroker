@@ -52,7 +52,7 @@ internal sealed partial class NymBrokerImpl
                     return ValueTask.CompletedTask;
                 }
             });
-            await policy.ExecuteAsync(async t => await held.Endpoint.PostAsync(held.Message, t), token);
+            await policy.ExecuteAsync(async t => await WriteAsync(held.Name, held.Endpoint, held.Message, t), token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {

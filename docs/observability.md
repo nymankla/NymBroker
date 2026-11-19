@@ -42,6 +42,8 @@ Meter `NymBroker.Resilience` (it keeps its original name from when `RetryPolicy`
 | `nymbroker.circuit_breaker.held` | counter | messages the broker held because their consumer's circuit was open | `circuit` |
 | `nymbroker.circuit_breaker.rejected` | counter | calls a standalone `CircuitBreaker.ExecuteAsync` refused | `circuit` |
 | `nymbroker.consumer.timeouts` | counter | consumers that passed their [timeout](resilience.md#timeout) | `consumer` |
+| `nymbroker.throttle.waits` | counter | calls that waited for a consumer's or an endpoint's [rate or concurrency limit](resilience.md#rate-and-concurrency-limits) | `scope` (`consumer`/`endpoint`), `name`, `limit` (`rate`/`concurrency`) |
+| `nymbroker.throttle.wait.duration` | histogram (ms) | how long those calls waited; calls that did not wait are not recorded | `scope`, `name` |
 
 Tag values are endpoint, topic, type and consumer names, so the number of series stays small.
 
@@ -51,6 +53,7 @@ Useful views:
 - **Where messages go** — `routed` by `destination`, `consumed` by `consumer`.
 - **Poison messages** — `dead_lettered` by `reason`; alert on any increase.
 - **A failing downstream** — `circuit_breaker.state_changes` with `state = open`, and `consumer.timeouts`, by consumer.
+- **A limit that is too tight** — `throttle.wait.duration` p95 by `name`; compare it with the transport's lease or lock time.
 - **Latency** — `processing.duration` p95 by `source`; `result = retry` shows transient trouble.
 - **Health** — alert on `health.checks` with `status = unhealthy` (or `degraded`) increasing, or on `health.status > 0`; `health.endpoint.failures` by `endpoint` and `reason` shows which endpoint fails and whether it is down (`unhealthy`), hanging (`timeout`) or broken (`error`: its check threw). The health metrics are only recorded when `CheckHealthAsync` runs — for example on each `/health` probe — so their resolution is the probe interval.
 - **Backlog** — alert on `message.age` p95 or max by `source`: when consumers fall behind, messages wait longer and the age rises. It is measured against the sender's clock, so clock skew between hosts shifts it (negative values are recorded as 0). The broker does not count queued messages; take depth from the transport:
