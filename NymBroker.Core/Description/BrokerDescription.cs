@@ -1,3 +1,4 @@
+using NymBroker.Core.Resilience;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Scheduling;
 
@@ -87,6 +88,12 @@ public sealed record ConsumerDescription
 
     /// <summary>False when it was registered with <c>RetryOnFailure = false</c>.</summary>
     public required bool RetryOnFailure { get; init; }
+
+    /// <summary>The consumer's <c>ConsumerOptions.Timeout</c>; null when it has none.</summary>
+    public TimeSpan? Timeout { get; init; }
+
+    /// <summary>The state of the consumer's circuit breaker now; null when it has none.</summary>
+    public CircuitState? CircuitState { get; init; }
 }
 
 /// <summary>A scheduled action.</summary>

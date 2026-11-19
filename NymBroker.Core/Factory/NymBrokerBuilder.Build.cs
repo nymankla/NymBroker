@@ -77,7 +77,7 @@ public sealed partial class NymBrokerBuilder
     private sealed class BrokerBlueprint(NymBrokerBuilder builder)
     {
         private readonly List<string> _endpoints = builder._endpoints.ToList();
-        private readonly List<(Type ConsumerType, Type MessageType, bool RetryOnFailure, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> _consumers = builder._consumers.ToList();
+        private readonly List<(Type ConsumerType, Type MessageType, ConsumerSettings Settings, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> _consumers = builder._consumers.ToList();
         private readonly List<TopicContext> _topicContexts = builder._topicContexts.ToList();
         private readonly List<TopicConfiguration> _configTopics = builder._configTopics.ToList();
         private readonly List<(Type TransformerType, string? Endpoint)> _transformers = builder._transformers.ToList();
@@ -123,8 +123,8 @@ public sealed partial class NymBrokerBuilder
             foreach (var endpointName in _endpoints)
                 broker.AddEndpoint(endpointName, sp.GetRequiredKeyedService<IEndPoint>(endpointName));
 
-            foreach (var (consumerType, messageType, retryOnFailure, dispatcher) in _consumers)
-                broker.RegisterConsumer(messageType, consumerType.Name, retryOnFailure, dispatcher);
+            foreach (var (consumerType, messageType, settings, dispatcher) in _consumers)
+                broker.RegisterConsumer(messageType, consumerType.Name, settings, dispatcher);
 
             foreach (var topic in _topicContexts)
                 broker.AddTopic(topic);

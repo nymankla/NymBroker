@@ -1,14 +1,22 @@
-# Retry policy
+# Resilience: retry, timeout and circuit breaker
 
 [← User guide](user-guide.md)
 
-`RetryPolicy` (namespace `NymBroker.Core.Resilience`, in the `NymBroker` package) is a small retry policy with no package dependencies. It replaced Polly in NymBroker; [How NymBroker uses it](#how-nymbroker-uses-it) lists where. It retries transient failures of the transport itself; what happens when a *consumer* fails is in [Reliability](reliability.md).
+Namespace `NymBroker.Core.Resilience` (in the `NymBroker` package) has three building blocks, with no package dependencies:
 
-It only retries. There is no circuit breaker, timeout, fallback or hedging.
+- [`RetryPolicy`](#retry-policy): retries transient failures. NymBroker's own transports use it.
+- [Consumer timeout and circuit breaker](#consumer-timeout-and-circuit-breaker): `ConsumerOptions.Timeout` and `ConsumerOptions.CircuitBreaker` protect a consumer and its downstream. Both are off by default.
+- [`CircuitBreaker`](#circuitbreaker): the standalone breaker the consumer option uses, for your own calls.
+
+There is no fallback or hedging. Endpoint sends (routes, topics, destination endpoints) don't have a timeout or breaker yet.
+
+## Retry policy
+
+`RetryPolicy` (namespace `NymBroker.Core.Resilience`, in the `NymBroker` package) is a small retry policy with no package dependencies. It replaced Polly in NymBroker; [How NymBroker uses it](#how-nymbroker-uses-it) lists where. It retries transient failures of the transport itself; what happens when a *consumer* fails is in [Reliability](reliability.md).
 
 > Up to 0.3.5 the retry policy was a separate `NymBroker.Resilience` project and package (namespace `NymBroker.Resilience`). It now lives in `NymBroker.Core`: drop any `NymBroker.Resilience` package reference and change `using NymBroker.Resilience;` to `using NymBroker.Core.Resilience;`. The meter name is still `NymBroker.Resilience`, so existing metrics setups keep working.
 
-## Quick start
+### Quick start
 
 ```csharp
 using NymBroker.Core.Resilience;
@@ -37,7 +45,7 @@ string content = await policy.ExecuteAsync(async token => await File.ReadAllText
 
 The callback receives the `CancellationToken` you pass to `ExecuteAsync`. Pass it on to the work you do inside the callback.
 
-## `RetryOptions`
+### `RetryOptions`
 
 | Option | Type | Default | Description |
 |---|---|---|---|
@@ -52,7 +60,7 @@ The callback receives the `CancellationToken` you pass to `ExecuteAsync`. Pass i
 
 Invalid options (`MaxRetryAttempts < 1`, a negative `Delay`, a null `ShouldHandle` or `TimeProvider`) throw from the `RetryPolicy` constructor.
 
-### `RetryAttempt` (passed to `OnRetry`)
+#### `RetryAttempt` (passed to `OnRetry`)
 
 | Property | Description |
 |---|---|
@@ -60,7 +68,7 @@ Invalid options (`MaxRetryAttempts < 1`, a negative `Delay`, a null `ShouldHandl
 | `Exception` | The exception that caused this retry. |
 | `Delay` | How long the policy will wait before the next attempt. |
 
-## Backoff and jitter
+### Backoff and jitter
 
 `attempt` below is the 0-based `AttemptNumber`.
 
@@ -73,7 +81,7 @@ Every delay is clamped to `MaxDelay` (24 h when unset). The exponential calculat
 
 The jitter formulas follow the ones Polly v8 uses (± 25 % for constant, "decorrelated jitter backoff V2" for exponential), so timing is close to what the endpoints had before.
 
-## Execution rules
+### Execution rules
 
 - The first attempt runs immediately. After a failure, the policy retries only if all of these hold:
   1. retries remain (`attempt < MaxRetryAttempts`),
@@ -84,7 +92,7 @@ The jitter formulas follow the ones Polly v8 uses (± 25 % for constant, "decorr
 - Cancelling during the wait throws `OperationCanceledException` and nothing further runs.
 - An exception thrown by `OnRetry` propagates and stops the retries.
 
-## How NymBroker uses it
+### How NymBroker uses it
 
 | Endpoint | Settings | Behaviour |
 |---|---|---|
@@ -96,6 +104,89 @@ The jitter formulas follow the ones Polly v8 uses (± 25 % for constant, "decorr
 
 Cancellation is always a clean shutdown: never retried, never logged as an error.
 
-## Testing
+### Testing
 
 Use `Delay = TimeSpan.Zero` so tests don't wait, or pass a fake `TimeProvider` (for example `FakeTimeProvider` from `Microsoft.Extensions.TimeProvider.Testing`) to step through delays yourself. See `NymBroker.Tests/RetryPolicyTests.cs` for examples.
+
+## Consumer timeout and circuit breaker
+
+Both are options of `AddConsumer`, and they apply to every message type the consumer handles:
+
+```csharp
+using NymBroker.Core.Resilience;
+
+services.AddNymBroker()
+    .AddSqlServerEndPoint("Orders", ordersSettings)
+    .AddConsumer<InvoiceConsumer>(o =>
+    {
+        o.Timeout = TimeSpan.FromSeconds(30);
+        o.CircuitBreaker = new CircuitBreakerOptions
+        {
+            FailureRatio      = 0.5,
+            MinimumThroughput = 10,
+            SamplingDuration  = TimeSpan.FromSeconds(30),
+            BreakDuration     = TimeSpan.FromSeconds(30)
+        };
+    })
+    .Build();
+```
+
+Invalid values throw from `AddConsumer`. Registering the same consumer again with other options throws.
+
+### Timeout
+
+`ConsumerOptions.Timeout` (`TimeSpan?`, default `null` = no limit, otherwise above zero and at most 1 day) limits one call of the consumer:
+
+- When the time is up, the consumer's `CancellationToken` is cancelled **and the broker stops waiting at once**. A consumer that ignores its token cannot hold the listener (or one of its `MaxConcurrentCalls` slots). It keeps running in the background, and what it does afterwards is logged (an exception at `Warning`).
+- The message is settled like any consumer failure ([Reliability](reliability.md#success-retry-dead-letter)): retried by the transport, or dead-lettered with reason **`ConsumerTimedOut`** when retry is off for the consumer or the source has no redelivery. `ProcessResult.Exception` is a `TimeoutException`.
+- The broker's own stop is still a clean shutdown, not a timeout.
+- Because a timed-out consumer may still finish its work, the message can be handled twice. Make the consumer idempotent ([duplicate detection](reliability.md#duplicate-detection)).
+
+### Circuit breaker
+
+`ConsumerOptions.CircuitBreaker` (`CircuitBreakerOptions?`, default `null`) gives the consumer one breaker, shared by all its message types:
+
+- **Closed:** messages are consumed normally and each outcome is counted over a rolling `SamplingDuration`. When at least `MinimumThroughput` calls are in the window and the share of failures reaches `FailureRatio`, the circuit **opens**. A timeout counts as a failure. The broker's own stop is never counted.
+- **Open:** for `BreakDuration` the consumer is not called. The broker **holds** the message (the listener waits) instead of failing it. A `Retry` would be redelivered at once and use up the transport's delivery count (`MaxRetryCount`, `MaxDeliveryCount`), so a downstream outage would dead-letter good messages. Holding is backpressure: no message is lost or counted against its retries.
+- **Half-open:** after the break, one message is the trial. If it succeeds the circuit closes; if it fails the circuit opens for another `BreakDuration`. Other messages for the consumer wait until the trial is done.
+
+Things to know about holding:
+
+- Waiting messages occupy their listener. A SQL queue table with `MaxConcurrentCalls = 1` stops claiming while the circuit is open. That is the point, but other message types on the same endpoint wait too.
+- A held message is still leased or locked by its transport. Keep `BreakDuration` below the lease or lock duration (the SQL queue lease, the Service Bus lock, the SQS visibility timeout, RabbitMQ's `consumer_timeout`), and below the idempotency store's claim lease if you use one. Otherwise the transport may hand the message to another listener while it is held here.
+- Stopping the broker ends the wait at once; the message stays in the transport.
+- The state is in `INymBroker.Describe()` (`ConsumerDescription.CircuitState`, read when called) and on the [dashboard](dashboard.md) topology page. It is not part of the health check: an open circuit means a downstream system is failing, and marking this app unhealthy would only get healthy instances restarted.
+
+`CircuitBreakerOptions`:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `FailureRatio` | `double` | `0.5` | Share of failed calls in the window that opens the circuit, in (0, 1]. |
+| `MinimumThroughput` | `int` | `10` | Calls the window must hold before the ratio can open the circuit. At least 1. |
+| `SamplingDuration` | `TimeSpan` | `30 s` | Length of the rolling window (10 buckets). At least 10 ms. |
+| `BreakDuration` | `TimeSpan` | `30 s` | How long the circuit stays open before a trial. Above zero, at most 1 day. |
+| `ShouldHandle` | `Func<Exception, bool>` | every exception | Which exceptions count as failures; others are not counted. A cancellation the call raised itself (e.g. an `HttpClient` timeout) counts; the caller's own cancellation never does. |
+| `TimeProvider` | `TimeProvider` | `TimeProvider.System` | Clock for the window and the break. Replace it in tests. |
+
+## `CircuitBreaker`
+
+Use the breaker on its own to protect any call. Build one per protected resource and reuse it; it is thread-safe:
+
+```csharp
+var breaker = new CircuitBreaker(new CircuitBreakerOptions { MinimumThroughput = 5, BreakDuration = TimeSpan.FromSeconds(15) });
+
+try
+{
+    var rate = await breaker.ExecuteAsync(async token => await rates.GetAsync(currency, token), ct);
+}
+catch (BrokenCircuitException ex)
+{
+    // Not called: the circuit is open. ex.RetryAfter is the time until the next trial (null while a trial runs).
+}
+```
+
+Unlike the consumer option, `ExecuteAsync` **fails fast** while the circuit is open: it throws `BrokenCircuitException` without calling the action. `State` reads the current `CircuitState` (`Closed`, `Open`, `HalfOpen`). Exceptions from the action propagate unchanged. To combine it with `RetryPolicy`, call the breaker inside the retry, so each attempt is counted.
+
+## Resilience metrics
+
+All on the `NymBroker.Resilience` meter ([Observability](observability.md#metrics)): `nymbroker.retries`, `nymbroker.circuit_breaker.state_changes` (tags `circuit`, `state`), `nymbroker.circuit_breaker.held` (messages the broker held, tag `circuit`), `nymbroker.circuit_breaker.rejected` (calls `ExecuteAsync` refused, tag `circuit`) and `nymbroker.consumer.timeouts` (tag `consumer`). A consumer's circuit is named after the consumer class. A standalone `CircuitBreaker` is named `default`. State changes are also logged (opened at `Warning`, half-open and closed at `Information`).

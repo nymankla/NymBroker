@@ -26,7 +26,7 @@ From the registration code: which endpoints receive, their transports, whether `
 
 ## 2. Reasons
 
-`DeadLetterReasons` (namespace `NymBroker.Core.Endpoint`): `ConsumerFailed`, `TopicDeliveryFailed`, `DeserializationFailed`, `Expired`, `UnknownCompression`; plus transport reasons such as Service Bus `MaxDeliveryCountExceeded`. Only `ConsumerFailed` / `TopicDeliveryFailed` / `MaxDeliveryCountExceeded` are usually worth replaying after a fix; the others need the data or the sender fixed.
+`DeadLetterReasons` (namespace `NymBroker.Core.Endpoint`): `ConsumerFailed`, `ConsumerTimedOut` (newer than 0.26.0: a consumer passed its `ConsumerOptions.Timeout`), `TopicDeliveryFailed`, `DeserializationFailed`, `Expired`, `UnknownCompression`; plus transport reasons such as Service Bus `MaxDeliveryCountExceeded`. Only `ConsumerFailed` / `ConsumerTimedOut` / `TopicDeliveryFailed` / `MaxDeliveryCountExceeded` are usually worth replaying after a fix; the others need the data or the sender fixed.
 
 ## 3. Per transport
 
@@ -92,7 +92,7 @@ public sealed class OrderCreatedReplay(INymBroker broker, ILogger<OrderCreatedRe
     public async Task ConsumeAsync(OrderCreated message, IMessageContext context, CancellationToken ct = default)
     {
         var dl = context.DeadLetter;
-        if (dl?.Reason is DeadLetterReasons.ConsumerFailed or DeadLetterReasons.TopicDeliveryFailed or "MaxDeliveryCountExceeded")
+        if (dl?.Reason is DeadLetterReasons.ConsumerFailed or DeadLetterReasons.ConsumerTimedOut or DeadLetterReasons.TopicDeliveryFailed or "MaxDeliveryCountExceeded")
         {
             await broker.PostAsync("Orders", message, ct);   // a fresh envelope; failing again dead-letters it again
             logger.LogInformation("Replayed {MessageId} ({Reason}: {Description})", context.Id, dl.Reason, dl.Description);

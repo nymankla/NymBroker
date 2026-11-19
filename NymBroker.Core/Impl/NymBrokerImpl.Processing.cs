@@ -310,7 +310,7 @@ internal sealed partial class NymBrokerImpl
 
         try
         {
-            await _consumerDispatcher.DispatchAsync(messageType, message, context, ct);
+            await InvokeConsumerAsync(messageType, message, context, ct);
             return ProcessResult.Completed;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -318,7 +318,7 @@ internal sealed partial class NymBrokerImpl
             run.RecordFailure(ex);
             var settlement = SettlementFor(run, retryOff: _noRetryMessageTypes.Contains(messageType));
             LogConsumerFailure(ex, messageType, settlement);
-            return await SettleFailureAsync(settlement, raw, run, DeadLetterCause.Of(DeadLetterReasons.ConsumerFailed, ex), ct) ?? ProcessResult.Completed;
+            return await SettleFailureAsync(settlement, raw, run, DeadLetterCause.Of(ex is ConsumerTimeoutException ? DeadLetterReasons.ConsumerTimedOut : DeadLetterReasons.ConsumerFailed, ex), ct) ?? ProcessResult.Completed;
         }
     }
 

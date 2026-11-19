@@ -842,9 +842,11 @@ function topologyView(root) {
       h("span", { class: "mono" }, t.messageType),
       h("div", { class: "chips" }, t.subscriberEndpoints.map(e => h("span", { class: "chip topic" }, e))),
       h("div", { class: "chips" }, t.subscribers.map(e => h("span", { class: "chip" }, e)))])) : empty("No topics.")),
-    card("Consumers", b.consumers.length ? table(["Message type", "Consumer", "On failure"], b.consumers.map(c => [
+    card("Consumers", b.consumers.length ? table(["Message type", "Consumer", "On failure", "Timeout", "Circuit"], b.consumers.map(c => [
       h("span", { class: "mono" }, c.messageType), h("strong", null, c.consumer),
-      c.retryOnFailure ? h("span", { class: "muted" }, "retry") : h("span", { class: "chip bad" }, "dead-letter at once")])) : empty("No consumers.")),
+      c.retryOnFailure ? h("span", { class: "muted" }, "retry") : h("span", { class: "chip bad" }, "dead-letter at once"),
+      c.timeout ? h("span", { class: "mono" }, c.timeout) : h("span", { class: "faint" }, "—"),
+      circuitChip(c.circuitState)])) : empty("No consumers.")),
     card("Scheduled actions", b.scheduledActions.length ? table(["Action", "Schedule", "Next run", "Missed runs"], b.scheduledActions.map(a => [
       a.name ? h("strong", null, a.name) : h("span", { class: "faint" }, "unnamed"),
       h("span", { class: "mono" }, a.schedule),
@@ -852,6 +854,13 @@ function topologyView(root) {
       a.missedRuns ?? h("span", { class: "faint" }, "—")])) : empty("No scheduled actions.")),
     card("Broker settings", h("div", { class: "card-body" }, settingsList(b))));
   return {};
+}
+
+// A consumer's circuit breaker state, as Describe() reported it when the page loaded.
+function circuitChip(state) {
+  if (!state) return h("span", { class: "faint" }, "—");
+  if (state === "Closed") return h("span", { class: "chip" }, "closed");
+  return h("span", { class: "chip bad" }, state === "Open" ? "open" : "half-open");
 }
 
 function card(title, content) {

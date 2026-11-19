@@ -1,1 +1,39 @@
 #nullable enable
+NymBroker.Core.Consume.ConsumerOptions.CircuitBreaker.get -> NymBroker.Core.Resilience.CircuitBreakerOptions?
+NymBroker.Core.Consume.ConsumerOptions.CircuitBreaker.set -> void
+NymBroker.Core.Consume.ConsumerOptions.Timeout.get -> System.TimeSpan?
+NymBroker.Core.Consume.ConsumerOptions.Timeout.set -> void
+NymBroker.Core.Description.ConsumerDescription.CircuitState.get -> NymBroker.Core.Resilience.CircuitState?
+NymBroker.Core.Description.ConsumerDescription.CircuitState.init -> void
+NymBroker.Core.Description.ConsumerDescription.Timeout.get -> System.TimeSpan?
+NymBroker.Core.Description.ConsumerDescription.Timeout.init -> void
+NymBroker.Core.Resilience.BrokenCircuitException
+NymBroker.Core.Resilience.BrokenCircuitException.BrokenCircuitException() -> void
+NymBroker.Core.Resilience.BrokenCircuitException.BrokenCircuitException(string! message) -> void
+NymBroker.Core.Resilience.BrokenCircuitException.BrokenCircuitException(string! message, System.Exception! innerException) -> void
+NymBroker.Core.Resilience.BrokenCircuitException.BrokenCircuitException(string! message, System.TimeSpan? retryAfter) -> void
+NymBroker.Core.Resilience.BrokenCircuitException.RetryAfter.get -> System.TimeSpan?
+NymBroker.Core.Resilience.CircuitBreaker
+NymBroker.Core.Resilience.CircuitBreaker.CircuitBreaker(NymBroker.Core.Resilience.CircuitBreakerOptions! options) -> void
+NymBroker.Core.Resilience.CircuitBreaker.ExecuteAsync(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask>! action, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+NymBroker.Core.Resilience.CircuitBreaker.ExecuteAsync<T>(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<T>>! action, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<T>
+NymBroker.Core.Resilience.CircuitBreaker.State.get -> NymBroker.Core.Resilience.CircuitState
+NymBroker.Core.Resilience.CircuitBreakerOptions
+NymBroker.Core.Resilience.CircuitBreakerOptions.BreakDuration.get -> System.TimeSpan
+NymBroker.Core.Resilience.CircuitBreakerOptions.BreakDuration.init -> void
+NymBroker.Core.Resilience.CircuitBreakerOptions.CircuitBreakerOptions() -> void
+NymBroker.Core.Resilience.CircuitBreakerOptions.FailureRatio.get -> double
+NymBroker.Core.Resilience.CircuitBreakerOptions.FailureRatio.init -> void
+NymBroker.Core.Resilience.CircuitBreakerOptions.MinimumThroughput.get -> int
+NymBroker.Core.Resilience.CircuitBreakerOptions.MinimumThroughput.init -> void
+NymBroker.Core.Resilience.CircuitBreakerOptions.SamplingDuration.get -> System.TimeSpan
+NymBroker.Core.Resilience.CircuitBreakerOptions.SamplingDuration.init -> void
+NymBroker.Core.Resilience.CircuitBreakerOptions.ShouldHandle.get -> System.Func<System.Exception!, bool>!
+NymBroker.Core.Resilience.CircuitBreakerOptions.ShouldHandle.init -> void
+NymBroker.Core.Resilience.CircuitBreakerOptions.TimeProvider.get -> System.TimeProvider!
+NymBroker.Core.Resilience.CircuitBreakerOptions.TimeProvider.init -> void
+NymBroker.Core.Resilience.CircuitState
+NymBroker.Core.Resilience.CircuitState.Closed = 0 -> NymBroker.Core.Resilience.CircuitState
+NymBroker.Core.Resilience.CircuitState.HalfOpen = 2 -> NymBroker.Core.Resilience.CircuitState
+NymBroker.Core.Resilience.CircuitState.Open = 1 -> NymBroker.Core.Resilience.CircuitState
+const NymBroker.Core.Endpoint.DeadLetterReasons.ConsumerTimedOut = "ConsumerTimedOut" -> string!

@@ -58,6 +58,9 @@ public static class DeadLetterReasons
     /// <summary>A consumer threw. Only used on the broker dead-letter endpoint path; native endpoints get <see cref="ProcessOutcome.Retry"/>.</summary>
     public const string ConsumerFailed = "ConsumerFailed";
 
+    /// <summary>A consumer did not finish within its <c>ConsumerOptions.Timeout</c>. Like <see cref="ConsumerFailed"/>, only used on the broker dead-letter endpoint path, or when retry is off for the consumer.</summary>
+    public const string ConsumerTimedOut = "ConsumerTimedOut";
+
     /// <summary>Topic fan-out failed. Only used on the broker dead-letter endpoint path; native endpoints get <see cref="ProcessOutcome.Retry"/>.</summary>
     public const string TopicDeliveryFailed = "TopicDeliveryFailed";
 }

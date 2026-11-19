@@ -96,16 +96,18 @@ internal sealed partial class NymBrokerImpl : INymBroker
     public void RegisterConsumer(
         Type messageType,
         string serviceKey,
-        bool retryOnFailure = true,
+        ConsumerSettings? settings = null,
         Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? dispatcher = null)
     {
+        settings ??= ConsumerSettings.Default;
         _messageTypeRegistry.Register(messageType);
         if (dispatcher is null)
             _consumerDispatcher.RegisterConsumer(messageType, serviceKey);
         else
             _consumerDispatcher.RegisterConsumerWithDispatcher(messageType, serviceKey, dispatcher);
-        if (!retryOnFailure)
+        if (!settings.RetryOnFailure)
             ImmutableInterlocked.Update(ref _noRetryMessageTypes, types => types.Add(messageType));
+        RegisterConsumerResilience(messageType, serviceKey, settings);
     }
 
     public void AddTopic(TopicContext topic)

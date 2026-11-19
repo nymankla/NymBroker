@@ -69,12 +69,18 @@ internal sealed partial class NymBrokerImpl
         Subscribers = [.. topic.SubscriberDispatchers.Select(s => s.SubscriberType.Name)]
     };
 
-    private ConsumerDescription DescribeConsumer((Type MessageType, string ServiceKey) registration) => new()
+    private ConsumerDescription DescribeConsumer((Type MessageType, string ServiceKey) registration)
     {
-        MessageType = TypeName(registration.MessageType),
-        Consumer = registration.ServiceKey,
-        RetryOnFailure = !_noRetryMessageTypes.Contains(registration.MessageType)
-    };
+        var resilience = ResilienceFor(registration.MessageType);
+        return new()
+        {
+            MessageType = TypeName(registration.MessageType),
+            Consumer = registration.ServiceKey,
+            RetryOnFailure = !_noRetryMessageTypes.Contains(registration.MessageType),
+            Timeout = resilience?.Timeout,
+            CircuitState = resilience?.Breaker?.State
+        };
+    }
 
     private List<ScheduledActionDescription> DescribeScheduledActions(DateTimeOffset now)
     {

@@ -83,6 +83,7 @@ Rules to know:
 - **Routes and topics come first.** A message that matches a route or a topic is forwarded there and is **not** given to the consumer. See [what decides where a message goes](routing-and-pubsub.md#what-decides-where-a-message-goes).
 - **Throwing means "failed".** If `ConsumeAsync` throws, the message is retried by its transport and eventually dead-lettered (or sent to the broker's dead-letter endpoint). Return normally only when the message is fully handled. See [Reliability](reliability.md).
 - **No retry for a consumer.** `.AddConsumer<OrderConsumer>(o => o.RetryOnFailure = false)` dead-letters the message at once when the consumer throws, instead of letting the transport redeliver it. Registering the same consumer again with a different setting throws. See [Reliability](reliability.md#no-retry-for-one-consumer).
+- **Timeout and circuit breaker.** `o.Timeout = TimeSpan.FromSeconds(30)` stops waiting for a consumer that hangs; `o.CircuitBreaker = new CircuitBreakerOptions()` holds its messages while its downstream keeps failing. Both are off by default. See [Resilience](resilience.md#consumer-timeout-and-circuit-breaker).
 - **Honour the cancellation token.** It is cancelled when the broker stops.
 
 ## IMessageContext

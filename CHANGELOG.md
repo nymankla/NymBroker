@@ -4,6 +4,10 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- Consumer timeout and circuit breaker (#134), both off by default. `AddConsumer<T>(o => o.Timeout = TimeSpan.FromSeconds(30))`: when the time is up the consumer's token is cancelled and the broker stops waiting at once, so a hung consumer no longer holds its listener. The message is settled like a consumer failure, with the new reason `DeadLetterReasons.ConsumerTimedOut`. `o.CircuitBreaker = new CircuitBreakerOptions { … }` (failure ratio over a rolling window, break duration, half-open trial): while the circuit is open the broker **holds** the consumer's messages until the break is over instead of failing them, because a `Retry` is redelivered at once and would use up its delivery count during an outage. The standalone `CircuitBreaker` (fail-fast `ExecuteAsync`, `BrokenCircuitException`, `CircuitState`) is in `NymBroker.Core.Resilience` for your own calls. New metrics on the `NymBroker.Resilience` meter: `nymbroker.circuit_breaker.state_changes`, `.held`, `.rejected`, `nymbroker.consumer.timeouts`. `ConsumerDescription` has `Timeout` and `CircuitState`, and the dashboard shows both. Routes, topics and endpoint sends don't have a timeout or breaker yet. See [docs/resilience.md](docs/resilience.md#consumer-timeout-and-circuit-breaker).
+
 ## [0.26.0] - 2026-11-17
 
 ### Changed

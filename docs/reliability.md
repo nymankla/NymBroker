@@ -70,6 +70,10 @@ services.AddNymBroker()
 - The option applies to every message type the consumer handles, and only to the consumer. A failed route destination still gives **Retry**; a topic failure follows the source endpoint's normal settlement policy.
 - Unlike `UseNativeDeadLetter = false`, which changes settlement for consumer and topic failures from that endpoint, this is per consumer, and the message stays in the transport's own dead-letter queue.
 
+### Timeout and circuit breaker for one consumer
+
+`AddConsumer<T>(o => { o.Timeout = …; o.CircuitBreaker = new CircuitBreakerOptions { … }; })` limits how long one call may take and stops calling a consumer whose downstream keeps failing. A timeout is settled like a consumer failure above, with reason `ConsumerTimedOut`. While the circuit is open the broker holds messages for that consumer instead of failing them, so they don't use up their delivery count. Details: [Resilience](resilience.md#consumer-timeout-and-circuit-breaker).
+
 ## The broker's dead-letter endpoint
 
 Messages from endpoints without their own dead-letter queue (and failures of a type-based `PublishAsync`) go to the endpoint named by `WithDeadLetterEndpoint`:
@@ -105,7 +109,7 @@ A message posted to the broker's dead-letter endpoint carries the reason inside 
 }
 ```
 
-Read it from a consumer as `context.DeadLetter` (`DeadLetterInfo`). Reasons are the constants in `DeadLetterReasons`: `ConsumerFailed`, `TopicDeliveryFailed`, `DeserializationFailed`, `Expired`, `UnknownCompression` — plus transport reasons such as Service Bus's `MaxDeliveryCountExceeded`.
+Read it from a consumer as `context.DeadLetter` (`DeadLetterInfo`). Reasons are the constants in `DeadLetterReasons`: `ConsumerFailed`, `ConsumerTimedOut` (the consumer passed its [timeout](resilience.md#timeout)), `TopicDeliveryFailed`, `DeserializationFailed`, `Expired`, `UnknownCompression` — plus transport reasons such as Service Bus's `MaxDeliveryCountExceeded`.
 
 Bytes that were not even JSON are wrapped in an envelope of type `nymbroker.undecodable` (`UndecodableMessage`, with `PayloadBase64` and, for valid UTF-8, `PayloadText`), so they can be inspected with `IConsume<UndecodableMessage>`.
 

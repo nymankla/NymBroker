@@ -23,7 +23,7 @@ public sealed partial class NymBrokerBuilder
     private readonly IServiceCollection _services;
     private readonly List<JsonSerializerContext> _jsonContexts = [];
     private readonly List<string> _endpoints = [];
-    private readonly List<(Type ConsumerType, Type MessageType, bool RetryOnFailure, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> _consumers = [];
+    private readonly List<(Type ConsumerType, Type MessageType, ConsumerSettings Settings, Func<IMessageConsumer, object, IMessageContext, CancellationToken, Task>? Dispatcher)> _consumers = [];
     private readonly List<TopicContext> _topicContexts = [];
     private readonly List<TopicConfiguration> _configTopics = [];
     private readonly List<(Type TransformerType, string? Endpoint)> _transformers = [];
@@ -97,6 +97,7 @@ public sealed partial class NymBrokerBuilder
         ArgumentNullException.ThrowIfNull(configure);
         var options = new ConsumerOptions();
         configure(options);
+        options.Validate();
         return AddTypedConsumer<TConsumer, TMessage>(options);
     }
 
@@ -109,6 +110,7 @@ public sealed partial class NymBrokerBuilder
         ArgumentNullException.ThrowIfNull(configure);
         var options = new ConsumerOptions();
         configure(options);
+        options.Validate();
         return AddConsumer<TConsumer>(options);
     }
 
@@ -131,7 +133,7 @@ public sealed partial class NymBrokerBuilder
             EnsureNoConsumerFor(messageType, typeof(TConsumer));
 
         foreach (var messageType in messageTypes)
-            _consumers.Add((typeof(TConsumer), messageType, options.RetryOnFailure, null));
+            _consumers.Add((typeof(TConsumer), messageType, options.ToSettings(), null));
 
         _services.AddKeyedTransient<IMessageConsumer, TConsumer>(typeof(TConsumer).Name);
         return this;
@@ -142,9 +144,9 @@ public sealed partial class NymBrokerBuilder
     {
         var registered = _consumers.FirstOrDefault(c => c.ConsumerType == consumerType);
         if (registered.ConsumerType is null) return false;
-        if (registered.RetryOnFailure != options.RetryOnFailure)
+        if (!registered.Settings.SameAs(options.ToSettings()))
             throw new InvalidOperationException(
-                $"Consumer '{consumerType.Name}' is already registered with RetryOnFailure = {registered.RetryOnFailure}; " +
+                $"Consumer '{consumerType.Name}' is already registered with other options ({registered.Settings}); " +
                 "register it once, with the options it should have.");
         return true;
     }
@@ -183,7 +185,7 @@ public sealed partial class NymBrokerBuilder
             EnsureUniqueConsumerName(typeof(TConsumer));
 
         EnsureNoConsumerFor(typeof(TMessage), typeof(TConsumer));
-        _consumers.Add((typeof(TConsumer), typeof(TMessage), options.RetryOnFailure, DispatchTyped<TMessage>));
+        _consumers.Add((typeof(TConsumer), typeof(TMessage), options.ToSettings(), DispatchTyped<TMessage>));
         if (!known) _services.AddKeyedTransient<IMessageConsumer, TConsumer>(typeof(TConsumer).Name);
         return this;
     }

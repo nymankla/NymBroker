@@ -33,7 +33,15 @@ Meter `NymBroker`:
 | `nymbroker.health.status` | gauge | aggregate status of the latest health check: `0` healthy, `1` degraded, `2` unhealthy | — |
 | `nymbroker.health.endpoint.healthy` | gauge | health of each endpoint in the latest check: `1` healthy, `0` unhealthy | `endpoint`, `critical` |
 
-Meter `NymBroker.Resilience`: `nymbroker.retries` — retry attempts of every [retry policy](resilience.md#how-nymbroker-uses-it) (transport reconnects, HTTP requests, broker-held deferred sends). The meter keeps its original name from when `RetryPolicy` was a separate package.
+Meter `NymBroker.Resilience` (it keeps its original name from when `RetryPolicy` was a separate package):
+
+| Instrument | Type | What it counts | Tags |
+|---|---|---|---|
+| `nymbroker.retries` | counter | retry attempts of every [retry policy](resilience.md#how-nymbroker-uses-it) (transport reconnects, HTTP requests, broker-held deferred sends) | — |
+| `nymbroker.circuit_breaker.state_changes` | counter | [circuit breaker](resilience.md#circuit-breaker) state changes | `circuit` (the consumer class, or `default`), `state` (`open`/`half_open`/`closed`) |
+| `nymbroker.circuit_breaker.held` | counter | messages the broker held because their consumer's circuit was open | `circuit` |
+| `nymbroker.circuit_breaker.rejected` | counter | calls a standalone `CircuitBreaker.ExecuteAsync` refused | `circuit` |
+| `nymbroker.consumer.timeouts` | counter | consumers that passed their [timeout](resilience.md#timeout) | `consumer` |
 
 Tag values are endpoint, topic, type and consumer names, so the number of series stays small.
 
@@ -42,6 +50,7 @@ Useful views:
 - **Throughput and errors per endpoint** — `received` and `failed` by `source`.
 - **Where messages go** — `routed` by `destination`, `consumed` by `consumer`.
 - **Poison messages** — `dead_lettered` by `reason`; alert on any increase.
+- **A failing downstream** — `circuit_breaker.state_changes` with `state = open`, and `consumer.timeouts`, by consumer.
 - **Latency** — `processing.duration` p95 by `source`; `result = retry` shows transient trouble.
 - **Health** — alert on `health.checks` with `status = unhealthy` (or `degraded`) increasing, or on `health.status > 0`; `health.endpoint.failures` by `endpoint` and `reason` shows which endpoint fails and whether it is down (`unhealthy`), hanging (`timeout`) or broken (`error`: its check threw). The health metrics are only recorded when `CheckHealthAsync` runs — for example on each `/health` probe — so their resolution is the probe interval.
 - **Backlog** — alert on `message.age` p95 or max by `source`: when consumers fall behind, messages wait longer and the age rises. It is measured against the sender's clock, so clock skew between hosts shifts it (negative values are recorded as 0). The broker does not count queued messages; take depth from the transport:
