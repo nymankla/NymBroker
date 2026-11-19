@@ -131,7 +131,7 @@ services.AddNymBroker()
     .Build();
 ```
 
-Invalid values throw from `AddConsumer`. Registering the same consumer again with other options throws.
+Invalid values throw from `AddConsumer`. Registering the same consumer again with other options throws. [NymBroker.ResilienceSample](../samples/NymBroker.ResilienceSample) runs both against a SQLite queue and checks the outcome: `dotnet run --project samples/NymBroker.ResilienceSample`.
 
 ### Timeout
 
