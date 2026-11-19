@@ -8,7 +8,7 @@ Every package is a project of the same name, and its namespace is the package ID
 
 ```mermaid
 flowchart BT
-    Core["NymBroker (NymBroker.Core)<br/>engine · builder · Memory · File · RetryPolicy"]
+    Core["NymBroker (NymBroker.Core)<br/>engine · builder · Memory · File · RetryPolicy · CircuitBreaker"]
     EP["NymBroker.Endpoint.*<br/>Sqlite · Postgres · SqlServer · MySql<br/>RabbitMq · AzureServiceBus · AwsSqs · Http"]
     ID["NymBroker.Idempotency.*<br/>Sqlite · Postgres · SqlServer · MySql"]
     SC["NymBroker.Scheduling.*<br/>Sqlite · Postgres · SqlServer · MySql"]
@@ -28,7 +28,7 @@ flowchart BT
 
 | Part | Role |
 |---|---|
-| `NymBroker.Core` | The broker engine (`NymBrokerImpl`, internal), the public `INymBroker` runtime API, `NymBrokerBuilder` (all configuration), serializer and envelope, routing, topics, consumers, idempotent receiver, scheduling, splitter and aggregator, health checks, the Memory and File endpoints, `RetryPolicy`, and the building blocks endpoint packages derive from. No transport dependency. |
+| `NymBroker.Core` | The broker engine (`NymBrokerImpl`, internal), the public `INymBroker` runtime API, `NymBrokerBuilder` (all configuration), serializer and envelope, routing, topics, consumers, idempotent receiver, scheduling, splitter and aggregator, health checks, the Memory and File endpoints, the resilience building blocks (`RetryPolicy`, `CircuitBreaker`), and the building blocks endpoint packages derive from. No transport dependency. |
 | `NymBroker.Endpoint.*` | One transport each. Queue-table endpoints (SQLite, PostgreSQL, SQL Server, MySQL) use a nested listener derived from Core's `LeasedQueueListener`; broker transports (RabbitMQ, Service Bus, SQS) push or poll natively; HTTP is send-only. |
 | `NymBroker.Idempotency.*`, `NymBroker.Scheduling.*`, `NymBroker.Outbox.*` | Durable stores behind Core's `IExpiringIdempotencyStore` (and `ITransactionalIdempotencyStore`), `IScheduleStore` and `IOutboxStore`, independent of the endpoint packages. Core's hosted `OutboxDispatcher` sends what the outbox stores hold. |
 | `NymBroker.Dashboard` | The read-only web dashboard: a minimal API route group (request delegate generator, source-generated JSON, no reflection) and an embedded HTML/CSS/JS page. It reads Core only through public API: `INymBroker.Describe()`, `GetQueueInspector`, `CheckHealthAsync` and the broker's meters (a `MeterListener`). The only package that depends on ASP.NET Core. See [Dashboard](dashboard.md). |
@@ -61,9 +61,12 @@ flowchart LR
     RD --> RT[RouteToDestinationsAsync]
     RD --> TP[FanOutToTopicsAsync]
     RD --> CN[DispatchToConsumerAsync<br/>only if not routed or published]
+    CN --> IC[InvokeConsumerAsync<br/>circuit breaker · timeout]
 ```
 
 `ProcessAsync` decodes the bytes before it starts the `nymbroker.process` activity, so the activity can continue the W3C trace context the envelope carries ([Observability](observability.md#trace-context-across-messages)). The wire tap then receives the original bytes before the decode result or a captured transformer failure is acted on. Instrumented sends start `nymbroker.send` activities (`NymBrokerImpl.Tracing.cs`).
+
+`InvokeConsumerAsync` (`NymBrokerImpl.Resilience.cs`) applies a consumer's optional timeout and circuit breaker ([Resilience](resilience.md#consumer-timeout-and-circuit-breaker)). A consumer without either is called directly. With a breaker, an open circuit **holds** the message on its listener until the break is over, instead of returning `Retry`: a `Retry` is redelivered at once and counts toward the transport's delivery limit. With a timeout, the broker stops waiting when it passes and settles the message as a consumer failure (`ConsumerTimedOut`), even if the consumer ignores its token. Neither affects the health check. Routes, topics and endpoint sends have no timeout or breaker yet.
 
 Which result each situation gets depends on whether the source endpoint dead-letters natively (the SQL tables, RabbitMQ and Service Bus do; Memory, File and SQS don't). The full table is in [Writing an endpoint](writing-an-endpoint.md#native-dead-lettering-usesnativedeadletter). For consumer and topic failures it is one rule in code: `SettlementFor` picks a `FailureSettlement` and `SettleFailureAsync` applies it. Every send — post, route, topic, wire tap, dead letter — goes through `SendAsync` / `SendBatchAsync`, so output transformers are never bypassed.
 
