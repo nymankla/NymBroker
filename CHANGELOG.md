@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-20
+
 ### Added
 
 - Payload protection (#135), off by default. `builder.ProtectPayloads(protector, o => o.ForEndpoints("PartnerOut").RequireOnReceive("PartnerIn"))`:

@@ -63,3 +63,4 @@ NymBroker.Endpoint.Sqlite.SqliteEndPoint.GetCountsAsync(System.Threading.Cancell
 NymBroker.Endpoint.Sqlite.SqliteEndPoint.GetMessagesAsync(NymBroker.Core.Endpoint.Queue.QueueInspectionState state, int limit = 100, string? cursor = null, System.DateTimeOffset? failedSince = null, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueuePage!>!
 NymBroker.Endpoint.Sqlite.SqliteSettings.MaxConcurrentCalls.get -> int
 NymBroker.Endpoint.Sqlite.SqliteSettings.MaxConcurrentCalls.set -> void
+NymBroker.Endpoint.Sqlite.SqliteEndPoint.ReplayFailedAsync(System.Collections.Generic.IReadOnlyCollection<NymBroker.Core.Endpoint.Queue.QueueMessageInfo!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueueReplayResult!>!
