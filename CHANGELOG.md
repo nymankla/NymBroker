@@ -15,6 +15,7 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
   - **Your own protector.** Implement `IPayloadProtector` for another algorithm or a key service.
   - Unprotected envelopes are unchanged byte for byte.
   - See [docs/security.md](docs/security.md#payload-protection).
+- `samples/NymBroker.PayloadProtectionSample`: a self-checking run of payload protection on a shared SQLite queue. It shows that the table holds only ciphertext, rotates a key, and dead-letters plaintext from a legacy sender, a message under an unknown key and a payload edited in the table.
 
 ## [0.27.0] - 2026-11-19
 

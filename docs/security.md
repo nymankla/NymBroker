@@ -218,6 +218,8 @@ A protected envelope looks like this (the `protection` block is added only to pr
   3. Remove the old key once no message encrypted with it is left (also in dead-letter queues you may replay).
 - **Your own algorithm or key service.** Implement `IPayloadProtector` (`Protect` / `Unprotect` with the associated data the broker passes in) and register it with `ProtectPayloads(sp => …, …)`.
 
+[NymBroker.PayloadProtectionSample](../samples/NymBroker.PayloadProtectionSample) runs this against a SQLite queue and checks the outcome: the stored rows, a key rotation, and the three ways a message is refused. Run it with `dotnet run --project samples/NymBroker.PayloadProtectionSample`.
+
 What it does not cover:
 
 - An endpoint with an output transformer can't be protected: its bytes are not an envelope. An endpoint with an input transformer can't require protection: it receives a foreign format. `Build()` throws for both.
