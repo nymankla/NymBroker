@@ -31,7 +31,9 @@ Meter `NymBroker`:
 | `nymbroker.health.checks` | counter | [health checks](#health-checks) run | `status` (`healthy`/`degraded`/`unhealthy`) |
 | `nymbroker.health.endpoint.failures` | counter | endpoints reported unhealthy by a health check | `endpoint`, `critical` (`true`/`false`), `reason` (`unhealthy`/`timeout`/`error`) |
 | `nymbroker.health.status` | gauge | aggregate status of the latest health check: `0` healthy, `1` degraded, `2` unhealthy | — |
-| `nymbroker.health.endpoint.healthy` | gauge | health of each endpoint in the latest check: `1` healthy, `0` unhealthy | `endpoint`, `critical` |
+| `nymbroker.health.endpoint.healthy` | gauge | health of each endpoint in the latest check: `1` reachable (healthy, or degraded by a dead-letter threshold), `0` unhealthy | `endpoint`, `critical` |
+| `nymbroker.queue.messages` | gauge | messages in a queue endpoint, from the latest [queue monitoring](#queue-monitoring) sample (only with `MonitorQueues`) | `endpoint`, `state` (`pending`/`in_progress`/`deferred`/`failed`) |
+| `nymbroker.queue.oldest_message.age` | gauge (s) | age of the oldest pending message (since posted) and failed message (since it failed), from the latest sample | `endpoint`, `state` (`pending`/`failed`) |
 
 Meter `NymBroker.Resilience` (it keeps its original name from when `RetryPolicy` was a separate package):
 
@@ -52,12 +54,13 @@ Useful views:
 - **Throughput and errors per endpoint** — `received` and `failed` by `source`.
 - **Where messages go** — `routed` by `destination`, `consumed` by `consumer`.
 - **Poison messages** — `dead_lettered` by `reason`; alert on any increase.
+- **Dead letters still waiting** — `queue.messages` with `state = failed`, and `queue.oldest_message.age` with `state = failed`, by `endpoint` ([queue monitoring](#queue-monitoring)). `dead_lettered` counts the events; these show what nobody has dealt with yet.
 - **A failing downstream** — `circuit_breaker.state_changes` with `state = open`, and `consumer.timeouts`, by consumer.
 - **A limit that is too tight** — `throttle.wait.duration` p95 by `name`; compare it with the transport's lease or lock time.
 - **Latency** — `processing.duration` p95 by `source`; `result = retry` shows transient trouble.
 - **Health** — alert on `health.checks` with `status = unhealthy` (or `degraded`) increasing, or on `health.status > 0`; `health.endpoint.failures` by `endpoint` and `reason` shows which endpoint fails and whether it is down (`unhealthy`), hanging (`timeout`) or broken (`error`: its check threw). The health metrics are only recorded when `CheckHealthAsync` runs — for example on each `/health` probe — so their resolution is the probe interval.
-- **Backlog** — alert on `message.age` p95 or max by `source`: when consumers fall behind, messages wait longer and the age rises. It is measured against the sender's clock, so clock skew between hosts shifts it (negative values are recorded as 0). The broker does not count queued messages; take depth from the transport:
-  - SQL queue tables (SQLite, PostgreSQL, SQL Server, MySQL): `GetCountsAsync` of the [queue inspector](#queue-inspection).
+- **Backlog** — alert on `message.age` p95 or max by `source`: when consumers fall behind, messages wait longer and the age rises. It is measured against the sender's clock, so clock skew between hosts shifts it (negative values are recorded as 0). For depth:
+  - SQL queue tables (SQLite, PostgreSQL, SQL Server, MySQL): `queue.messages` and `queue.oldest_message.age` with `state = pending`, with [queue monitoring](#queue-monitoring) on; or `GetCountsAsync` of the [queue inspector](#queue-inspection).
   - RabbitMQ: the queue's `messages_ready` (management API or the Prometheus plugin).
   - Azure Service Bus: `ActiveMessages` in Azure Monitor, or `ActiveMessageCount` from `ServiceBusAdministrationClient` (needs Manage rights).
   - Amazon SQS: CloudWatch `ApproximateNumberOfMessagesVisible` and `ApproximateAgeOfOldestMessage`.
@@ -144,6 +147,7 @@ foreach (var ep in report.Endpoints)   // ordered by name
 |---|---|
 | All endpoints healthy and the broker started | `Healthy` |
 | Only endpoints marked non-critical are unhealthy | `Degraded` |
+| An endpoint over its [dead-letter threshold](#dead-letter-thresholds) (and none unhealthy) | `Degraded`; that endpoint is `Degraded` with e.g. "3 dead letter(s) (threshold 0), oldest 2.5 h" |
 | Any critical endpoint unhealthy | `Unhealthy` |
 | Broker not started (or stopped) | `Unhealthy`, `BrokerStarted = false`, message "Broker is not running" |
 | No endpoints registered | `Healthy` (only the broker state counts) |
@@ -202,3 +206,60 @@ do
 - `GetMessagesAsync` lists `Pending`, `InProgress`, `Deferred` or `Failed` messages (`Completed` is only counted), at most `IQueueInspector.MaxPageSize` (1000) per page. Pass `NextCursor` back to continue; a cursor belongs to the state it came from. Pending and in-progress messages come in post order, deferred by delivery time (`DeliverAt`), failed by failure time (`FailedAt`; `failedSince` filters on it).
 - `QueueMessageInfo.Id` is the message's own identifier: it stays the same when a deferred message becomes due, and does not depend on the transport's row numbers. `Payload` is the bytes as posted (the JSON envelope); `LastError` is the last failure text, `"{Reason}: {Description}"` for a dead-lettered message.
 - Counts and pages are a snapshot at the time of the call; a message can change state right after.
+
+## Queue monitoring
+
+Queue counts are not collected unless something asks for them. `MonitorQueues` samples every endpoint that has a [queue inspector](#queue-inspection) (SQLite, PostgreSQL, SQL Server, MySQL) in the background, and publishes the results as the gauges `nymbroker.queue.messages` and `nymbroker.queue.oldest_message.age` ([Metrics](#metrics)):
+
+```csharp
+services.AddNymBroker()
+    .AddSqlServerEndPoint("Orders", ordersSettings)
+    .AddSqlServerEndPoint("DeadLetters", deadLetterSettings)
+    .WithDeadLetterEndpoint("DeadLetters")
+    .MonitorQueues(o =>
+    {
+        o.Interval = TimeSpan.FromSeconds(30);                                 // default 60 s, at least 1 s
+        o.DeadLetterThreshold("Orders", maxCount: 0);                          // any failed message → Degraded
+        o.DeadLetterThreshold("DeadLetters", maxCount: 100, maxAge: TimeSpan.FromHours(4));
+    })
+    .Build();
+```
+
+- The sampler runs as a hosted service. It samples once at start, then every `Interval`. Each sample is one count query per endpoint, plus one single-row query for each non-empty pending or failed state, to find its oldest message.
+- The gauges and the health check read the **last sample**: a metrics scrape or a `/health` probe never queries the database. The ages are computed from the oldest message's time when they are read, so they keep growing between samples.
+- An endpoint whose sample fails is logged at `Warning` and left out until a sample succeeds, so no stale numbers are reported.
+- With several instances, each one samples the same tables and reports the same numbers. Aggregate with `max` by `endpoint`, not `sum`.
+- RabbitMQ, Azure Service Bus, Amazon SQS, Memory and File have no inspector and are not sampled; use the transport's own metrics (see **Backlog** under [Metrics](#metrics)).
+
+### Dead-letter thresholds
+
+`DeadLetterThreshold(endpoint, maxCount, maxAge)` reports the endpoint **Degraded** in the [health check](#health-checks) while it holds more than `maxCount` dead letters, or its oldest dead letter is older than `maxAge`. Give at least one of them.
+
+- What counts as a dead letter depends on the endpoint. On a queue table it is a failed message, whether the table's native dead-lettering or `MaxRetryCount` put it there. On the broker's dead-letter endpoint (`WithDeadLetterEndpoint`) it is every message waiting there.
+- Degraded, not Unhealthy: ASP.NET Core answers `/health` with `200` for Degraded by default, so an orchestrator doesn't restart the app over a backlog that a restart can't fix, while monitoring and health UIs see it.
+- An endpoint that is unreachable stays `Unhealthy`. Until the first sample there is nothing to compare, so the endpoint keeps its own status.
+- `Build()` throws for a threshold on an endpoint that isn't registered. A threshold on an endpoint without an inspector is logged at `Warning` when the sampler starts, and is never checked.
+
+### Alert examples
+
+With the OpenTelemetry Prometheus exporter, the gauges are named `nymbroker_queue_messages` and `nymbroker_queue_oldest_message_age_seconds`:
+
+```promql
+# Any dead letter waiting on Orders for 5 minutes
+max by (endpoint) (nymbroker_queue_messages{endpoint="Orders", state="failed"}) > 0
+
+# A dead letter older than a day, anywhere
+max by (endpoint) (nymbroker_queue_oldest_message_age_seconds{state="failed"}) > 86400
+
+# A stuck queue: the oldest pending message waits more than 10 minutes
+max by (endpoint) (nymbroker_queue_oldest_message_age_seconds{state="pending"}) > 600
+
+# A growing backlog: 1000 more pending messages than an hour ago
+max by (endpoint) (nymbroker_queue_messages{state="pending"})
+  - max by (endpoint) (nymbroker_queue_messages{state="pending"} offset 1h) > 1000
+
+# The broker reports Degraded (a threshold, or a non-critical endpoint down)
+nymbroker_health_status == 1
+```
+
+Use `for: 5m` on the rule so that one sample doesn't page anybody. Azure Monitor and other OTLP back ends get the same instruments under their dotted names.

@@ -43,3 +43,25 @@ override NymBroker.Core.Protection.ProtectedPayload.GetHashCode() -> int
 override NymBroker.Core.Protection.ProtectedPayload.ToString() -> string!
 static NymBroker.Core.Protection.ProtectedPayload.operator !=(NymBroker.Core.Protection.ProtectedPayload? left, NymBroker.Core.Protection.ProtectedPayload? right) -> bool
 static NymBroker.Core.Protection.ProtectedPayload.operator ==(NymBroker.Core.Protection.ProtectedPayload? left, NymBroker.Core.Protection.ProtectedPayload? right) -> bool
+NymBroker.Core.Endpoint.Queue.DeadLetterThreshold
+NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.<Clone>$() -> NymBroker.Core.Endpoint.Queue.DeadLetterThreshold!
+NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.DeadLetterThreshold(long? MaxCount, System.TimeSpan? MaxAge) -> void
+NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.Deconstruct(out long? MaxCount, out System.TimeSpan? MaxAge) -> void
+NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.Equals(NymBroker.Core.Endpoint.Queue.DeadLetterThreshold? other) -> bool
+NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.MaxAge.get -> System.TimeSpan?
+NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.MaxAge.init -> void
+NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.MaxCount.get -> long?
+NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.MaxCount.init -> void
+NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions
+NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions.DeadLetterThreshold(string! endpointName, long? maxCount = null, System.TimeSpan? maxAge = null) -> NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions!
+NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions.DeadLetterThresholds.get -> System.Collections.Generic.IReadOnlyDictionary<string!, NymBroker.Core.Endpoint.Queue.DeadLetterThreshold!>!
+NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions.Interval.get -> System.TimeSpan
+NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions.Interval.set -> void
+NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions.QueueMonitoringOptions() -> void
+NymBroker.Core.Factory.NymBrokerBuilder.MonitorQueues(System.Action<NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions!>? configure = null) -> NymBroker.Core.Factory.NymBrokerBuilder!
+override NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.Equals(object? obj) -> bool
+override NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.GetHashCode() -> int
+override NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.ToString() -> string!
+static NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.operator !=(NymBroker.Core.Endpoint.Queue.DeadLetterThreshold? left, NymBroker.Core.Endpoint.Queue.DeadLetterThreshold? right) -> bool
+static NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.operator ==(NymBroker.Core.Endpoint.Queue.DeadLetterThreshold? left, NymBroker.Core.Endpoint.Queue.DeadLetterThreshold? right) -> bool
+static readonly NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions.DefaultInterval -> System.TimeSpan

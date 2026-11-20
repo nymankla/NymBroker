@@ -15,6 +15,12 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
   - **Your own protector.** Implement `IPayloadProtector` for another algorithm or a key service.
   - Unprotected envelopes are unchanged byte for byte.
   - See [docs/security.md](docs/security.md#payload-protection).
+- Queue monitoring (#133), off by default. Without it, queue depth and dead letters went unnoticed unless a dashboard page was open. `builder.MonitorQueues(o => o.DeadLetterThreshold("Orders", maxCount: 0, maxAge: TimeSpan.FromHours(4)))`:
+  - **Sampling.** Every endpoint with a queue inspector (SQLite, PostgreSQL, SQL Server, MySQL) is sampled in the background: at start, then every `Interval` (default 60 s).
+  - **New gauges.** `nymbroker.queue.messages` {`endpoint`, `state`} and `nymbroker.queue.oldest_message.age` {`endpoint`, `state` = `pending`/`failed`}. They read the last sample, so a metrics scrape never queries the database.
+  - **Health check.** An endpoint over its dead-letter threshold is reported **Degraded**, not Unhealthy, so it is visible without a restart loop. On the broker's dead-letter endpoint, every waiting message counts.
+  - **Health types.** `EndpointHealth.Status` can now be `Degraded`, and `nymbroker.health.endpoint.healthy` reports such an endpoint as `1` (reachable).
+  - See [docs/observability.md](docs/observability.md#queue-monitoring) for alert examples.
 - `samples/NymBroker.PayloadProtectionSample`: a self-checking run of payload protection on a shared SQLite queue. It shows that the table holds only ciphertext, rotates a key, and dead-letters plaintext from a legacy sender, a message under an unknown key and a payload edited in the table.
 
 ## [0.27.0] - 2026-11-19

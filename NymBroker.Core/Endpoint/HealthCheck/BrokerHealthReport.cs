@@ -4,14 +4,18 @@ namespace NymBroker.Core.Endpoint.HealthCheck;
 public enum BrokerHealthStatus
 {
     Healthy,
-    /// <summary>Only endpoints marked non-critical (<see cref="BrokerHealthCheckOptions.NonCritical"/>) are unhealthy.</summary>
+    /// <summary>
+    /// Only endpoints marked non-critical (<see cref="BrokerHealthCheckOptions.NonCritical"/>) are unhealthy, or an endpoint
+    /// is over its dead-letter threshold (<see cref="Queue.QueueMonitoringOptions.DeadLetterThreshold"/>). For one endpoint:
+    /// reachable, but over its dead-letter threshold.
+    /// </summary>
     Degraded,
     Unhealthy
 }
 
 /// <summary>Result of one endpoint's <see cref="IEndPoint.HealthCheck"/> inside a <see cref="BrokerHealthReport"/>.</summary>
 /// <param name="Name">The endpoint's registered name.</param>
-/// <param name="Status"><see cref="BrokerHealthStatus.Healthy"/> or <see cref="BrokerHealthStatus.Unhealthy"/>.</param>
+/// <param name="Status"><see cref="BrokerHealthStatus.Healthy"/>, <see cref="BrokerHealthStatus.Unhealthy"/>, or <see cref="BrokerHealthStatus.Degraded"/> when it is reachable but over its dead-letter threshold.</param>
 /// <param name="Message">The endpoint's message, the exception message if the check threw, or a timeout message.</param>
 /// <param name="Mode">The endpoint's <see cref="EndpointMode"/>.</param>
 /// <param name="Duration">How long the check took (up to the overall timeout if it did not answer in time).</param>
@@ -29,7 +33,7 @@ public sealed record EndpointHealth(
 
 /// <summary>Aggregated health of the broker and every registered endpoint, from <c>INymBroker.CheckHealthAsync</c>.</summary>
 /// <param name="Status">The aggregate: Unhealthy if the broker is not running or a critical endpoint is unhealthy,
-/// Degraded if only non-critical endpoints are unhealthy, otherwise Healthy.</param>
+/// Degraded if only non-critical endpoints are unhealthy or an endpoint is over its dead-letter threshold, otherwise Healthy.</param>
 /// <param name="BrokerStarted">Whether the broker has been started (and not stopped).</param>
 /// <param name="Endpoints">One entry per registered endpoint, ordered by name.</param>
 /// <param name="Duration">Total time taken by the check.</param>

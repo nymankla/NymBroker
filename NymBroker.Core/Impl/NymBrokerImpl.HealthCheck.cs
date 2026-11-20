@@ -12,11 +12,21 @@ internal sealed partial class NymBrokerImpl
 
     private BrokerHealthCheckOptions _healthCheckOptions = new();
 
+    /// <summary>Samples the queue endpoints (<c>MonitorQueues</c>, #133); null when monitoring is off.</summary>
+    internal Endpoint.Queue.QueueMonitor? QueueMonitor { get; private set; }
+
     /// <summary>Sets the options used by <see cref="CheckHealthAsync"/> (configuration time).</summary>
     public void ConfigureHealthCheck(BrokerHealthCheckOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _healthCheckOptions = options;
+    }
+
+    /// <summary>Creates the queue monitor; its hosted service runs the samples (configuration time).</summary>
+    public void EnableQueueMonitoring(Endpoint.Queue.QueueMonitoringOptions options, TimeProvider? timeProvider = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        QueueMonitor = new Endpoint.Queue.QueueMonitor(options, () => _endpoints, () => _deadLetterEndpoint, _logger, timeProvider);
     }
 
     public async Task<BrokerHealthReport> CheckHealthAsync(CancellationToken ct = default)
@@ -34,6 +44,7 @@ internal sealed partial class NymBrokerImpl
         var failureReasons = new string?[checks.Count];
         for (var i = 0; i < checks.Count; i++)
             (results[i], failureReasons[i]) = ResultOrTimeout(checks[i], options, total.Elapsed);
+        ApplyDeadLetterThresholds(results);
 
         var (status, summary) = Aggregate(started, results);
         var report = new BrokerHealthReport(status, started, results, total.Elapsed, summary);
@@ -89,6 +100,20 @@ internal sealed partial class NymBrokerImpl
             check.Mode, elapsed, options.IsCritical(check.Name)), HealthFailureTimeout);
     }
 
+    /// <summary>
+    /// A reachable endpoint over its dead-letter threshold becomes Degraded: monitoring should see the backlog, but a
+    /// restart can't fix it, so it never makes the broker Unhealthy.
+    /// </summary>
+    private void ApplyDeadLetterThresholds(EndpointHealth[] results)
+    {
+        if (QueueMonitor is not { } monitor) return;
+        for (var i = 0; i < results.Length; i++)
+        {
+            if (results[i].IsHealthy && monitor.DeadLetterBreach(results[i].Name) is { } breach)
+                results[i] = results[i] with { Status = BrokerHealthStatus.Degraded, Message = breach };
+        }
+    }
+
     public Endpoint.Queue.IQueueInspector? GetQueueInspector(string endpointName)
     {
         ArgumentException.ThrowIfNullOrEmpty(endpointName);
@@ -138,10 +163,12 @@ internal sealed partial class NymBrokerImpl
             var endpoint = report.Endpoints[i];
             var endpointTag = new KeyValuePair<string, object?>("endpoint", endpoint.Name);
             var criticalTag = new KeyValuePair<string, object?>("critical", endpoint.IsCritical);
+            // A Degraded endpoint (over its dead-letter threshold) is reachable: it counts as healthy here.
+            var reachable = endpoint.Status != BrokerHealthStatus.Unhealthy;
 
-            NymBrokerDiagnostics.HealthEndpointHealthy.Record(endpoint.IsHealthy ? 1 : 0, endpointTag, criticalTag);
+            NymBrokerDiagnostics.HealthEndpointHealthy.Record(reachable ? 1 : 0, endpointTag, criticalTag);
 
-            if (!endpoint.IsHealthy)
+            if (!reachable)
                 NymBrokerDiagnostics.HealthEndpointFailures.Add(1, endpointTag, criticalTag,
                     new KeyValuePair<string, object?>("reason", failureReasons[i] ?? HealthFailureUnhealthy));
         }
@@ -169,18 +196,28 @@ internal sealed partial class NymBrokerImpl
 
     internal static (BrokerHealthStatus Status, string? Message) Aggregate(bool brokerStarted, IReadOnlyList<EndpointHealth> endpoints)
     {
-        var failedCritical = endpoints.Where(e => !e.IsHealthy && e.IsCritical).Select(e => e.Name).ToList();
-        var failedNonCritical = endpoints.Where(e => !e.IsHealthy && !e.IsCritical).Select(e => e.Name).ToList();
+        var failedCritical = Names(endpoints, e => e.Status == BrokerHealthStatus.Unhealthy && e.IsCritical);
+        var failedNonCritical = Names(endpoints, e => e.Status == BrokerHealthStatus.Unhealthy && !e.IsCritical);
+        var degraded = Names(endpoints, e => e.Status == BrokerHealthStatus.Degraded);
 
-        var parts = new List<string>();
-        if (!brokerStarted) parts.Add(BrokerNotRunningMessage);
-        if (failedCritical.Count > 0) parts.Add($"Unhealthy endpoints: {string.Join(", ", failedCritical)}");
-        if (failedNonCritical.Count > 0) parts.Add($"Unhealthy non-critical endpoints: {string.Join(", ", failedNonCritical)}");
+        var parts = new[]
+        {
+            brokerStarted ? null : BrokerNotRunningMessage,
+            Listed("Unhealthy endpoints", failedCritical),
+            Listed("Unhealthy non-critical endpoints", failedNonCritical),
+            Listed("Endpoints over their dead-letter threshold", degraded)
+        }.OfType<string>().ToList();
 
         var status = !brokerStarted || failedCritical.Count > 0 ? BrokerHealthStatus.Unhealthy
-            : failedNonCritical.Count > 0 ? BrokerHealthStatus.Degraded
+            : failedNonCritical.Count + degraded.Count > 0 ? BrokerHealthStatus.Degraded
             : BrokerHealthStatus.Healthy;
 
         return (status, parts.Count == 0 ? null : string.Join("; ", parts));
     }
+
+    private static List<string> Names(IReadOnlyList<EndpointHealth> endpoints, Func<EndpointHealth, bool> predicate)
+        => endpoints.Where(predicate).Select(e => e.Name).ToList();
+
+    private static string? Listed(string label, List<string> names)
+        => names.Count == 0 ? null : $"{label}: {string.Join(", ", names)}";
 }

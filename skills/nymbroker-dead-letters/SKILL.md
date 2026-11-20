@@ -28,6 +28,8 @@ From the registration code: which endpoints receive, their transports, whether `
 
 `DeadLetterReasons` (namespace `NymBroker.Core.Endpoint`): `ConsumerFailed`, `ConsumerTimedOut` (newer than 0.26.0: a consumer passed its `ConsumerOptions.Timeout`), `TopicDeliveryFailed`, `DeserializationFailed`, `Expired`, `UnknownCompression`, `PayloadUnprotectFailed` / `PayloadNotProtected` (newer than 0.27.0, payload protection: a key missing from the receiver's key ring, a wrong key, tampering, or plaintext on an endpoint that requires protection); plus transport reasons such as Service Bus `MaxDeliveryCountExceeded`. Only `ConsumerFailed` / `ConsumerTimedOut` / `TopicDeliveryFailed` / `MaxDeliveryCountExceeded` are usually worth replaying after a fix. `PayloadUnprotectFailed` can be replayed once the missing key is in the key ring (the dead-lettered copy is still encrypted). The others need the data or the sender fixed.
 
+To be told when dead letters pile up (SQL queue tables, newer than 0.27.0): `.MonitorQueues(o => o.DeadLetterThreshold("Orders", maxCount: 0, maxAge: TimeSpan.FromHours(4)))` gives gauges for the failed count and the oldest failed age, and makes the health check Degraded over the threshold: https://github.com/nymankla/NymBroker/blob/master/docs/observability.md#queue-monitoring
+
 ## 3. Per transport
 
 ### Broker dead-letter endpoint (Memory, File, opt-out)

@@ -59,4 +59,16 @@ public static class NymBrokerDiagnostics
     internal static readonly Gauge<int> HealthEndpointHealthy =
         Meter.CreateGauge<int>("nymbroker.health.endpoint.healthy", null,
             "Latest health of each endpoint: 1 healthy, 0 unhealthy.");
+
+    // Queue gauges (#133): only with MonitorQueues, read from the last sample, never from the database at collection time.
+
+    /// <summary>Messages per queue endpoint and state; tags <c>endpoint</c>, <c>state</c> = pending | in_progress | deferred | failed.</summary>
+    internal static readonly ObservableGauge<long> QueueMessages =
+        Meter.CreateObservableGauge("nymbroker.queue.messages", Endpoint.Queue.QueueMonitor.ObserveMessages, "{message}",
+            "Messages in each queue endpoint, by state, from the latest MonitorQueues sample.");
+
+    /// <summary>Age of the oldest pending (since posted) and failed (since it failed) message; tags <c>endpoint</c>, <c>state</c> = pending | failed.</summary>
+    internal static readonly ObservableGauge<double> QueueOldestMessageAge =
+        Meter.CreateObservableGauge("nymbroker.queue.oldest_message.age", Endpoint.Queue.QueueMonitor.ObserveOldestAge, "s",
+            "Age of the oldest pending and failed message in each queue endpoint, from the latest MonitorQueues sample.");
 }

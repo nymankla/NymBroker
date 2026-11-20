@@ -90,7 +90,7 @@ Queue inspection is available for SQLite, PostgreSQL, SQL Server and MySQL endpo
 
 Suggest to the user:
 
-- Alert: `dead_lettered` increase > 0; `failed` rate above normal; `health.status > 0` for several minutes; any `Critical` log from NymBroker; backlog (transport metric) growing for N minutes.
+- Alert: `dead_lettered` increase > 0; `failed` rate above normal; `health.status > 0` for several minutes; any `Critical` log from NymBroker; backlog growing for N minutes. For SQL queue tables (newer than 0.27.0) `.MonitorQueues(o => o.DeadLetterThreshold("Orders", maxCount: 0))` publishes `nymbroker.queue.messages` {endpoint, state} and `nymbroker.queue.oldest_message.age` {endpoint, state = pending|failed}, sampled in the background (default every 60 s), and reports an endpoint over its threshold as Degraded (still HTTP 200). Alert on `state="failed"` > 0, or on an oldest pending age; other transports: the transport's own metric. See https://github.com/nymankla/NymBroker/blob/master/docs/observability.md#queue-monitoring
 - Dashboard: received and failed per `source`; processing duration p50/p95 per `source`; dead letters by `reason`; consumed per `consumer`; health status; backlog (`message.age` p95/max per `source`, depth from the transport).
 
 ## 6. Finish

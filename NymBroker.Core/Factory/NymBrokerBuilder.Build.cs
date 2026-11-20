@@ -3,6 +3,7 @@ using NymBroker.Core.Aggregator;
 using NymBroker.Core.Consume;
 using NymBroker.Core.Endpoint;
 using NymBroker.Core.Endpoint.HealthCheck;
+using NymBroker.Core.Endpoint.Queue;
 using NymBroker.Core.Factory.Configuration;
 using NymBroker.Core.DI;
 using NymBroker.Core.Filter;
@@ -32,6 +33,7 @@ public sealed partial class NymBrokerBuilder
         ValidateHealthCheckEndpoints();
         ValidateSendLimitEndpoints();
         ValidatePayloadProtection();
+        ValidateQueueMonitoring();
         _built = true;
 
         RegisterCoreServices(_services, _jsonContexts);
@@ -45,6 +47,8 @@ public sealed partial class NymBrokerBuilder
         // After the broker's hosted service: the host starts them in order and stops them in reverse.
         if (_outbox)
             _services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Outbox.OutboxDispatcher>());
+        if (_queueMonitoring is not null)
+            _services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, QueueMonitorService>());
     }
 
     private void ValidateHealthCheckEndpoints()
@@ -103,6 +107,7 @@ public sealed partial class NymBrokerBuilder
         private readonly bool _idempotentReceiver = builder._idempotentReceiver;
         private readonly bool _scheduleStore = builder._scheduleStore;
         private readonly BrokerHealthCheckOptions _healthCheckOptions = builder._healthCheckOptions;
+        private readonly QueueMonitoringOptions? _queueMonitoring = builder._queueMonitoring;
         private readonly (List<string> Protected, List<string> Required)? _payloadProtection = builder._payloadProtection is { } p
             ? (p.ProtectedEndpoints.ToList(), p.RequiredOnReceive.ToList())
             : null;
@@ -193,6 +198,8 @@ public sealed partial class NymBrokerBuilder
                 broker.SetPayloadProtection(sp.GetRequiredService<Protection.IPayloadProtector>(), protectedEndpoints, required);
 
             broker.ConfigureHealthCheck(_healthCheckOptions);
+            if (_queueMonitoring is not null)
+                broker.EnableQueueMonitoring(_queueMonitoring);
             broker.ConfigureTracing(_tracingOptions);
         }
 
