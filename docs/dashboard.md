@@ -113,7 +113,7 @@ See also [Production security](security.md#dashboard).
 - **One process.** Rates, latency and health come from the process that hosts the dashboard; queue counts come from the database and are the same everywhere. With several instances, each dashboard shows its own instance's traffic. For a view across instances, and for alerting, export the [metrics](observability.md#metrics) with OpenTelemetry to Prometheus, Grafana or Azure Monitor: the dashboard is for looking at a broker, not for monitoring it. For queue depth and dead-letter age as metrics, and a health-check threshold, turn on [queue monitoring](observability.md#queue-monitoring).
 - **History is in memory** and starts again when the app restarts.
 - **Latency percentiles are approximate**, to about 20 %: each value is counted in a logarithmic bucket.
-- **No actions yet.** Replaying or deleting failed messages is planned once safe replay is settled ([#115](https://github.com/nymankla/NymBroker/issues/115)).
+- **No actions yet.** The dashboard can't replay or delete failed messages. Replay them from code with [`GetQueueReplayer`](reliability.md#inspecting-and-replaying) (SQL endpoints); replay buttons in the dashboard are a possible follow-up.
 
 ## The JSON API
 

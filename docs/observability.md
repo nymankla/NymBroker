@@ -25,6 +25,7 @@ Meter `NymBroker`:
 | `nymbroker.messages.consumed` | counter | consumer and subscriber calls | `source`, `message_type`, `consumer`, `kind` (`consumer`/`subscriber`), `outcome` |
 | `nymbroker.messages.failed` | counter | processing failures | `source` |
 | `nymbroker.messages.dead_lettered` | counter | dead-lettered messages | `reason`, `source`, `mode` (`broker`/`native`) |
+| `nymbroker.messages.replayed` | counter | failed queue messages moved back to pending through [`GetQueueReplayer`](reliability.md#inspecting-and-replaying) | `endpoint` |
 | `nymbroker.messages.duplicates` | counter | duplicates dropped by the [idempotent receiver](reliability.md#duplicate-detection) | `source` |
 | `nymbroker.message.processing.duration` | histogram (ms) | time to process one message | `source`, `outcome` (`success`/`failure`), `result` (`completed`/`retry`/`dead_letter`/`cancelled`) |
 | `nymbroker.message.age` | histogram (s) | time from the envelope's `created` to the start of processing; not recorded when `created` is missing, never negative | `source` |

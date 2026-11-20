@@ -29,6 +29,11 @@ public static class NymBrokerDiagnostics
         Meter.CreateCounter<long>("nymbroker.messages.duplicates", "{message}",
             "Duplicate messages dropped by the idempotent receiver.");
 
+    /// <summary>Failed queue messages moved back to pending by <see cref="INymBroker.GetQueueReplayer"/>; tag <c>endpoint</c>.</summary>
+    internal static readonly Counter<long> MessagesReplayed =
+        Meter.CreateCounter<long>("nymbroker.messages.replayed", "{message}",
+            "Failed queue messages replayed by an operator.");
+
     internal static readonly Histogram<double> ProcessingDuration =
         Meter.CreateHistogram<double>("nymbroker.message.processing.duration", "ms");
 

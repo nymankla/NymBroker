@@ -15,6 +15,13 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
   - **Your own protector.** Implement `IPayloadProtector` for another algorithm or a key service.
   - Unprotected envelopes are unchanged byte for byte.
   - See [docs/security.md](docs/security.md#payload-protection).
+- Replay of failed SQL queue messages (#115). `broker.GetQueueReplayer("Orders")` returns an `IQueueReplayer` for the SQLite, PostgreSQL, SQL Server and MySQL endpoints (`null` for other transports). `ReplayFailedAsync(messages)`:
+  - **Explicit selection.** Takes failed messages as listed by `IQueueInspector.GetMessagesAsync(Failed)`, up to 1 000 per call. There is no "replay all".
+  - **What it does.** Moves each row back to pending with its attempt count reset to 0, in place: same envelope id and payload, same place in the queue (so it is handled before newer pending messages).
+  - **Safe against races.** A row is replayed only while it is still failed with the listed `FailedAt`; the result lists the `Replayed` and `Skipped` ids. A concurrent replay, a retention delete or a newer failure means skipped, never replayed twice. One call is atomic.
+  - **Audited.** Each call is logged at `Warning` with the ids and counted in the new `nymbroker.messages.replayed` counter. `EndpointDescription.Replayable` tells which endpoints offer it.
+  - No schema change: rows are found through the existing failed-rows index. `GetQueueReplayer` is a default interface method, so existing `INymBroker` implementations still compile.
+  - See [docs/reliability.md](docs/reliability.md#inspecting-and-replaying).
 - Queue monitoring (#133), off by default. Without it, queue depth and dead letters went unnoticed unless a dashboard page was open. `builder.MonitorQueues(o => o.DeadLetterThreshold("Orders", maxCount: 0, maxAge: TimeSpan.FromHours(4)))`:
   - **Sampling.** Every endpoint with a queue inspector (SQLite, PostgreSQL, SQL Server, MySQL) is sampled in the background: at start, then every `Interval` (default 60 s).
   - **New gauges.** `nymbroker.queue.messages` {`endpoint`, `state`} and `nymbroker.queue.oldest_message.age` {`endpoint`, `state` = `pending`/`failed`}. They read the last sample, so a metrics scrape never queries the database.

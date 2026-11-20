@@ -18,3 +18,5 @@
 **Inspection**: `IQueueInspector` uses read-only `SELECT` statements: one statement for all five counts and one keyset query per list page. Pending / in-progress pages use `queue_id`; failed pages use `(failed_at_utc, queue_id)`; deferred pages use `(deliver_at_utc, deferred_id)`. No claim, lease, or status update is performed. Timestamp cursors encode `datetime2` ticks plus the row key. Shared parts (argument checks, cursor format, reading the counts, the page loop) are in `shared/Inspection` ([shared/README.md](../shared/README.md)).
 
 Integration tests: `SqlServerEndPointTests` and `SqlServerQueueInspectorTests` (`NYMBROKER_SQLSERVER_CS`, `./scripts/setup-sqlserver.ps1`). Production TLS / `TrustServerCertificate`: [docs/security.md](../docs/security.md).
+
+**Replay** (`SqlServerEndPoint.Replay.cs`, `IQueueReplayer`): one `UPDATE … OUTPUT inserted.message_id FROM OPENJSON(@items) INNER LOOP JOIN <table> WITH (FORCESEEK)` on `failed_at_utc` + `message_id`, `WHERE status = 3`: the seek goes through the filtered failed index (`message_id` has no index). Tests: `SqlServerQueueReplayTests`.

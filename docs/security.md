@@ -250,6 +250,15 @@ What it does not cover:
 
 Details: [Dashboard → Security](dashboard.md#security).
 
+## Replaying failed messages
+
+`INymBroker.GetQueueReplayer` moves failed SQL queue messages back to pending ([reliability](reliability.md#inspecting-and-replaying)). That runs consumers' side effects again, so treat it as an operator action:
+
+- Expose it only behind your admin authorization (for example the same policy as the dashboard), never to the producers or consumers of the queue.
+- Keep inspecting and replaying apart: `IQueueInspector` is read-only, `IQueueReplayer` is a separate interface, so a support tool can show failed messages without being able to replay them.
+- Every replay is logged at `Warning` with the endpoint and message ids. Add the operator to the log with a logging scope (`using (logger.BeginScope(new Dictionary<string, object> { ["Operator"] = user }))`) and keep those logs as your audit trail.
+- The database account needs `UPDATE` on the queue table, which a listener already has.
+
 ## Untrusted producers
 
 The broker processes whatever arrives on the endpoints it listens to. Anyone who can write to a queue can make consumers run, and can send split-message parts that never complete — the broker keeps incomplete parts in memory for up to two hours. Restrict write access to the transport (database permissions, RabbitMQ and Service Bus rights) to trusted producers, and validate message contents in consumers like any other input.

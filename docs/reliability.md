@@ -130,13 +130,42 @@ public sealed class ReplayConsumer(INymBroker broker) : IConsume<OrderCreated>
 
 **Azure Service Bus** — add a second endpoint on the same queue with `ReadDeadLetterQueue = true`. Its messages carry the same `deadLetter` block, filled from Service Bus's dead-letter reason and description. A consumer that returns normally removes the message from the dead-letter queue.
 
-**SQL endpoints** — failed rows stay in the queue table with `status = 3` and the reason in `last_error` (`LastError` in SQLite), for 90 days by default ([`FailedRetention`](endpoints-and-configuration.md#removing-old-rows)). To retry them, reset them to pending:
+**SQL endpoints** — failed rows stay in the queue table with `status = 3` and the reason in `last_error` (`LastError` in SQLite), for 90 days by default ([`FailedRetention`](endpoints-and-configuration.md#removing-old-rows)). To retry them after fixing the cause, list them with the [queue inspector](observability.md#queue-inspection) and pass the ones to retry to `INymBroker.GetQueueReplayer`:
+
+```csharp
+var inspector = broker.GetQueueInspector("Orders")!;
+var replayer = broker.GetQueueReplayer("Orders")!;   // null for transports without replay
+
+string? cursor = null;
+do
+{
+    var page = await inspector.GetMessagesAsync(QueueInspectionState.Failed, limit: 100, cursor);
+    var retry = page.Messages.Where(m => m.LastError?.StartsWith(DeadLetterReasons.ConsumerFailed) == true).ToList();
+    if (retry.Count > 0)
+    {
+        QueueReplayResult result = await replayer.ReplayFailedAsync(retry);
+        // result.Replayed: now pending again; result.Skipped: no longer failed as listed
+    }
+    cursor = page.NextCursor;
+} while (cursor is not null);
+```
+
+What a replay does:
+
+- **Only the messages you pass.** There is no "replay everything": select them from the inspector's list (filter on `LastError`, `FailedAt`, the payload, …). Up to 1 000 per call.
+- **Each row moves back to pending, with its attempt count reset to 0**, so the message gets all of `MaxRetryCount` again. The row is updated in place: the envelope keeps its id and payload (so [duplicate detection](#duplicate-detection) still recognises it), and it keeps its place in the queue. Because the queue is handled oldest first, replayed messages are picked up **before newer pending messages**. `last_error` stays visible on the pending row until a listener claims it.
+- **A message is replayed only if it is still failed with the listed `FailedAt`.** Otherwise it is reported in `Skipped`: another operator replayed it already, it failed again since, or retention deleted it. The failure time works as a version number, so replaying a stale list never replays a message twice. SQLite stores failure times in whole seconds, so on SQLite a message that failed again within the same second still matches.
+- **One call is atomic**: if it throws (database unreachable, timeout), nothing was replayed, and calling again with the same list is safe.
+- **It runs side effects again.** A replayed message is handled like a new delivery: whatever the consumer did before it failed (a row written, an e-mail sent, an API called) happens again unless the consumer is idempotent. Replay only failures whose cause is fixed — usually `ConsumerFailed`, `ConsumerTimedOut` or `TopicDeliveryFailed`; `PayloadUnprotectFailed` once the missing key is in the key ring. `DeserializationFailed`, `Expired` and `PayloadNotProtected` fail again.
+- **It is audited.** Each call is logged at `Warning` with the endpoint and the replayed and skipped ids, and counted in `nymbroker.messages.replayed`. Who may call it is up to the application: put it behind the same authorization as other operator actions ([security](security.md#replaying-failed-messages)). Add the operator's name with a logging scope if the log should show who replayed.
+
+The replayer is also available on the endpoint itself (`SqliteEndPoint`, `PostgresEndPoint`, `SqlServerEndPoint` and `MySqlEndPoint` implement `IQueueReplayer`), but only the one from `GetQueueReplayer` logs and counts. For a one-off fix the SQL still works; it has none of these guards:
 
 ```sql
--- PostgreSQL / SQL Server / MySQL (SQLite: Status, AttemptCount, LastError, FailedAtUtc)
+-- PostgreSQL / SQL Server / MySQL (SQLite: Status, AttemptCount, FailedAtUtc)
 UPDATE orders_queue
-SET status = 0, attempt_count = 0, last_error = NULL, failed_at_utc = NULL
-WHERE status = 3;
+SET status = 0, attempt_count = 0, failed_at_utc = NULL
+WHERE status = 3 AND last_error LIKE 'ConsumerFailed%';
 ```
 
 **RabbitMQ** — dead-lettered messages are in whatever queue is bound to the queue's dead-letter exchange; RabbitMQ records the reason `rejected` in the `x-death` header (the broker's reason is logged).

@@ -19,7 +19,7 @@ namespace NymBroker.Endpoint.SqlServer;
 /// Polls on a timer when idle — SQL Server has no lightweight LISTEN/NOTIFY equivalent.
 /// </para>
 /// </summary>
-public sealed partial class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint, IQueueInspector, IAsyncDisposable
+public sealed partial class SqlServerEndPoint : IEndPointEventDriven, IDeferredEndPoint, IQueueInspector, IQueueReplayer, IAsyncDisposable
 {
     private static readonly JsonSerializerOptions FinalizeJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 

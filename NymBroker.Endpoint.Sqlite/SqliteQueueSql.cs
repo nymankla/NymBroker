@@ -225,6 +225,17 @@ internal static partial class SqliteQueueSql
             """;
     }
 
+    /// <summary>
+    /// Moves one selected row back to Pending with a fresh attempt count, if it is still Failed with the listed failure
+    /// time (seconds). Found through the partial failed index. <c>$legacyId</c> is the id as UTF-8 text, for rows
+    /// copied from a version-1 table. <c>LastError</c> is kept until the next claim clears it.
+    /// </summary>
+    internal static string ReplayFailed(string tableName) => $"""
+        UPDATE {Quote(tableName)}
+           SET Status = {Pending}, AttemptCount = 0, FailedAtUtc = NULL, LockedUntilUtc = NULL
+         WHERE Status = {Failed} AND FailedAtUtc = $failedAt AND MessageId IN ($id, $legacyId)
+        """;
+
     // Finalize updates. The guard (still InProgress with the attempt we claimed) stops a poller whose lease expired
     // from overwriting a row another poller has claimed since.
 

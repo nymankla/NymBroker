@@ -51,7 +51,7 @@ To replay, read them with a **separate** process or broker that registers the sa
 -- PostgreSQL / SQL Server / MySQL (default table nymbroker_messages / dbo.nymbroker_messages)
 SELECT queue_id, attempt_count, last_error, failed_at_utc FROM nymbroker_messages WHERE status = 3;
 
--- replay after fixing the cause: back to Pending
+-- replay after fixing the cause: back to Pending (or use GetQueueReplayer from code, below)
 UPDATE nymbroker_messages
 SET status = 0, attempt_count = 0, last_error = NULL, failed_at_utc = NULL
 WHERE status = 3 AND last_error LIKE 'ConsumerFailed%';
@@ -60,7 +60,18 @@ WHERE status = 3 AND last_error LIKE 'ConsumerFailed%';
 UPDATE NymBrokerMessages SET Status = 0, AttemptCount = 0, LastError = NULL, FailedAtUtc = NULL WHERE Status = 3;
 ```
 
-From code (an admin page or tool), list them without SQL: `broker.GetQueueInspector("Orders")` returns an `IQueueInspector` for every SQL endpoint; `GetMessagesAsync(QueueInspectionState.Failed, limit, cursor, failedSince)` pages through failed messages with id, attempts, failure time, last error and payload (https://github.com/nymankla/NymBroker/blob/master/docs/observability.md#queue-inspection). Replay still goes through the `UPDATE` above or a re-post.
+From code (an admin page or tool), list them without SQL: `broker.GetQueueInspector("Orders")` returns an `IQueueInspector` for every SQL endpoint; `GetMessagesAsync(QueueInspectionState.Failed, limit, cursor, failedSince)` pages through failed messages with id, attempts, failure time, last error and payload (https://github.com/nymankla/NymBroker/blob/master/docs/observability.md#queue-inspection).
+
+Replay from code (newer than 0.27.0) — prefer this to the `UPDATE` above:
+
+```csharp
+var replayer = broker.GetQueueReplayer("Orders")!;   // null for non-SQL transports
+var page = await broker.GetQueueInspector("Orders")!.GetMessagesAsync(QueueInspectionState.Failed, limit: 100);
+var selected = page.Messages.Where(m => m.LastError?.StartsWith(DeadLetterReasons.ConsumerFailed) == true).ToList();
+QueueReplayResult result = await replayer.ReplayFailedAsync(selected);   // result.Replayed / result.Skipped (ids)
+```
+
+It replays only the messages passed (up to 1 000 per call), resets the attempt count, keeps the envelope id and the queue position (replayed messages go before newer ones), and skips a message that is no longer failed with the listed `FailedAt` (replayed already, failed again, or deleted by retention). One call is atomic; each is logged at Warning and counted in `nymbroker.messages.replayed`. Gate it behind the app's admin authorization: it runs consumer side effects again. Page through all failed messages with the cursor for a bulk replay. Docs: https://github.com/nymankla/NymBroker/blob/master/docs/reliability.md#inspecting-and-replaying
 
 `last_error` starts with the reason for dead-lettered rows (`"{Reason}: {Description}"`); for retry exhaustion it holds the last exception. A listener deletes old rows by itself: `FailedRetention` (default 90 days) and `CompletedRetention` (default 30 days) on the endpoint's settings, `TimeSpan.Zero` keeps them forever. Replay failed rows within that time, and don't write your own cleanup `DELETE`.
 

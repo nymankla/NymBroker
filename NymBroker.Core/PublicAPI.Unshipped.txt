@@ -65,3 +65,22 @@ override NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.ToString() -> string!
 static NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.operator !=(NymBroker.Core.Endpoint.Queue.DeadLetterThreshold? left, NymBroker.Core.Endpoint.Queue.DeadLetterThreshold? right) -> bool
 static NymBroker.Core.Endpoint.Queue.DeadLetterThreshold.operator ==(NymBroker.Core.Endpoint.Queue.DeadLetterThreshold? left, NymBroker.Core.Endpoint.Queue.DeadLetterThreshold? right) -> bool
 static readonly NymBroker.Core.Endpoint.Queue.QueueMonitoringOptions.DefaultInterval -> System.TimeSpan
+NymBroker.Core.Description.EndpointDescription.Replayable.get -> bool
+NymBroker.Core.Description.EndpointDescription.Replayable.init -> void
+NymBroker.Core.Endpoint.Queue.IQueueReplayer
+NymBroker.Core.Endpoint.Queue.IQueueReplayer.ReplayFailedAsync(System.Collections.Generic.IReadOnlyCollection<NymBroker.Core.Endpoint.Queue.QueueMessageInfo!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueueReplayResult!>!
+NymBroker.Core.Endpoint.Queue.QueueReplayResult
+NymBroker.Core.Endpoint.Queue.QueueReplayResult.<Clone>$() -> NymBroker.Core.Endpoint.Queue.QueueReplayResult!
+NymBroker.Core.Endpoint.Queue.QueueReplayResult.Deconstruct(out System.Collections.Generic.IReadOnlyList<string!>! Replayed, out System.Collections.Generic.IReadOnlyList<string!>! Skipped) -> void
+NymBroker.Core.Endpoint.Queue.QueueReplayResult.Equals(NymBroker.Core.Endpoint.Queue.QueueReplayResult? other) -> bool
+NymBroker.Core.Endpoint.Queue.QueueReplayResult.QueueReplayResult(System.Collections.Generic.IReadOnlyList<string!>! Replayed, System.Collections.Generic.IReadOnlyList<string!>! Skipped) -> void
+NymBroker.Core.Endpoint.Queue.QueueReplayResult.Replayed.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NymBroker.Core.Endpoint.Queue.QueueReplayResult.Replayed.init -> void
+NymBroker.Core.Endpoint.Queue.QueueReplayResult.Skipped.get -> System.Collections.Generic.IReadOnlyList<string!>!
+NymBroker.Core.Endpoint.Queue.QueueReplayResult.Skipped.init -> void
+NymBroker.Core.INymBroker.GetQueueReplayer(string! endpointName) -> NymBroker.Core.Endpoint.Queue.IQueueReplayer?
+override NymBroker.Core.Endpoint.Queue.QueueReplayResult.Equals(object? obj) -> bool
+override NymBroker.Core.Endpoint.Queue.QueueReplayResult.GetHashCode() -> int
+override NymBroker.Core.Endpoint.Queue.QueueReplayResult.ToString() -> string!
+static NymBroker.Core.Endpoint.Queue.QueueReplayResult.operator !=(NymBroker.Core.Endpoint.Queue.QueueReplayResult? left, NymBroker.Core.Endpoint.Queue.QueueReplayResult? right) -> bool
+static NymBroker.Core.Endpoint.Queue.QueueReplayResult.operator ==(NymBroker.Core.Endpoint.Queue.QueueReplayResult? left, NymBroker.Core.Endpoint.Queue.QueueReplayResult? right) -> bool

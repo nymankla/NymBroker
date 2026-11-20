@@ -245,6 +245,31 @@ internal static class SqlServerQueueSql
             """;
     }
 
+    /// <summary>
+    /// Moves the selected Failed rows back to Pending with a fresh attempt count and returns their message ids.
+    /// <c>@items</c> is a JSON array of <c>{"id", "at"}</c> (message id, failure time). A row matches only while it is still
+    /// Failed with the listed failure time; SQL Server re-checks the predicate after waiting for a concurrent replay or
+    /// retention delete, so each row is replayed at most once. <c>last_error</c> is kept until the next claim clears it.
+    /// As in the finalize, OPENJSON drives a loop join with <c>FORCESEEK</c>: here the seek goes through the filtered
+    /// failed index on <c>failed_at_utc</c> (<c>message_id</c> has no index), instead of a scan of the whole table.
+    /// </summary>
+    internal static string ReplayFailed(string tableName) => $"""
+        SET NOCOUNT ON;
+        UPDATE target
+        SET status           = {Pending},
+            attempt_count    = 0,
+            failed_at_utc    = NULL,
+            locked_until_utc = NULL
+        OUTPUT inserted.message_id
+        FROM OPENJSON(@items) WITH (
+                id UNIQUEIDENTIFIER '$.id',
+                at DATETIME2(7)     '$.at') AS source
+        INNER LOOP JOIN {QuoteQualifiedIdentifier(tableName)} AS target WITH (FORCESEEK)
+          ON target.failed_at_utc = source.at
+         AND target.message_id = source.id
+        WHERE target.status = {Failed};
+        """;
+
     /// <summary>One statement for all five counts.</summary>
     internal static string InspectCounts(string tableName)
     {

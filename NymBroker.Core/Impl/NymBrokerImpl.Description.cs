@@ -34,6 +34,7 @@ internal sealed partial class NymBrokerImpl
         UsesNativeDeadLetter = endpoint is IEndPointEventDriven { UsesNativeDeadLetter: true },
         CanDefer = endpoint is IDeferredEndPoint,
         Inspectable = endpoint is Endpoint.Queue.IQueueInspector,
+        Replayable = endpoint is Endpoint.Queue.IQueueReplayer,
         IsCritical = _healthCheckOptions.IsCritical(name),
         HasInputTransformer = _endpointTransformers.ContainsKey(name),
         HasOutputTransformer = _outputTransformers.ContainsKey(name)

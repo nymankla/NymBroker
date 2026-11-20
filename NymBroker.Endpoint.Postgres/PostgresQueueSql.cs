@@ -180,6 +180,32 @@ internal static class PostgresQueueSql
              LIMIT @limit
             """;
 
+    /// <summary>
+    /// Moves the selected Failed rows back to Pending with a fresh attempt count (<c>@ids</c> / <c>@failedAts</c> are
+    /// parallel arrays). A row matches only while it is still Failed with the listed failure time; a concurrent replay or
+    /// retention delete holds the row lock, and Postgres re-checks the WHERE after it, so each row is replayed at most once.
+    /// <c>last_error</c> is kept until the next claim clears it.
+    /// </summary>
+    internal static string ReplayFailed(string tableName, bool notifyListeners)
+    {
+        var table = QuoteQualifiedIdentifier(tableName);
+        var notify = notifyListeners
+            ? $"; NOTIFY {QuoteSimpleIdentifier(GetNotificationChannel(tableName))}"
+            : string.Empty;
+        return $"""
+            UPDATE {table} AS target
+            SET status = {Pending},
+                attempt_count = 0,
+                failed_at_utc = NULL,
+                locked_until_utc = NULL
+            FROM unnest(@ids, @failedAts) AS source(message_id, failed_at)
+            WHERE target.message_id = source.message_id
+              AND target.status = {Failed}
+              AND target.failed_at_utc = source.failed_at
+            RETURNING target.message_id{notify}
+            """;
+    }
+
     internal static string InsertMessage(string tableName, bool notifyListeners)
     {
         var table = QuoteQualifiedIdentifier(tableName);
