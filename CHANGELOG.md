@@ -4,6 +4,18 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- Payload protection (#135), off by default. `builder.ProtectPayloads(protector, o => o.ForEndpoints("PartnerOut").RequireOnReceive("PartnerIn"))`:
+  - **What is encrypted.** The broker encrypts the envelope's `message` field for every envelope it sends to the listed endpoints: posts, batches, deferred, routes, topics, wire taps, dead letters and outbox sends. Split messages are compressed first, then each part is protected.
+  - **What stays readable.** The id, correlation id, type, address, timestamps and trace context, so routing, idempotency, expiry and tracing work as before.
+  - **Receiving.** Protected payloads are decrypted on every endpoint. Plaintext is still accepted unless the endpoint is in `RequireOnReceive`.
+  - **Failures.** A message that can't be decrypted (unknown key, wrong key, tampering, or a payload moved into another envelope) is dead-lettered with the new reason `DeadLetterReasons.PayloadUnprotectFailed`. Plaintext on a required endpoint is dead-lettered as `PayloadNotProtected`. The dead-lettered copy stays encrypted.
+  - **Built-in protector.** `AesGcmPayloadProtector` uses .NET's AES-GCM with a key ring (`AesGcmPayloadProtectorOptions.AddKey` / `AddKeyFromBase64`, `CurrentKeyId`). The key id travels in the envelope, so keys can be rotated. No new dependency.
+  - **Your own protector.** Implement `IPayloadProtector` for another algorithm or a key service.
+  - Unprotected envelopes are unchanged byte for byte.
+  - See [docs/security.md](docs/security.md#payload-protection).
+
 ## [0.27.0] - 2026-11-19
 
 ### Added

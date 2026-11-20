@@ -63,4 +63,13 @@ public static class DeadLetterReasons
 
     /// <summary>Topic fan-out failed. Only used on the broker dead-letter endpoint path; native endpoints get <see cref="ProcessOutcome.Retry"/>.</summary>
     public const string TopicDeliveryFailed = "TopicDeliveryFailed";
+
+    /// <summary>
+    /// The payload is protected but could not be decrypted: unknown key id, wrong key, tampered data, another algorithm,
+    /// or no protector configured (<c>ProtectPayloads</c>).
+    /// </summary>
+    public const string PayloadUnprotectFailed = "PayloadUnprotectFailed";
+
+    /// <summary>A plaintext payload arrived on an endpoint that requires protection (<c>PayloadProtectionOptions.RequireOnReceive</c>).</summary>
+    public const string PayloadNotProtected = "PayloadNotProtected";
 }

@@ -179,7 +179,8 @@ public sealed class MessageSerializerJson : IMessageSerializer
             DeadLetter = dto.DeadLetter,
             TraceParent = trace.TraceParent,
             TraceState = trace.TraceState,
-            RawMessage = dto.Message
+            RawMessage = dto.Message,
+            Protection = dto.Protection
         };
     }
 }

@@ -139,6 +139,7 @@ flowchart LR
   ```
 
   Each part names its codec, and every receiver from 0.25 on decodes both `brotli` and `zstd`, whichever it sends with. A receiver on 0.24 or earlier dead-letters `zstd` parts as `UnknownCompression`: upgrade those receivers first, or register `BrotliCompressor` on the sender until they are.
+- With [payload protection](security.md#payload-protection) on the endpoint, the message is compressed and split first, and then each part is encrypted; the receiver decrypts each part before it reassembles them.
 - Only the part that completes the message triggers processing; consumers see the original message once.
 - **Reassembly happens in memory in the receiving broker.** All parts of one message must reach the same broker instance; incomplete messages are discarded after 2 hours, with a logged warning. If processing a reassembled message ends in Retry, the broker keeps it in memory, also for up to 2 hours, so the redelivered last part brings it back without the other parts. A crash or restart in that time loses it, as it loses parts already received. If several instances compete for the same queue, avoid splitting (or keep messages under the transport's limit).
 

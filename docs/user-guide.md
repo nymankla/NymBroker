@@ -55,7 +55,7 @@ flowchart LR
 | [Scheduling](scheduling.md) | Interval and cron scheduled actions; named actions that run once across instances and catch up missed runs (schedule stores) |
 | [Observability](observability.md) | Metrics, tracing, logging and health checks |
 | [Dashboard](dashboard.md) | `NymBroker.Dashboard`: a live page in your app with the message flow, queue contents, health and throughput; options, security and cost |
-| [Production security](security.md) | TLS and certificate verification per transport (RabbitMQ, SQL Server, PostgreSQL, MySQL, Service Bus, SQS), secrets, least privilege, what can leak |
+| [Production security](security.md) | TLS and certificate verification per transport (RabbitMQ, SQL Server, PostgreSQL, MySQL, Service Bus, SQS), secrets, least privilege, payload protection (AES-GCM encryption of the message, key rotation), what can leak |
 | [Samples](samples.md) | The runnable sample apps, what each shows, and the local infrastructure they need |
 | [MediatR patterns](mediatr-comparison.md) | Commands, notifications, queries and pipeline behaviors as in MediatR, CQRS with NymBroker, and when to use which |
 | [Benchmarks](benchmarks.md) | Running the throughput benchmark, its scenarios, and how to read the results |

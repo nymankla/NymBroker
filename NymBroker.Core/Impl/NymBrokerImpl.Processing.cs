@@ -185,8 +185,12 @@ internal sealed partial class NymBrokerImpl
     /// </summary>
     private readonly record struct Decoding(IMessageContext? Context, Exception? DeserializeError, ExceptionDispatchInfo? TransformerFailure);
 
-    /// <summary>Decodes the raw bytes with the source's input transformer, the global one, or the envelope serializer. Never throws.</summary>
-    private Decoding Decode(byte[] raw, string? sourceEndpoint)
+    /// <summary>
+    /// Decodes the raw bytes with the source's input transformer, the global one, or the envelope serializer, and then
+    /// decrypts a protected payload. Never throws.
+    /// </summary>
+    /// <param name="reassembled">The bytes are a reassembled split message, whose parts were checked for protection.</param>
+    private Decoding Decode(byte[] raw, string? sourceEndpoint, bool reassembled = false)
     {
         var transformer = sourceEndpoint != null && _endpointTransformers.TryGetValue(sourceEndpoint, out var epT)
             ? epT
@@ -198,14 +202,26 @@ internal sealed partial class NymBrokerImpl
             catch (Exception ex) { return new Decoding(null, null, ExceptionDispatchInfo.Capture(ex)); }
         }
 
-        try { return new Decoding(_serializer.Deserialize(raw.AsSpan()), null, null); }
+        try
+        {
+            var context = _serializer.Deserialize(raw.AsSpan());
+            UnprotectReceived(context, sourceEndpoint, reassembled);
+            return new Decoding(context, null, null);
+        }
         catch (Exception ex) { return new Decoding(null, ex, null); }
     }
 
     private Task<ProcessResult> DeadLetterUndecodableAsync(byte[] raw, Exception error, ProcessingRun run, CancellationToken ct)
     {
-        _logger.LogError(error, "Failed to deserialize message from {Source}", run.Source);
         run.RecordFailure(error);
+        if (error is Protection.PayloadProtectionException protection)
+        {
+            // The exception's message says what failed; its inner exception (e.g. an authentication tag mismatch) is logged too.
+            _logger.LogError(error.InnerException, "Rejected a message from {Source}: {Reason}. {Description}", run.Source, protection.Reason, error.Message);
+            return DeadLetterAsync(raw, run, new DeadLetterCause(protection.Reason, error.Message, error.InnerException), ct);
+        }
+
+        _logger.LogError(error, "Failed to deserialize message from {Source}", run.Source);
         return DeadLetterAsync(raw, run, DeadLetterCause.Of(DeadLetterReasons.DeserializationFailed, error), ct);
     }
 
@@ -265,7 +281,7 @@ internal sealed partial class NymBrokerImpl
         ProcessResult result;
         try
         {
-            result = await ProcessMessageAsync(decoded, Decode(decoded, run.Source), run, ct);
+            result = await ProcessMessageAsync(decoded, Decode(decoded, run.Source, reassembled: true), run, ct);
         }
         catch
         {

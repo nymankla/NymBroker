@@ -109,7 +109,7 @@ A message posted to the broker's dead-letter endpoint carries the reason inside 
 }
 ```
 
-Read it from a consumer as `context.DeadLetter` (`DeadLetterInfo`). Reasons are the constants in `DeadLetterReasons`: `ConsumerFailed`, `ConsumerTimedOut` (the consumer passed its [timeout](resilience.md#timeout)), `TopicDeliveryFailed`, `DeserializationFailed`, `Expired`, `UnknownCompression` — plus transport reasons such as Service Bus's `MaxDeliveryCountExceeded`.
+Read it from a consumer as `context.DeadLetter` (`DeadLetterInfo`). Reasons are the constants in `DeadLetterReasons`: `ConsumerFailed`, `ConsumerTimedOut` (the consumer passed its [timeout](resilience.md#timeout)), `TopicDeliveryFailed`, `DeserializationFailed`, `Expired`, `UnknownCompression`, `PayloadUnprotectFailed` and `PayloadNotProtected` ([payload protection](security.md#payload-protection)) — plus transport reasons such as Service Bus's `MaxDeliveryCountExceeded`.
 
 Bytes that were not even JSON are wrapped in an envelope of type `nymbroker.undecodable` (`UndecodableMessage`, with `PayloadBase64` and, for valid UTF-8, `PayloadText`), so they can be inspected with `IConsume<UndecodableMessage>`.
 

@@ -31,6 +31,7 @@ public sealed partial class NymBrokerBuilder
 
         ValidateHealthCheckEndpoints();
         ValidateSendLimitEndpoints();
+        ValidatePayloadProtection();
         _built = true;
 
         RegisterCoreServices(_services, _jsonContexts);
@@ -102,6 +103,9 @@ public sealed partial class NymBrokerBuilder
         private readonly bool _idempotentReceiver = builder._idempotentReceiver;
         private readonly bool _scheduleStore = builder._scheduleStore;
         private readonly BrokerHealthCheckOptions _healthCheckOptions = builder._healthCheckOptions;
+        private readonly (List<string> Protected, List<string> Required)? _payloadProtection = builder._payloadProtection is { } p
+            ? (p.ProtectedEndpoints.ToList(), p.RequiredOnReceive.ToList())
+            : null;
         private readonly Diagnostics.TracingOptions _tracingOptions = new()
         {
             PropagateTraceContext = builder._tracingOptions.PropagateTraceContext,
@@ -184,6 +188,9 @@ public sealed partial class NymBrokerBuilder
 
             if (_idempotentReceiver)
                 broker.SetIdempotencyStore(sp.GetRequiredService<IIdempotencyStore>());
+
+            if (_payloadProtection is var (protectedEndpoints, required))
+                broker.SetPayloadProtection(sp.GetRequiredService<Protection.IPayloadProtector>(), protectedEndpoints, required);
 
             broker.ConfigureHealthCheck(_healthCheckOptions);
             broker.ConfigureTracing(_tracingOptions);

@@ -36,6 +36,10 @@ internal sealed class MessageContextDto<TMessage>
     [JsonPropertyName("traceState")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TraceState { get; set; }
+
+    [JsonPropertyName("protection")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Protection.PayloadProtectionInfo? Protection { get; set; }
 }
 
 /// <summary>Returned by the deserializer; carries the raw message payload for deferred typed deserialization.</summary>
@@ -55,5 +59,13 @@ public sealed class RawMessageContext : IMessageContext, ITraceCarrier
     public string? TraceParent { get; set; }
 
     public string? TraceState { get; set; }
+
+    /// <summary>
+    /// The payload as JSON. For a protected envelope this is the Base64 ciphertext until the broker has decrypted it on
+    /// receive; consumers, routes and filters always see the decrypted message.
+    /// </summary>
     public JsonElement RawMessage { get; set; }
+
+    /// <summary>Set while <see cref="RawMessage"/> is still protected; cleared when the broker decrypts it.</summary>
+    internal Protection.PayloadProtectionInfo? Protection { get; set; }
 }

@@ -50,7 +50,7 @@ Every listener hands received bytes to `ProcessAsync`, which never throws (excep
 
 ```mermaid
 flowchart LR
-    R[received bytes] --> D[Decode<br/>input transformer or JSON]
+    R[received bytes] --> D[Decode<br/>input transformer or JSON,<br/>then decrypt a protected payload]
     D --> WT[WireTapAsync<br/>raw bytes]
     WT --> X[CheckExpired<br/>TTL]
     X --> F[ApplyFilters]
@@ -68,7 +68,7 @@ flowchart LR
 
 `InvokeConsumerAsync` (`NymBrokerImpl.Resilience.cs`) applies a consumer's optional timeout and circuit breaker ([Resilience](resilience.md#consumer-timeout-and-circuit-breaker)). A consumer without either is called directly. With a breaker, an open circuit **holds** the message on its listener until the break is over, instead of returning `Retry`: a `Retry` is redelivered at once and counts toward the transport's delivery limit. With a timeout, the broker stops waiting when it passes and settles the message as a consumer failure (`ConsumerTimedOut`), even if the consumer ignores its token. Between the breaker and the timeout come the consumer's concurrency and rate limits, which also make the message wait. Neither affects the health check. Every write to an endpoint goes through `WriteAsync` / `WriteBatchAsync` / `WriteDeferredAsync` (`NymBrokerImpl.Throttling.cs`), which apply the endpoint's `LimitSendsTo` limits; `ThrottlingTests.OnlyTheThrottlingHelpers_WriteToEndpoints` fails when other code writes to an endpoint directly. Endpoint sends have no timeout or breaker yet.
 
-Which result each situation gets depends on whether the source endpoint dead-letters natively (the SQL tables, RabbitMQ and Service Bus do; Memory, File and SQS don't). The full table is in [Writing an endpoint](writing-an-endpoint.md#native-dead-lettering-usesnativedeadletter). For consumer and topic failures it is one rule in code: `SettlementFor` picks a `FailureSettlement` and `SettleFailureAsync` applies it. Every send — post, route, topic, wire tap, dead letter — goes through `SendAsync` / `SendBatchAsync`, so output transformers are never bypassed, and every write through the throttling helpers, so send limits are never bypassed.
+Which result each situation gets depends on whether the source endpoint dead-letters natively (the SQL tables, RabbitMQ and Service Bus do; Memory, File and SQS don't). The full table is in [Writing an endpoint](writing-an-endpoint.md#native-dead-lettering-usesnativedeadletter). For consumer and topic failures it is one rule in code: `SettlementFor` picks a `FailureSettlement` and `SettleFailureAsync` applies it. Every send — post, route, topic, wire tap, dead letter — goes through `SendAsync` / `SendBatchAsync`, so output transformers and [payload protection](security.md#payload-protection) are never bypassed, and every write through the throttling helpers, so send limits are never bypassed.
 
 ## Endpoint building blocks
 

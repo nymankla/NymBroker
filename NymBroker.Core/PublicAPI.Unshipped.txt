@@ -1,1 +1,45 @@
 #nullable enable
+const NymBroker.Core.Endpoint.DeadLetterReasons.PayloadNotProtected = "PayloadNotProtected" -> string!
+const NymBroker.Core.Endpoint.DeadLetterReasons.PayloadUnprotectFailed = "PayloadUnprotectFailed" -> string!
+const NymBroker.Core.Protection.AesGcmPayloadProtector.AlgorithmName = "AES-GCM" -> string!
+NymBroker.Core.Factory.NymBrokerBuilder.ProtectPayloads(NymBroker.Core.Protection.IPayloadProtector! protector, System.Action<NymBroker.Core.Protection.PayloadProtectionOptions!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Factory.NymBrokerBuilder.ProtectPayloads(System.Func<System.IServiceProvider!, NymBroker.Core.Protection.IPayloadProtector!>! factory, System.Action<NymBroker.Core.Protection.PayloadProtectionOptions!>! configure) -> NymBroker.Core.Factory.NymBrokerBuilder!
+NymBroker.Core.Protection.AesGcmPayloadProtector
+NymBroker.Core.Protection.AesGcmPayloadProtector.AesGcmPayloadProtector(NymBroker.Core.Protection.AesGcmPayloadProtectorOptions! options) -> void
+NymBroker.Core.Protection.AesGcmPayloadProtector.Algorithm.get -> string!
+NymBroker.Core.Protection.AesGcmPayloadProtector.CurrentKeyId.get -> string!
+NymBroker.Core.Protection.AesGcmPayloadProtector.Protect(System.ReadOnlySpan<byte> payload, System.ReadOnlySpan<byte> associatedData) -> NymBroker.Core.Protection.ProtectedPayload!
+NymBroker.Core.Protection.AesGcmPayloadProtector.Unprotect(NymBroker.Core.Protection.ProtectedPayload! payload, System.ReadOnlySpan<byte> associatedData) -> byte[]!
+NymBroker.Core.Protection.AesGcmPayloadProtectorOptions
+NymBroker.Core.Protection.AesGcmPayloadProtectorOptions.AddKey(string! keyId, System.ReadOnlySpan<byte> key) -> NymBroker.Core.Protection.AesGcmPayloadProtectorOptions!
+NymBroker.Core.Protection.AesGcmPayloadProtectorOptions.AddKeyFromBase64(string! keyId, string! base64Key) -> NymBroker.Core.Protection.AesGcmPayloadProtectorOptions!
+NymBroker.Core.Protection.AesGcmPayloadProtectorOptions.AesGcmPayloadProtectorOptions() -> void
+NymBroker.Core.Protection.AesGcmPayloadProtectorOptions.CurrentKeyId.get -> string?
+NymBroker.Core.Protection.AesGcmPayloadProtectorOptions.CurrentKeyId.set -> void
+NymBroker.Core.Protection.AesGcmPayloadProtectorOptions.KeyIds.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+NymBroker.Core.Protection.IPayloadProtector
+NymBroker.Core.Protection.IPayloadProtector.Algorithm.get -> string!
+NymBroker.Core.Protection.IPayloadProtector.Protect(System.ReadOnlySpan<byte> payload, System.ReadOnlySpan<byte> associatedData) -> NymBroker.Core.Protection.ProtectedPayload!
+NymBroker.Core.Protection.IPayloadProtector.Unprotect(NymBroker.Core.Protection.ProtectedPayload! payload, System.ReadOnlySpan<byte> associatedData) -> byte[]!
+NymBroker.Core.Protection.PayloadProtectionOptions
+NymBroker.Core.Protection.PayloadProtectionOptions.ForEndpoints(params string![]! endpointNames) -> NymBroker.Core.Protection.PayloadProtectionOptions!
+NymBroker.Core.Protection.PayloadProtectionOptions.PayloadProtectionOptions() -> void
+NymBroker.Core.Protection.PayloadProtectionOptions.ProtectedEndpoints.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+NymBroker.Core.Protection.PayloadProtectionOptions.RequiredOnReceive.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+NymBroker.Core.Protection.PayloadProtectionOptions.RequireOnReceive(params string![]! endpointNames) -> NymBroker.Core.Protection.PayloadProtectionOptions!
+NymBroker.Core.Protection.ProtectedPayload
+NymBroker.Core.Protection.ProtectedPayload.<Clone>$() -> NymBroker.Core.Protection.ProtectedPayload!
+NymBroker.Core.Protection.ProtectedPayload.Algorithm.get -> string!
+NymBroker.Core.Protection.ProtectedPayload.Algorithm.init -> void
+NymBroker.Core.Protection.ProtectedPayload.Data.get -> byte[]!
+NymBroker.Core.Protection.ProtectedPayload.Data.init -> void
+NymBroker.Core.Protection.ProtectedPayload.Deconstruct(out string! Algorithm, out string! KeyId, out byte[]! Data) -> void
+NymBroker.Core.Protection.ProtectedPayload.Equals(NymBroker.Core.Protection.ProtectedPayload? other) -> bool
+NymBroker.Core.Protection.ProtectedPayload.KeyId.get -> string!
+NymBroker.Core.Protection.ProtectedPayload.KeyId.init -> void
+NymBroker.Core.Protection.ProtectedPayload.ProtectedPayload(string! Algorithm, string! KeyId, byte[]! Data) -> void
+override NymBroker.Core.Protection.ProtectedPayload.Equals(object? obj) -> bool
+override NymBroker.Core.Protection.ProtectedPayload.GetHashCode() -> int
+override NymBroker.Core.Protection.ProtectedPayload.ToString() -> string!
+static NymBroker.Core.Protection.ProtectedPayload.operator !=(NymBroker.Core.Protection.ProtectedPayload? left, NymBroker.Core.Protection.ProtectedPayload? right) -> bool
+static NymBroker.Core.Protection.ProtectedPayload.operator ==(NymBroker.Core.Protection.ProtectedPayload? left, NymBroker.Core.Protection.ProtectedPayload? right) -> bool

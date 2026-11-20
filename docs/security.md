@@ -18,6 +18,7 @@ Out of the box, NymBroker is set up for the local Docker containers in `scripts/
 - [ ] The health endpoint is not public.
 - [ ] The [dashboard](dashboard.md), if you use it, requires authorization (or stays local-only), and payloads are off or redacted.
 - [ ] The app runs on the latest .NET 11 patch runtime (see [Untrusted producers](#untrusted-producers)).
+- [ ] Payloads that pass through a service you don't fully trust (a shared broker, a partner's queue, a long-lived dead-letter queue) are [protected](#payload-protection), with keys from a secret store.
 
 ## Secrets
 
@@ -182,6 +183,49 @@ SQLite has no network or authentication: whoever can open the file can read and 
 
 - Put the database file in a directory only the application's account can read and write; never on a network share.
 - The payloads are stored unencrypted. Use an encrypted disk if the messages contain personal or confidential data.
+
+## Payload protection
+
+TLS protects a message on the wire, but the queue, table, file or broker it rests in still holds the plaintext. `ProtectPayloads` encrypts the envelope's `message` field for the endpoints you name, with authenticated encryption (AES-GCM), so a changed payload is detected as well. Everything else in the envelope stays readable — id, correlation id, message type, address, timestamps and trace context — so routing, idempotency, expiry, dead-lettering and tracing work as before.
+
+```csharp
+builder.Services.AddNymBroker()
+    .WithRabbitMq()
+    .ProtectPayloads(
+        sp => new AesGcmPayloadProtector(new AesGcmPayloadProtectorOptions { CurrentKeyId = "2026-11" }
+            .AddKeyFromBase64("2026-11", configuration["NymBroker:Keys:2026-11"]!)),   // from a secret store
+        o => o.ForEndpoints("PartnerOut")          // encrypt what the broker sends there
+              .RequireOnReceive("PartnerIn"))      // and refuse plaintext arriving here
+    .Build();
+```
+
+A protected envelope looks like this (the `protection` block is added only to protected envelopes):
+
+```json
+{ "id": "…", "correlationId": "…", "address": { "to": "PartnerOut" }, "messageType": "orders.created",
+  "created": "…", "protection": { "alg": "AES-GCM", "kid": "2026-11" }, "message": "<Base64 nonce | ciphertext | tag>" }
+```
+
+- **Sending.** Every envelope the broker sends to a listed endpoint is protected: posts, batches, deferred posts, routes, topics, wire taps, dead letters and outbox sends. Split messages are compressed before they are protected, and each part is protected on its own. An envelope that is protected already (a wire-tapped or dead-lettered copy of a protected message) is sent unchanged. Envelopes to endpoints you don't list stay plaintext, so in-process Memory hops cost nothing.
+- **Receiving.** A protected payload is decrypted on **every** endpoint, before filters, routes and consumers see it. Plaintext is accepted unless the endpoint is in `RequireOnReceive`, so senders can be switched over one by one.
+- **Failures** are dead-lettered, with the received bytes, so the copy stays encrypted:
+  - `PayloadUnprotectFailed`: unknown key id, wrong key, tampered payload, a payload moved into another envelope (the id, correlation id and type are authenticated with it), another algorithm, or no protector configured.
+  - `PayloadNotProtected`: plaintext on a `RequireOnReceive` endpoint.
+- **Keys.** 128-, 192- or 256-bit AES keys, identified by a key id that travels in the envelope (it must not be secret). Generate one with `Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))`. Every receiver needs every key that may still be in a queue.
+- **Rotation.**
+  1. Add the new key to every receiver's key ring.
+  2. Make it `CurrentKeyId` on the senders.
+  3. Remove the old key once no message encrypted with it is left (also in dead-letter queues you may replay).
+- **Your own algorithm or key service.** Implement `IPayloadProtector` (`Protect` / `Unprotect` with the associated data the broker passes in) and register it with `ProtectPayloads(sp => …, …)`.
+
+What it does not cover:
+
+- An endpoint with an output transformer can't be protected: its bytes are not an envelope. An endpoint with an input transformer can't require protection: it receives a foreign format. `Build()` throws for both.
+- Raw posts (`PostRawAsync`) to a protected endpoint must be NymBroker envelopes; anything else throws.
+- An HTTP endpoint with `BodyFormat = Payload` sends only the `message` field. For a protected endpoint that is the Base64 ciphertext without its key id, so keep the default `Envelope` format there.
+- The [outbox](transactional-outbox.md) table holds the plaintext envelope (it is your application's database); the dispatcher protects it when it sends.
+- The `deadLetter` block (reason, exception message) is not encrypted, so keep personal data out of exception messages.
+- The [dashboard](dashboard.md) shows the Base64 ciphertext of protected payloads. It has no keys.
 
 ## What else can leak
 

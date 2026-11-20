@@ -180,20 +180,29 @@ internal sealed partial class NymBrokerImpl
             await SendAsync(name, endpoint, wire, ct);
     }
 
-    // Every send to an endpoint goes through SendAsync / SendBatchAsync, so its output transformer sees all of them; every
-    // write goes through WriteAsync / WriteBatchAsync / WriteDeferredAsync, so its send limit covers all of them.
+    // Every send to an endpoint goes through SendAsync / SendBatchAsync / SendDeferredAsync, so its output transformer or
+    // payload protection sees all of them; every write goes through WriteAsync / WriteBatchAsync / WriteDeferredAsync, so
+    // its send limit covers all of them.
     private Task SendAsync(string name, IEndPoint endpoint, byte[] envelope, CancellationToken ct)
     {
-        if (!_outputTransformers.TryGetValue(name, out var transformer)) return WriteAsync(name, endpoint, envelope, ct);
-        var output = Transform(transformer, name, envelope);
+        var output = ToEndpointFormat(name, envelope);
         return output == null ? Task.CompletedTask : WriteAsync(name, endpoint, output, ct);
     }
+
+    /// <summary>
+    /// The bytes to write to <paramref name="name"/>: the output transformer's (null = skip the message), the envelope with
+    /// its payload protected, or the envelope as it is. An endpoint never has both (checked in <c>Build</c>).
+    /// </summary>
+    private byte[]? ToEndpointFormat(string name, byte[] envelope)
+        => _outputTransformers.TryGetValue(name, out var transformer)
+            ? Transform(transformer, name, envelope)
+            : ProtectFor(name, envelope);
 
     private async Task SendDeferredAsync(string name, byte[] envelope, DateTimeOffset deliverAt, CancellationToken ct)
     {
         var endpoint = ResolvePostTarget(name);
-        // Transformed now, also for a message the broker holds, so a failure reaches the caller.
-        var output = _outputTransformers.TryGetValue(name, out var transformer) ? Transform(transformer, name, envelope) : envelope;
+        // Transformed or protected now, also for a message the broker holds, so a failure reaches the caller.
+        var output = ToEndpointFormat(name, envelope);
         if (output == null) return;
 
         if (endpoint is IDeferredEndPoint deferred)
@@ -218,8 +227,9 @@ internal sealed partial class NymBrokerImpl
 
     private Task SendBatchAsync(string name, IEndPoint endpoint, IReadOnlyList<byte[]> envelopes, CancellationToken ct)
     {
-        if (!_outputTransformers.TryGetValue(name, out var transformer)) return WriteBatchAsync(name, endpoint, envelopes, ct);
-        var output = envelopes.Select(e => Transform(transformer, name, e)).OfType<byte[]>().ToList();
+        if (!_outputTransformers.ContainsKey(name) && !_protectedEndpoints.Contains(name))
+            return WriteBatchAsync(name, endpoint, envelopes, ct);
+        var output = envelopes.Select(e => ToEndpointFormat(name, e)).OfType<byte[]>().ToList();
         return output.Count == 0 ? Task.CompletedTask : WriteBatchAsync(name, endpoint, output, ct);
     }
 
