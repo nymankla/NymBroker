@@ -237,7 +237,7 @@ public sealed class SqlServerEndPointTests : IAsyncLifetime
         var ep = CreateEndPoint(logger);
         var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        Assert.True(ep.HealthCheck().IsHealthy);   // also creates the table
+        await TestWait.UntilHealthyAsync(ep);   // also creates the table
         await ep.StartListeningAsync((raw, _) => { received.TrySetResult(Encoding.UTF8.GetString(raw)); return Task.FromResult(ProcessResult.Completed); },
             TestContext.Current.CancellationToken);
 
@@ -406,7 +406,7 @@ public sealed class SqlServerEndPointTests : IAsyncLifetime
     {
         RequireSqlServer();
         var ep = CreateEndPoint();
-        Assert.True(ep.HealthCheck().IsHealthy);   // creates the table
+        await TestWait.UntilHealthyAsync(ep);   // creates the table
         // "boom" is the only 4-byte payload in the batch.
         await ExecuteAsync($"ALTER TABLE {_tableName} ADD CONSTRAINT ck_no_boom CHECK (DATALENGTH(payload) <> 4)");
 

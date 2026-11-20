@@ -200,10 +200,9 @@ public abstract class OutboxStoreContractTests : IAsyncLifetime
         var store = Store();
         await AddCommittedAsync(store, Message());
         var staleClaim = Guid.NewGuid();
-        await store.ClaimAsync(staleClaim, 10, TimeSpan.FromSeconds(1), Ct);
-        await Task.Delay(TimeSpan.FromSeconds(1.5), Ct);
-        var current = Guid.NewGuid();
-        var claimed = Assert.Single(await store.ClaimAsync(current, 10, TimeSpan.FromSeconds(1), Ct));
+        Assert.Single(await store.ClaimAsync(staleClaim, 10, TimeSpan.FromSeconds(1), Ct));
+        // The current claim's lease is long enough for the stale writes and the check below, even under load (#128).
+        var claimed = await ClaimWhenAvailableAsync(store, Guid.NewGuid(), TimeSpan.FromSeconds(5));
 
         // The dispatcher whose lease expired finishes late: none of its writes may touch the new claim.
         await store.MarkSentAsync(claimed.Id, staleClaim, Ct);
@@ -211,8 +210,16 @@ public abstract class OutboxStoreContractTests : IAsyncLifetime
         await store.ReleaseAsync(claimed.Id, staleClaim, Ct);
         Assert.Empty(await store.ClaimAsync(Guid.NewGuid(), 10, Lease, Ct));
 
-        await Task.Delay(TimeSpan.FromSeconds(1.5), Ct);
-        Assert.Equal(3, Assert.Single(await store.ClaimAsync(Guid.NewGuid(), 10, Lease, Ct)).Attempt);
+        Assert.Equal(3, (await ClaimWhenAvailableAsync(store, Guid.NewGuid(), Lease)).Attempt);
+    }
+
+    /// <summary>Claims the one row as soon as it can be claimed (earlier lease expired, or due), by the database's clock.</summary>
+    private static async Task<ClaimedOutboxMessage> ClaimWhenAvailableAsync(IOutboxStore store, Guid claimId, TimeSpan lease)
+    {
+        IReadOnlyList<ClaimedOutboxMessage> claimed = [];
+        await TestWait.UntilAsync(async () => (claimed = await store.ClaimAsync(claimId, 10, lease, Ct)).Count > 0,
+            interval: TimeSpan.FromMilliseconds(250));
+        return Assert.Single(claimed);
     }
 
     [Fact]
@@ -220,13 +227,15 @@ public abstract class OutboxStoreContractTests : IAsyncLifetime
     {
         RequireDatabase();
         var store = Store();
-        var deliverAt = DateTimeOffset.UtcNow.AddSeconds(2);
+        // Far enough ahead that the insert and the first claim finish before it, even under load (#128).
+        var deliverAt = DateTimeOffset.UtcNow.AddSeconds(5);
         await AddCommittedAsync(store, Message(deliverAt: deliverAt));
 
         Assert.Empty(await store.ClaimAsync(Guid.NewGuid(), 10, Lease, Ct));
-        await Task.Delay(TimeSpan.FromSeconds(3), Ct);
 
-        var claimed = Assert.Single(await store.ClaimAsync(Guid.NewGuid(), 10, Lease, Ct));
+        var claimed = await ClaimWhenAvailableAsync(store, Guid.NewGuid(), Lease);
+        // The deadline is compared with the database's clock; allow for a container clock slightly ahead of the host's.
+        Assert.True(DateTimeOffset.UtcNow > deliverAt - TimeSpan.FromSeconds(1), $"claimed at {DateTimeOffset.UtcNow:O}, due {deliverAt:O}");
         Assert.NotNull(claimed.DeliverAt);
         Assert.True((claimed.DeliverAt.Value - deliverAt).Duration() < TimeSpan.FromMilliseconds(1), $"{claimed.DeliverAt:O} vs {deliverAt:O}");
     }

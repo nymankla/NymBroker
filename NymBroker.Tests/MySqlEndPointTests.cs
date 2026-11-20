@@ -287,7 +287,7 @@ public sealed class MySqlEndPointTests : IAsyncLifetime
         var ep = CreateEndPoint(logger);
         var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        Assert.True(ep.HealthCheck().IsHealthy);   // also creates the table
+        await TestWait.UntilHealthyAsync(ep);   // also creates the table
         await ep.StartListeningAsync((raw, _) => { received.TrySetResult(Encoding.UTF8.GetString(raw)); return Task.FromResult(ProcessResult.Completed); }, Ct);
 
         await ExecuteAsync($"DROP TABLE {_tableName}");
@@ -491,7 +491,7 @@ public sealed class MySqlEndPointTests : IAsyncLifetime
     {
         RequireMySql();
         var ep = CreateEndPoint();
-        Assert.True(ep.HealthCheck().IsHealthy);   // creates the table
+        await TestWait.UntilHealthyAsync(ep);   // creates the table
         // "boom" is the only 4-byte payload in the batch.
         await ExecuteAsync($"ALTER TABLE {_tableName} ADD CONSTRAINT ck_no_boom_{Guid.NewGuid():N} CHECK (LENGTH(payload) <> 4)");
 
@@ -519,7 +519,7 @@ public sealed class MySqlEndPointTests : IAsyncLifetime
     {
         RequireMySql();
         var ep = CreateEndPoint();
-        Assert.True(ep.HealthCheck().IsHealthy);   // creates the table
+        await TestWait.UntilHealthyAsync(ep);   // creates the table
         var table = MySqlQueueSql.QuoteTableName(_tableName);
 
         var plan = await PlanAsync($"SELECT queue_id FROM {table} WHERE status = 0 ORDER BY queue_id LIMIT 10");

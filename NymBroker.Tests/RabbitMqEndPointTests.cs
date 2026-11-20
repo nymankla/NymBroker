@@ -16,6 +16,8 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
     private const string HostVariable = "NYMBROKER_RABBITMQ_HOST";
     private static readonly string? Host = Environment.GetEnvironmentVariable(HostVariable);
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
+    /// <summary>For waits on a resubscribe after the server closed the channel: slow when the whole suite runs (#128).</summary>
+    private static readonly TimeSpan RecoveryTimeout = TimeSpan.FromSeconds(30);
 
     // Unique per test instance so tests can run in parallel against one broker.
     private readonly string _queue = $"nymbroker.test.{Guid.NewGuid():N}";
@@ -192,7 +194,8 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
         await CloseChannelFromServerAsync(ep);
         await ep.PostAsync("after"u8.ToArray(), TestContext.Current.CancellationToken);
 
-        await WaitUntilAsync(() => Volatile.Read(ref handled) == 2);
+        // ">=": the close can win the race with the ack of "before", which then comes back too.
+        await WaitUntilAsync(() => Volatile.Read(ref handled) >= 2, RecoveryTimeout);
     }
 
     [Fact]
@@ -220,8 +223,8 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
         await CloseChannelFromServerAsync(ep);
         release.SetResult();
 
-        await WaitUntilAsync(() => Volatile.Read(ref calls) == 2);
-        await WaitUntilAsync(() => ep.ConsumeChannel?.IsOpen == true && logger.Entries.Any(e => e.Message.Contains("could not settle")));
+        await WaitUntilAsync(() => Volatile.Read(ref calls) == 2, RecoveryTimeout);
+        await WaitUntilAsync(() => ep.ConsumeChannel?.IsOpen == true && logger.Entries.Any(e => e.Message.Contains("could not settle")), RecoveryTimeout);
         await ep.StopListeningAsync().WaitAsync(Timeout, TestContext.Current.CancellationToken);
         Assert.Equal(0u, await ReadyMessageCountAsync());
     }
@@ -252,7 +255,7 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
         release.SetResult();
 
         // Both come back on the new channel; "next" was never handled on the old one, because that channel had closed.
-        await WaitUntilAsync(() => received.Count == 3);
+        await WaitUntilAsync(() => received.Count == 3, RecoveryTimeout);
         Assert.Equal(["slow", "slow", "next"], received);
     }
 
@@ -300,7 +303,10 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
         await WaitUntilAsync(() => Volatile.Read(ref handled) == 1);
         await CloseChannelFromServerAsync(ep);
         await ep.PostAsync("second"u8.ToArray(), TestContext.Current.CancellationToken);
-        await WaitUntilAsync(() => Volatile.Read(ref handled) == 2);
+        // ">=": the close can win the race with the ack of "first", which then comes back too.
+        await WaitUntilAsync(() => Volatile.Read(ref handled) >= 2, RecoveryTimeout);
+        await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);   // let a redelivered "first" land
+        var beforeConnectionLoss = Volatile.Read(ref handled);
 
         await CloseConnectionFromServerAsync($"NymBroker {name}");
 
@@ -310,7 +316,7 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
             // A post can fail while the connection is down; that is not what this test is about.
             try { await ep.PostAsync("third"u8.ToArray(), TestContext.Current.CancellationToken); }
             catch (RabbitMQ.Client.Exceptions.OperationInterruptedException) { }
-            return Volatile.Read(ref handled) >= 3;
+            return Volatile.Read(ref handled) > beforeConnectionLoss;
         }, TimeSpan.FromSeconds(60));
         await Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
         Assert.Equal(1u, await ConsumerCountAsync());
@@ -486,9 +492,9 @@ public sealed class RabbitMqEndPointTests : IAsyncLifetime
         return (await channel.QueueDeclarePassiveAsync(_queue, TestContext.Current.CancellationToken)).MessageCount;
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition)
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow + Timeout;
+        var deadline = DateTime.UtcNow + (timeout ?? Timeout);
         while (!condition())
         {
             if (DateTime.UtcNow > deadline) throw new TimeoutException("Condition not met in time.");

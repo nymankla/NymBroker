@@ -234,7 +234,7 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
         var ep = CreateEndPoint(logger, useNotifications: false);
         var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        Assert.True(ep.HealthCheck().IsHealthy);   // also creates the table
+        await TestWait.UntilHealthyAsync(ep);   // also creates the table
         await ep.StartListeningAsync((raw, _) => { received.TrySetResult(Encoding.UTF8.GetString(raw)); return Task.FromResult(ProcessResult.Completed); },
             TestContext.Current.CancellationToken);
 
@@ -410,7 +410,7 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
             CREATE INDEX ix_{_tableName}_status_locked_until ON {_tableName}(status, locked_until_utc);
             """);
 
-        Assert.True(CreateEndPoint().HealthCheck().IsHealthy);   // runs the schema step
+        await TestWait.UntilHealthyAsync(CreateEndPoint());   // runs the schema step
 
         var indexes = await ScalarAsync<string>($"SELECT string_agg(indexname, ',' ORDER BY indexname) FROM pg_indexes WHERE tablename = '{_tableName}'");
         Assert.Contains($"ix_{_tableName}_active", indexes);
@@ -474,7 +474,7 @@ public sealed class PostgresEndPointTests : IAsyncLifetime
     {
         RequirePostgres();
         var ep = CreateEndPoint();
-        Assert.True(ep.HealthCheck().IsHealthy);   // creates the table
+        await TestWait.UntilHealthyAsync(ep);   // creates the table
         await ExecuteAsync($"ALTER TABLE {_tableName} ADD CONSTRAINT no_boom CHECK (payload <> 'boom'::bytea)");
 
         await Assert.ThrowsAnyAsync<Exception>(() => ep.PostBatchAsync(
