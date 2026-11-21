@@ -6,12 +6,12 @@ using NymBroker.Core.Endpoint.Queue;
 namespace NymBroker.Tests;
 
 /// <summary>
-/// The <see cref="IQueueReplayer"/> contract, run against each SQL queue endpoint. A subclass supplies the endpoint, two
+/// The <see cref="IQueueReplayer"/> and <see cref="IQueueFailedRemover"/> contract, run against each SQL queue endpoint. A subclass supplies the endpoint, two
 /// statements that act on the table directly (as retention or another process would), skips when the database is not
 /// available, and drops its table.
 /// </summary>
-public abstract class QueueReplayContractTests<TEndPoint> : IAsyncLifetime
-    where TEndPoint : IEndPointEventDriven, IQueueInspector, IQueueReplayer, IAsyncDisposable
+public abstract class FailedMessageContractTests<TEndPoint> : IAsyncLifetime
+    where TEndPoint : IEndPointEventDriven, IQueueInspector, IQueueReplayer, IQueueFailedRemover, IAsyncDisposable
 {
     protected static CancellationToken Ct => TestContext.Current.CancellationToken;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
@@ -187,6 +187,98 @@ public abstract class QueueReplayContractTests<TEndPoint> : IAsyncLifetime
         await Assert.ThrowsAsync<ArgumentException>(() => ep.ReplayFailedAsync([failed with { State = QueueInspectionState.Pending }], Ct));
         await Assert.ThrowsAsync<ArgumentException>(() => ep.ReplayFailedAsync([failed with { FailedAt = null }], Ct));
         await Assert.ThrowsAsync<ArgumentException>(() => ep.ReplayFailedAsync([failed with { Id = "not-a-guid" }], Ct));
+    }
+
+    // --- Removing ---
+
+    [Fact]
+    public async Task Remove_DeletesOnlyTheSelectedFailedRows()
+    {
+        RequireDatabase();
+        var ep = EndPoint();
+        var failed = await FailAsync(ep, "a", "b", "c");
+        await ep.PostAsync("pending"u8.ToArray(), Ct);
+        var selected = failed.Where(m => Text(m) != "b").ToList();
+
+        var result = await ep.RemoveFailedAsync(selected, Ct);
+
+        Assert.Equal(selected.Select(m => m.Id), result.Removed);
+        Assert.Empty(result.Skipped);
+        Assert.Equal(["b"], (await ep.GetMessagesAsync(QueueInspectionState.Failed, ct: Ct)).Messages.Select(Text));
+        var counts = await ep.GetCountsAsync(Ct);
+        Assert.Equal((1L, 1L), (counts.Pending, counts.Failed));
+    }
+
+    [Fact]
+    public async Task Remove_SkipsAReplayedMessage_AndAStaleFailureTime()
+    {
+        RequireDatabase();
+        var ep = EndPoint();
+        var failed = await FailAsync(ep, "a", "b", "c");
+        await ep.ReplayFailedAsync([failed[0]], Ct);   // a is pending now
+        var unknown = failed[1] with { Id = Guid.NewGuid().ToString() };
+
+        var result = await ep.RemoveFailedAsync([failed[0], unknown, failed[1]], Ct);
+
+        Assert.Equal([failed[1].Id], result.Removed);
+        Assert.Equal([failed[0].Id, unknown.Id], result.Skipped);
+        Assert.Equal([failed[0].Id], (await ep.GetMessagesAsync(QueueInspectionState.Pending, ct: Ct)).Messages.Select(m => m.Id));
+
+        await SetFailedAtAsync(failed[2].FailedAt!.Value.AddHours(1));   // c failed again after it was listed
+        var stale = await ep.RemoveFailedAsync([failed[2]], Ct);
+        Assert.Empty(stale.Removed);
+        Assert.Equal(1, (await ep.GetCountsAsync(Ct)).Failed);
+    }
+
+    [Fact]
+    public async Task RemoveRacingReplay_ActsOnEachRowOnce()
+    {
+        RequireDatabase();
+        var ep = EndPoint();
+        var failed = await FailAsync(ep, [.. Enumerable.Range(0, 20).Select(i => $"m{i}")]);
+        var other = EndPoint();
+
+        var remove = Task.Run(() => ep.RemoveFailedAsync(failed, Ct), Ct);
+        var replay = Task.Run(() => other.ReplayFailedAsync(failed, Ct), Ct);
+        await Task.WhenAll(remove, replay);
+        var (removed, replayed) = (await remove, await replay);
+
+        Assert.Equal(failed.Select(m => m.Id).Order(), removed.Removed.Concat(replayed.Replayed).Order());
+        Assert.Equal(replayed.Replayed.Order(), removed.Skipped.Order());
+        var counts = await ep.GetCountsAsync(Ct);
+        Assert.Equal((replayed.Replayed.Count, 0L), (counts.Pending, counts.Failed));
+    }
+
+    [Fact]
+    public async Task RemoveRacingRetention_LeavesNoFailedRow()
+    {
+        RequireDatabase();
+        var ep = EndPoint();
+        var failed = await FailAsync(ep, [.. Enumerable.Range(0, 20).Select(i => $"m{i}")]);
+
+        var remove = Task.Run(() => ep.RemoveFailedAsync(failed, Ct), Ct);
+        await Task.WhenAll(remove, Task.Run(DeleteFailedRowsAsync, Ct));
+        var result = await remove;
+
+        Assert.Equal(failed.Select(m => m.Id).Order(), result.Removed.Concat(result.Skipped).Order());
+        Assert.Equal(new QueueCounts(0, 0, 0, 0, 0), await ep.GetCountsAsync(Ct));
+    }
+
+    [Fact]
+    public async Task InvalidRemoveSelections_Throw()
+    {
+        RequireDatabase();
+        var ep = EndPoint();
+        var failed = new QueueMessageInfo(Guid.NewGuid().ToString(), QueueInspectionState.Failed, 1, DateTimeOffset.UtcNow,
+            null, DateTimeOffset.UtcNow, "e", ReadOnlyMemory<byte>.Empty);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => ep.RemoveFailedAsync(null!, Ct));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => ep.RemoveFailedAsync([], Ct));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            ep.RemoveFailedAsync([.. Enumerable.Repeat(failed, IQueueInspector.MaxPageSize + 1)], Ct));
+        await Assert.ThrowsAsync<ArgumentException>(() => ep.RemoveFailedAsync([failed with { State = QueueInspectionState.Deferred }], Ct));
+        await Assert.ThrowsAsync<ArgumentException>(() => ep.RemoveFailedAsync([failed with { FailedAt = null }], Ct));
+        await Assert.ThrowsAsync<ArgumentException>(() => ep.RemoveFailedAsync([failed with { Id = "not-a-guid" }], Ct));
     }
 
     /// <summary>

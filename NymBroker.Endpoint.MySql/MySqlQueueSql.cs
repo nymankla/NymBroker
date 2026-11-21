@@ -147,13 +147,13 @@ internal static class MySqlQueueSql
     }
 
     /// <summary>
-    /// Starts the replay transaction and locks the selected rows that are still Failed with the listed failure time.
+    /// Starts a replay or removal transaction and locks the selected rows that are still Failed with the listed failure time.
     /// <c>@items</c> is a JSON array of <c>{"id", "at"}</c>: the message id as the hex of its <c>BINARY(16)</c> and the
     /// failure time. The rows are found through the <c>status = 3</c> range of the claim index; READ COMMITTED takes no gap
     /// locks, and the locking read sees the latest committed row, so a concurrent replay or retention delete is waited for
-    /// and the row is then skipped. Followed by <see cref="ReplayLocked"/>, or by a plain COMMIT when nothing matched.
+    /// and the row is then skipped. Followed by <see cref="ReplayLocked"/> or <see cref="RemoveLocked"/>, or by a plain COMMIT when nothing matched.
     /// </summary>
-    internal static string LockFailedForReplay(string table) => $"""
+    internal static string LockFailed(string table) => $"""
         SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
         START TRANSACTION;
         SELECT target.queue_id, target.message_id
@@ -168,12 +168,19 @@ internal static class MySqlQueueSql
         """;
 
     /// <summary>
-    /// Moves the rows locked by <see cref="LockFailedForReplay"/> back to Pending with a fresh attempt count and commits.
+    /// Moves the rows locked by <see cref="LockFailed"/> back to Pending with a fresh attempt count and commits.
     /// The ids are inlined (BIGINTs read from the table). <c>last_error</c> is kept until the next claim clears it.
     /// </summary>
     internal static string ReplayLocked(string table, IReadOnlyList<long> queueIds) => $"""
         UPDATE {table}
            SET status = {Pending}, attempt_count = 0, failed_at_utc = NULL, locked_until_utc = NULL
+         WHERE queue_id IN ({string.Join(",", queueIds)}) AND status = {Failed};
+        COMMIT;
+        """;
+
+    /// <summary>Deletes the rows locked by <see cref="LockFailed"/> and commits. The ids are inlined (BIGINTs read from the table).</summary>
+    internal static string RemoveLocked(string table, IReadOnlyList<long> queueIds) => $"""
+        DELETE FROM {table}
          WHERE queue_id IN ({string.Join(",", queueIds)}) AND status = {Failed};
         COMMIT;
         """;

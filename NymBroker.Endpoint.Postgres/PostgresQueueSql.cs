@@ -206,6 +206,19 @@ internal static class PostgresQueueSql
             """;
     }
 
+    /// <summary>
+    /// Deletes the selected rows that are still Failed with the listed failure time and returns their message ids; same
+    /// selection, guard and locking as <see cref="ReplayFailed"/>.
+    /// </summary>
+    internal static string RemoveFailed(string tableName) => $"""
+        DELETE FROM {QuoteQualifiedIdentifier(tableName)} AS target
+        USING unnest(@ids, @failedAts) AS source(message_id, failed_at)
+        WHERE target.message_id = source.message_id
+          AND target.status = {Failed}
+          AND target.failed_at_utc = source.failed_at
+        RETURNING target.message_id
+        """;
+
     internal static string InsertMessage(string tableName, bool notifyListeners)
     {
         var table = QuoteQualifiedIdentifier(tableName);

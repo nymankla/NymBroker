@@ -18,7 +18,7 @@ namespace NymBroker.Endpoint.Postgres;
 /// <c>NOTIFY</c> (if <see cref="PostgresSettings.UseNotifications"/>) or <see cref="PostgresSettings.PollInterval"/>.
 /// </para>
 /// </summary>
-public sealed partial class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, IQueueInspector, IQueueReplayer, IAsyncDisposable
+public sealed partial class PostgresEndPoint : IEndPointEventDriven, IDeferredEndPoint, IQueueInspector, IQueueReplayer, IQueueFailedRemover, IAsyncDisposable
 {
     private readonly PostgresSettings _settings;
     private readonly ILogger<PostgresEndPoint> _logger;

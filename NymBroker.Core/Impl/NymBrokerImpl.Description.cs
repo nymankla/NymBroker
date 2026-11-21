@@ -35,6 +35,7 @@ internal sealed partial class NymBrokerImpl
         CanDefer = endpoint is IDeferredEndPoint,
         Inspectable = endpoint is Endpoint.Queue.IQueueInspector,
         Replayable = endpoint is Endpoint.Queue.IQueueReplayer,
+        FailedRemovable = endpoint is Endpoint.Queue.IQueueFailedRemover,
         IsCritical = _healthCheckOptions.IsCritical(name),
         HasInputTransformer = _endpointTransformers.ContainsKey(name),
         HasOutputTransformer = _outputTransformers.ContainsKey(name)

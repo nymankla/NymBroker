@@ -33,7 +33,7 @@ internal sealed class AuditedQueueReplayer(string endpointName, IQueueReplayer i
     }
 }
 
-/// <summary>Argument checks for <see cref="IQueueReplayer.ReplayFailedAsync"/>, shared by the broker and its tests.</summary>
+/// <summary>Argument checks for <see cref="IQueueReplayer.ReplayFailedAsync"/> and <see cref="IQueueFailedRemover.RemoveFailedAsync"/>.</summary>
 internal static class QueueReplay
 {
     internal static void Validate(IReadOnlyCollection<QueueMessageInfo> messages)
@@ -43,7 +43,7 @@ internal static class QueueReplay
         foreach (var message in messages)
         {
             if (message is not { State: QueueInspectionState.Failed, FailedAt: not null })
-                throw new ArgumentException($"Message '{message?.Id}' is not a failed message with a failure time; only failed messages can be replayed.", nameof(messages));
+                throw new ArgumentException($"Message '{message?.Id}' is not a failed message with a failure time; only failed messages can be replayed or removed.", nameof(messages));
         }
     }
 }

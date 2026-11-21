@@ -17,7 +17,7 @@ namespace NymBroker.Endpoint.MySql;
 /// batch + lock the next ids, then claim + read + commit. Polls on a timer when idle.
 /// </para>
 /// </summary>
-public sealed partial class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAsyncDisposable, IQueueInspector, IQueueReplayer
+public sealed partial class MySqlEndPoint : IEndPointEventDriven, IDeferredEndPoint, IAsyncDisposable, IQueueInspector, IQueueReplayer, IQueueFailedRemover
 {
     private static readonly JsonSerializerOptions FinalizeJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 

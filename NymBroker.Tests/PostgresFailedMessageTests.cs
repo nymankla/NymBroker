@@ -4,8 +4,8 @@ using NymBroker.Endpoint.Postgres;
 
 namespace NymBroker.Tests;
 
-/// <summary>The replay contract on PostgreSQL; skipped unless <c>NYMBROKER_POSTGRES_CS</c> is set.</summary>
-public sealed class PostgresQueueReplayTests : QueueReplayContractTests<PostgresEndPoint>
+/// <summary>The failed-message contract (replay and removal) on PostgreSQL; skipped unless <c>NYMBROKER_POSTGRES_CS</c> is set.</summary>
+public sealed class PostgresFailedMessageTests : FailedMessageContractTests<PostgresEndPoint>
 {
     private const string ConnectionStringVariable = "NYMBROKER_POSTGRES_CS";
     private static readonly string? ConnectionString = Environment.GetEnvironmentVariable(ConnectionStringVariable);

@@ -19,4 +19,4 @@
 
 Integration tests: `SqlServerEndPointTests` and `SqlServerQueueInspectorTests` (`NYMBROKER_SQLSERVER_CS`, `./scripts/setup-sqlserver.ps1`). Production TLS / `TrustServerCertificate`: [docs/security.md](../docs/security.md).
 
-**Replay** (`SqlServerEndPoint.Replay.cs`, `IQueueReplayer`): one `UPDATE … OUTPUT inserted.message_id FROM OPENJSON(@items) INNER LOOP JOIN <table> WITH (FORCESEEK)` on `failed_at_utc` + `message_id`, `WHERE status = 3`: the seek goes through the filtered failed index (`message_id` has no index). Tests: `SqlServerQueueReplayTests`.
+**Replay** (`SqlServerEndPoint.Replay.cs`, `IQueueReplayer`): one `UPDATE … OUTPUT inserted.message_id FROM OPENJSON(@items) INNER LOOP JOIN <table> WITH (FORCESEEK)` on `failed_at_utc` + `message_id`, `WHERE status = 3`: the seek goes through the filtered failed index (`message_id` has no index). `IQueueFailedRemover`: the same join as `DELETE target OUTPUT deleted.message_id` (`ChangeFailedAsync` runs both). Tests: `SqlServerFailedMessageTests`.

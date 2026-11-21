@@ -34,6 +34,11 @@ public static class NymBrokerDiagnostics
         Meter.CreateCounter<long>("nymbroker.messages.replayed", "{message}",
             "Failed queue messages replayed by an operator.");
 
+    /// <summary>Failed queue messages deleted through <see cref="INymBroker.GetQueueFailedRemover"/>; tag <c>endpoint</c>.</summary>
+    internal static readonly Counter<long> MessagesRemoved =
+        Meter.CreateCounter<long>("nymbroker.messages.removed", "{message}",
+            "Failed queue messages removed by an operator.");
+
     internal static readonly Histogram<double> ProcessingDuration =
         Meter.CreateHistogram<double>("nymbroker.message.processing.duration", "ms");
 

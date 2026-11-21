@@ -236,6 +236,12 @@ internal static partial class SqliteQueueSql
          WHERE Status = {Failed} AND FailedAtUtc = $failedAt AND MessageId IN ($id, $legacyId)
         """;
 
+    /// <summary>Deletes one selected row if it is still Failed with the listed failure time; same guard as <see cref="ReplayFailed"/>.</summary>
+    internal static string RemoveFailed(string tableName) => $"""
+        DELETE FROM {Quote(tableName)}
+         WHERE Status = {Failed} AND FailedAtUtc = $failedAt AND MessageId IN ($id, $legacyId)
+        """;
+
     // Finalize updates. The guard (still InProgress with the attempt we claimed) stops a poller whose lease expired
     // from overwriting a row another poller has claimed since.
 

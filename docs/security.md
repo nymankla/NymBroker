@@ -250,14 +250,14 @@ What it does not cover:
 
 Details: [Dashboard → Security](dashboard.md#security).
 
-## Replaying failed messages
+## Replaying and removing failed messages
 
-`INymBroker.GetQueueReplayer` moves failed SQL queue messages back to pending ([reliability](reliability.md#inspecting-and-replaying)). That runs consumers' side effects again, so treat it as an operator action:
+`INymBroker.GetQueueReplayer` moves failed SQL queue messages back to pending, and `GetQueueFailedRemover` deletes them ([reliability](reliability.md#inspecting-and-replaying)). Replay runs consumers' side effects again and removal discards a message for good, so treat both as operator actions:
 
-- Expose it only behind your admin authorization (for example the same policy as the dashboard), never to the producers or consumers of the queue.
-- Keep inspecting and replaying apart: `IQueueInspector` is read-only, `IQueueReplayer` is a separate interface, so a support tool can show failed messages without being able to replay them.
-- Every replay is logged at `Warning` with the endpoint and message ids. Add the operator to the log with a logging scope (`using (logger.BeginScope(new Dictionary<string, object> { ["Operator"] = user }))`) and keep those logs as your audit trail.
-- The database account needs `UPDATE` on the queue table, which a listener already has.
+- Expose them only behind your admin authorization (for example the same policy as the dashboard), never to the producers or consumers of the queue.
+- Grant them separately: `IQueueInspector` is read-only, and `IQueueReplayer` and `IQueueFailedRemover` are separate interfaces, so a support tool can show failed messages without being able to replay or delete them, or replay without deleting.
+- Every call is logged at `Warning` with the endpoint and message ids. Add the operator to the log with a logging scope (`using (logger.BeginScope(new Dictionary<string, object> { ["Operator"] = user }))`) and keep those logs as your audit trail.
+- The database account needs `UPDATE` and `DELETE` on the queue table, which a listener already has.
 
 ## Untrusted producers
 

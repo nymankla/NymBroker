@@ -87,6 +87,15 @@ public interface INymBroker
     Endpoint.Queue.IQueueReplayer? GetQueueReplayer(string endpointName) => null;
 
     /// <summary>
+    /// An <see cref="Endpoint.Queue.IQueueFailedRemover"/> for a named endpoint, or null when the endpoint's transport does
+    /// not offer one (the SQLite, PostgreSQL, SQL Server and MySQL queue endpoints do). Every removal through it is logged at
+    /// Warning and counted in <c>nymbroker.messages.removed</c>. Removal deletes messages for good: expose it only to
+    /// operators allowed to discard failures.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">There is no endpoint with that name.</exception>
+    Endpoint.Queue.IQueueFailedRemover? GetQueueFailedRemover(string endpointName) => null;
+
+    /// <summary>
     /// A read-only snapshot of the broker's configuration: endpoints and their capabilities, routes, topics, consumers,
     /// scheduled actions (with their next run) and broker-wide features. Cheap and without I/O, so a dashboard can call
     /// it on every request. The default implementation, for custom <see cref="INymBroker"/> implementations, throws

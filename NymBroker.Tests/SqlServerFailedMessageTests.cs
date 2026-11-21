@@ -4,9 +4,9 @@ using NymBroker.Endpoint.SqlServer;
 
 namespace NymBroker.Tests;
 
-/// <summary>The replay contract on SQL Server; skipped unless <c>NYMBROKER_SQLSERVER_CS</c> is set.</summary>
+/// <summary>The failed-message contract (replay and removal) on SQL Server; skipped unless <c>NYMBROKER_SQLSERVER_CS</c> is set.</summary>
 [Collection("SQL Server integration")]
-public sealed class SqlServerQueueReplayTests : QueueReplayContractTests<SqlServerEndPoint>
+public sealed class SqlServerFailedMessageTests : FailedMessageContractTests<SqlServerEndPoint>
 {
     private const string ConnectionStringVariable = "NYMBROKER_SQLSERVER_CS";
     private static readonly string? ConnectionString = Environment.GetEnvironmentVariable(ConnectionStringVariable);

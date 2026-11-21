@@ -46,6 +46,9 @@ public sealed record EndpointDescription
     /// <summary>It offers an <see cref="Endpoint.Queue.IQueueReplayer"/> (<see cref="INymBroker.GetQueueReplayer"/> returns one).</summary>
     public bool Replayable { get; init; }
 
+    /// <summary>It offers an <see cref="Endpoint.Queue.IQueueFailedRemover"/> (<see cref="INymBroker.GetQueueFailedRemover"/> returns one).</summary>
+    public bool FailedRemovable { get; init; }
+
     /// <summary>Health checks count it as critical (see <see cref="Endpoint.HealthCheck.BrokerHealthCheckOptions.NonCritical"/>).</summary>
     public required bool IsCritical { get; init; }
 

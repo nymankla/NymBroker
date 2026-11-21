@@ -157,7 +157,7 @@ What a replay does:
 - **A message is replayed only if it is still failed with the listed `FailedAt`.** Otherwise it is reported in `Skipped`: another operator replayed it already, it failed again since, or retention deleted it. The failure time works as a version number, so replaying a stale list never replays a message twice. SQLite stores failure times in whole seconds, so on SQLite a message that failed again within the same second still matches.
 - **One call is atomic**: if it throws (database unreachable, timeout), nothing was replayed, and calling again with the same list is safe.
 - **It runs side effects again.** A replayed message is handled like a new delivery: whatever the consumer did before it failed (a row written, an e-mail sent, an API called) happens again unless the consumer is idempotent. Replay only failures whose cause is fixed — usually `ConsumerFailed`, `ConsumerTimedOut` or `TopicDeliveryFailed`; `PayloadUnprotectFailed` once the missing key is in the key ring. `DeserializationFailed`, `Expired` and `PayloadNotProtected` fail again.
-- **It is audited.** Each call is logged at `Warning` with the endpoint and the replayed and skipped ids, and counted in `nymbroker.messages.replayed`. Who may call it is up to the application: put it behind the same authorization as other operator actions ([security](security.md#replaying-failed-messages)). Add the operator's name with a logging scope if the log should show who replayed.
+- **It is audited.** Each call is logged at `Warning` with the endpoint and the replayed and skipped ids, and counted in `nymbroker.messages.replayed`. Who may call it is up to the application: put it behind the same authorization as other operator actions ([security](security.md#replaying-and-removing-failed-messages)). Add the operator's name with a logging scope if the log should show who replayed.
 
 The replayer is also available on the endpoint itself (`SqliteEndPoint`, `PostgresEndPoint`, `SqlServerEndPoint` and `MySqlEndPoint` implement `IQueueReplayer`), but only the one from `GetQueueReplayer` logs and counts. For a one-off fix the SQL still works; it has none of these guards:
 
@@ -167,6 +167,16 @@ UPDATE orders_queue
 SET status = 0, attempt_count = 0, failed_at_utc = NULL
 WHERE status = 3 AND last_error LIKE 'ConsumerFailed%';
 ```
+
+**Removing failed messages.** A failure that needs nothing more (reviewed, handled by hand, or a test message) can be deleted with `INymBroker.GetQueueFailedRemover`, the counterpart of the replayer, instead of waiting for `FailedRetention`:
+
+```csharp
+var remover = broker.GetQueueFailedRemover("Orders")!;   // null for transports without it
+QueueRemoveResult result = await remover.RemoveFailedAsync(reviewed);
+// result.Removed: deleted; result.Skipped: no longer failed as listed
+```
+
+It follows the replayer's rules: only the messages you pass (up to 1 000 per call, no "remove all"), only while each is still failed with the listed `FailedAt` (a message replayed, failed again or already deleted by retention is skipped), one atomic call, logged at `Warning` with the ids and counted in `nymbroker.messages.removed`. It never touches pending, in-progress or deferred messages. **A removed message is gone**: keep a copy of the payload (`QueueMessageInfo.Payload`) first if you might need it. The endpoints implement `IQueueFailedRemover` too; only the one from `GetQueueFailedRemover` logs and counts.
 
 **RabbitMQ** — dead-lettered messages are in whatever queue is bound to the queue's dead-letter exchange; RabbitMQ records the reason `rejected` in the `x-death` header (the broker's reason is logged).
 

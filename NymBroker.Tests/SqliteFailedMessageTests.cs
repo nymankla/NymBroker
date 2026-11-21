@@ -10,8 +10,8 @@ using NymBroker.Endpoint.Sqlite;
 
 namespace NymBroker.Tests;
 
-/// <summary>The replay contract on SQLite (always runs, on a temporary database file), plus replay through the broker.</summary>
-public sealed class SqliteQueueReplayTests : QueueReplayContractTests<SqliteEndPoint>
+/// <summary>The failed-message contract (replay and removal) on SQLite (always runs, on a temporary database file), plus replay through the broker.</summary>
+public sealed class SqliteFailedMessageTests : FailedMessageContractTests<SqliteEndPoint>
 {
     private readonly SqliteTestDb.TempFile _db = new();
     private const string Table = "Replayed";
@@ -35,7 +35,7 @@ public sealed class SqliteQueueReplayTests : QueueReplayContractTests<SqliteEndP
     }
 
     [Fact]
-    public async Task Broker_ReturnsAnAuditedReplayer_ForSqlite_AndNullForOtherTransports()
+    public async Task Broker_ReturnsAnAuditedReplayerAndRemover_ForSqlite_AndNullForOtherTransports()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -49,9 +49,14 @@ public sealed class SqliteQueueReplayTests : QueueReplayContractTests<SqliteEndP
         Assert.IsType<AuditedQueueReplayer>(broker.GetQueueReplayer("sql"));
         Assert.Null(broker.GetQueueReplayer("mem"));
         Assert.Throws<InvalidOperationException>(() => broker.GetQueueReplayer("nope"));
+        Assert.IsType<AuditedQueueFailedRemover>(broker.GetQueueFailedRemover("sql"));
+        Assert.Null(broker.GetQueueFailedRemover("mem"));
+        Assert.Throws<InvalidOperationException>(() => broker.GetQueueFailedRemover("nope"));
         var endpoints = broker.Describe().Endpoints.ToDictionary(e => e.Name);
         Assert.True(endpoints["sql"].Replayable);
         Assert.False(endpoints["mem"].Replayable);
+        Assert.True(endpoints["sql"].FailedRemovable);
+        Assert.False(endpoints["mem"].FailedRemovable);
     }
 
     [Fact]

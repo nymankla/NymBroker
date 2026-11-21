@@ -4,8 +4,8 @@ using NymBroker.Endpoint.MySql;
 
 namespace NymBroker.Tests;
 
-/// <summary>The replay contract on MySQL; skipped unless <c>NYMBROKER_MYSQL_CS</c> is set.</summary>
-public sealed class MySqlQueueReplayTests : QueueReplayContractTests<MySqlEndPoint>
+/// <summary>The failed-message contract (replay and removal) on MySQL; skipped unless <c>NYMBROKER_MYSQL_CS</c> is set.</summary>
+public sealed class MySqlFailedMessageTests : FailedMessageContractTests<MySqlEndPoint>
 {
     private const string ConnectionStringVariable = "NYMBROKER_MYSQL_CS";
     private static readonly string? ConnectionString = Environment.GetEnvironmentVariable(ConnectionStringVariable);

@@ -73,6 +73,8 @@ QueueReplayResult result = await replayer.ReplayFailedAsync(selected);   // resu
 
 It replays only the messages passed (up to 1 000 per call), resets the attempt count, keeps the envelope id and the queue position (replayed messages go before newer ones), and skips a message that is no longer failed with the listed `FailedAt` (replayed already, failed again, or deleted by retention). One call is atomic; each is logged at Warning and counted in `nymbroker.messages.replayed`. Gate it behind the app's admin authorization: it runs consumer side effects again. Page through all failed messages with the cursor for a bulk replay. Docs: https://github.com/nymankla/NymBroker/blob/master/docs/reliability.md#inspecting-and-replaying
 
+To delete reviewed failures instead of waiting for `FailedRetention` (newer than 0.28.0): `broker.GetQueueFailedRemover("Orders")!.RemoveFailedAsync(selected)` returns `QueueRemoveResult` (`Removed` / `Skipped` ids), with the same rules (listed failed messages only, skipped if no longer failed with that `FailedAt`, atomic, logged and counted in `nymbroker.messages.removed`). A removed message is gone — keep the payload first if it may be needed. Don't write your own `DELETE`.
+
 `last_error` starts with the reason for dead-lettered rows (`"{Reason}: {Description}"`); for retry exhaustion it holds the last exception. A listener deletes old rows by itself: `FailedRetention` (default 90 days) and `CompletedRetention` (default 30 days) on the endpoint's settings, `TimeSpan.Zero` keeps them forever. Replay failed rows within that time, and don't write your own cleanup `DELETE`.
 
 ### Azure Service Bus

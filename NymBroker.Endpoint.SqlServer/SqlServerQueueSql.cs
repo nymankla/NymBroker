@@ -270,6 +270,23 @@ internal static class SqlServerQueueSql
         WHERE target.status = {Failed};
         """;
 
+    /// <summary>
+    /// Deletes the selected rows that are still Failed with the listed failure time and returns their message ids; same
+    /// selection, guard and seek as <see cref="ReplayFailed"/>.
+    /// </summary>
+    internal static string RemoveFailed(string tableName) => $"""
+        SET NOCOUNT ON;
+        DELETE target
+        OUTPUT deleted.message_id
+        FROM OPENJSON(@items) WITH (
+                id UNIQUEIDENTIFIER '$.id',
+                at DATETIME2(7)     '$.at') AS source
+        INNER LOOP JOIN {QuoteQualifiedIdentifier(tableName)} AS target WITH (FORCESEEK)
+          ON target.failed_at_utc = source.at
+         AND target.message_id = source.id
+        WHERE target.status = {Failed};
+        """;
+
     /// <summary>One statement for all five counts.</summary>
     internal static string InspectCounts(string tableName)
     {

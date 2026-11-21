@@ -115,21 +115,24 @@ internal sealed partial class NymBrokerImpl
     }
 
     public Endpoint.Queue.IQueueInspector? GetQueueInspector(string endpointName)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(endpointName);
-        if (!_endpoints.TryGetValue(endpointName, out var endpoint))
-            throw new InvalidOperationException($"No endpoint registered with name '{endpointName}'.");
-        return endpoint as Endpoint.Queue.IQueueInspector;
-    }
+        => RegisteredEndpoint(endpointName) as Endpoint.Queue.IQueueInspector;
 
     public Endpoint.Queue.IQueueReplayer? GetQueueReplayer(string endpointName)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(endpointName);
-        if (!_endpoints.TryGetValue(endpointName, out var endpoint))
-            throw new InvalidOperationException($"No endpoint registered with name '{endpointName}'.");
-        return endpoint is Endpoint.Queue.IQueueReplayer replayer
+        => RegisteredEndpoint(endpointName) is Endpoint.Queue.IQueueReplayer replayer
             ? new Endpoint.Queue.AuditedQueueReplayer(endpointName, replayer, _logger)
             : null;
+
+    public Endpoint.Queue.IQueueFailedRemover? GetQueueFailedRemover(string endpointName)
+        => RegisteredEndpoint(endpointName) is Endpoint.Queue.IQueueFailedRemover remover
+            ? new Endpoint.Queue.AuditedQueueFailedRemover(endpointName, remover, _logger)
+            : null;
+
+    private IEndPoint RegisteredEndpoint(string endpointName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(endpointName);
+        return _endpoints.TryGetValue(endpointName, out var endpoint)
+            ? endpoint
+            : throw new InvalidOperationException($"No endpoint registered with name '{endpointName}'.");
     }
 
     // Values of the "reason" tag on nymbroker.health.endpoint.failures.

@@ -24,4 +24,4 @@ Lifecycle: `Pending (0)` → `InProgress (1)` → `Completed (2)` | `Failed (3)`
 
 Config type name: `"Sql"` (`WithSql()`).
 
-**Replay** (`SqliteEndPoint.Replay.cs`, `IQueueReplayer`): under `_dbLock`, one `BEGIN IMMEDIATE` transaction with one guarded `UPDATE` per selected row (`Status = 3 AND FailedAtUtc = $failedAt AND MessageId IN ($id, $legacyId)` through the failed index; `$legacyId` matches v1 text ids). `FailedAtUtc` is in seconds, so a row that failed again within the same second still matches. Tests: `SqliteQueueReplayTests` (the shared `QueueReplayContractTests<T>`).
+**Replay and removal** (`SqliteEndPoint.Replay.cs`, `IQueueReplayer`): under `_dbLock`, one `BEGIN IMMEDIATE` transaction with one guarded `UPDATE` per selected row (`Status = 3 AND FailedAtUtc = $failedAt AND MessageId IN ($id, $legacyId)` through the failed index; `$legacyId` matches v1 text ids). `FailedAtUtc` is in seconds, so a row that failed again within the same second still matches. `IQueueFailedRemover` uses the same loop with a guarded `DELETE` (`ChangeFailedAsync`). Tests: `SqliteFailedMessageTests` (the shared `FailedMessageContractTests<T>`).
