@@ -4,6 +4,8 @@ Notable changes to NymBroker are documented here. This changelog follows [Keep a
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-21
+
 ### Added
 
 - Removing failed SQL queue messages (#137), the counterpart of replay. `broker.GetQueueFailedRemover("Orders")` returns an `IQueueFailedRemover` for the SQLite, PostgreSQL, SQL Server and MySQL endpoints (`null` for other transports). `RemoveFailedAsync(messages)` deletes the failed messages passed (as listed by the inspector, up to 1 000 per call) while each is still failed with the listed `FailedAt`; the result lists `Removed` and `Skipped` ids. Same guarantees as replay: explicit selection only, atomic per call, never touches pending, in-progress or deferred messages, logged at `Warning` with the ids and counted in the new `nymbroker.messages.removed` counter. `EndpointDescription.FailedRemovable` tells which endpoints offer it. No schema change. See [docs/reliability.md](docs/reliability.md#inspecting-and-replaying).

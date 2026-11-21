@@ -47,3 +47,4 @@ NymBroker.Endpoint.MySql.MySqlEndPoint.GetMessagesAsync(NymBroker.Core.Endpoint.
 NymBroker.Endpoint.MySql.MySqlSettings.MaxConcurrentCalls.get -> int
 NymBroker.Endpoint.MySql.MySqlSettings.MaxConcurrentCalls.set -> void
 NymBroker.Endpoint.MySql.MySqlEndPoint.ReplayFailedAsync(System.Collections.Generic.IReadOnlyCollection<NymBroker.Core.Endpoint.Queue.QueueMessageInfo!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueueReplayResult!>!
+NymBroker.Endpoint.MySql.MySqlEndPoint.RemoveFailedAsync(System.Collections.Generic.IReadOnlyCollection<NymBroker.Core.Endpoint.Queue.QueueMessageInfo!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueueRemoveResult!>!

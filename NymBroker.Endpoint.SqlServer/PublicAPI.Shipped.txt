@@ -47,3 +47,4 @@ NymBroker.Endpoint.SqlServer.SqlServerEndPoint.GetMessagesAsync(NymBroker.Core.E
 NymBroker.Endpoint.SqlServer.SqlServerSettings.MaxConcurrentCalls.get -> int
 NymBroker.Endpoint.SqlServer.SqlServerSettings.MaxConcurrentCalls.set -> void
 NymBroker.Endpoint.SqlServer.SqlServerEndPoint.ReplayFailedAsync(System.Collections.Generic.IReadOnlyCollection<NymBroker.Core.Endpoint.Queue.QueueMessageInfo!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueueReplayResult!>!
+NymBroker.Endpoint.SqlServer.SqlServerEndPoint.RemoveFailedAsync(System.Collections.Generic.IReadOnlyCollection<NymBroker.Core.Endpoint.Queue.QueueMessageInfo!>! messages, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<NymBroker.Core.Endpoint.Queue.QueueRemoveResult!>!
